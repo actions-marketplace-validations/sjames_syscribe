@@ -310,16 +310,25 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                     ));
                 }
             }
-            // W402: shapes ref must resolve; sub-feature refs (parent resolves, child does not) are suppressed
+            // W402: shapes ref must resolve; refs where any ancestor resolves are suppressed
+            // (covers inline features at any depth, e.g. System::part::port::subport)
             let validate_shape_ref = |ref_str: &str, findings: &mut Vec<Finding>| {
                 if resolver.resolve_ref(elements, ref_str).is_some() {
                     return;
                 }
-                let is_sub_feature = ref_str
-                    .rfind("::")
-                    .map(|pos| resolver.resolve_ref(elements, &ref_str[..pos]).is_some())
-                    .unwrap_or(false);
-                if !is_sub_feature {
+                let has_resolvable_ancestor = {
+                    let mut seg = ref_str;
+                    let mut found = false;
+                    while let Some(pos) = seg.rfind("::") {
+                        seg = &seg[..pos];
+                        if resolver.resolve_ref(elements, seg).is_some() {
+                            found = true;
+                            break;
+                        }
+                    }
+                    found
+                };
+                if !has_resolvable_ancestor {
                     findings.push(warning(
                         "W402",
                         &file,
