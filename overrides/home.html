@@ -6,19 +6,19 @@
 {% block content %}
 <style>
   /* Landing page — scoped to .sml-home */
-  .sml-home { width: 100%; font-family: "Inter", sans-serif; color: #E6EDF3; }
+  .sml-home { width: 100%; font-family: "Inter", sans-serif; color: var(--sml-text); }
   .sml-mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 
   /* ── Hero ─────────────────────────────────────────────── */
   .sml-hero {
     position: relative;
     padding: 72px 40px 64px;
-    border-bottom: 1px solid #30363D;
+    border-bottom: 1px solid var(--sml-border);
     overflow: hidden;
   }
   .sml-hero__grid {
     position: absolute; inset: 0;
-    background-image: radial-gradient(#21262D 1px, transparent 1px);
+    background-image: radial-gradient(var(--sml-bg-2) 1px, transparent 1px);
     background-size: 24px 24px;
     -webkit-mask-image: linear-gradient(180deg, black 0%, black 65%, transparent 100%);
     mask-image: linear-gradient(180deg, black 0%, black 65%, transparent 100%);
@@ -26,7 +26,7 @@
   }
   .sml-hero__reg {
     position: absolute; width: 14px; height: 14px;
-    border-color: #30363D; border-style: solid;
+    border-color: var(--sml-border); border-style: solid;
   }
   .sml-hero__reg--tl { top: 24px; left: 24px; border-width: 1px 0 0 1px; }
   .sml-hero__reg--tr { top: 24px; right: 24px; border-width: 1px 1px 0 0; }
@@ -37,20 +37,20 @@
 
   .sml-hero__caption {
     display: flex; gap: 24px; margin-bottom: 56px;
-    color: #484F58; font-size: 11px; letter-spacing: 0.08em;
+    color: var(--sml-text-3); font-size: 11px; letter-spacing: 0.08em;
     font-family: "JetBrains Mono", ui-monospace, monospace;
   }
-  .sml-hero__caption .accent { color: #58A6FF; }
+  .sml-hero__caption .accent { color: var(--sml-accent); }
 
   .sml-hero__headline {
     font-size: clamp(48px, 6.4vw, 88px);
     line-height: 0.98; letter-spacing: -0.035em; font-weight: 500;
     margin-bottom: 28px;
   }
-  .sml-hero__headline .muted { color: #6E7680; }
+  .sml-hero__headline .muted { color: var(--sml-text-2); }
 
   .sml-hero__sub {
-    font-size: 18px; color: #8B949E; line-height: 1.55;
+    font-size: 18px; color: var(--sml-text-2); line-height: 1.55;
     max-width: 680px; margin-bottom: 44px;
   }
 
@@ -58,54 +58,54 @@
     display: flex; gap: 12px; align-items: center; margin-bottom: 72px; flex-wrap: wrap;
   }
   .sml-btn-primary {
-    background: #58A6FF; color: #0D1117; border: none;
+    background: var(--sml-accent); color: var(--sml-bg); border: none;
     padding: 13px 22px; border-radius: 4px; text-decoration: none;
     font-family: "Inter", sans-serif; font-size: 14px; font-weight: 600;
     letter-spacing: -0.005em; display: inline-flex; align-items: center; gap: 8px;
     transition: opacity 0.15s;
   }
-  .sml-btn-primary:hover { opacity: 0.88; color: #0D1117; }
+  .sml-btn-primary:hover { opacity: 0.85; color: var(--sml-bg); }
   .sml-btn-secondary {
-    background: transparent; color: #E6EDF3; border: 1px solid #30363D;
+    background: transparent; color: var(--sml-text); border: 1px solid var(--sml-border);
     padding: 13px 22px; border-radius: 4px; text-decoration: none;
     font-family: "Inter", sans-serif; font-size: 14px; font-weight: 500;
     display: inline-flex; align-items: center; gap: 8px; transition: border-color 0.15s;
   }
-  .sml-btn-secondary:hover { border-color: #6E7680; color: #E6EDF3; }
+  .sml-btn-secondary:hover { border-color: var(--sml-text-2); color: var(--sml-text); }
   .sml-hero__clone {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 12px; color: #484F58; margin-left: auto;
+    font-size: 12px; color: var(--sml-text-3); margin-left: auto;
   }
 
   /* ── Spec rows ────────────────────────────────────────── */
   .sml-spec-table {
-    border: 1px solid #30363D; border-radius: 4px; background: #0D1117;
+    border: 1px solid var(--sml-border); border-radius: 4px; background: var(--sml-bg-1);
   }
   .sml-spec-row {
     display: grid; grid-template-columns: 60px 260px 1fr;
     align-items: baseline; padding: 20px 24px;
-    border-bottom: 1px solid #30363D;
+    border-bottom: 1px solid var(--sml-border);
   }
   .sml-spec-row:last-child { border-bottom: none; }
   .sml-spec-row__code {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #484F58; letter-spacing: 0.06em;
+    font-size: 11px; color: var(--sml-text-3); letter-spacing: 0.06em;
   }
   .sml-spec-row__label {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #6E7680; letter-spacing: 0.08em;
+    font-size: 11px; color: var(--sml-text-2); letter-spacing: 0.08em;
   }
   .sml-spec-row__value {
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 18px; font-weight: 500; letter-spacing: -0.01em;
-    margin-bottom: 4px; color: #E6EDF3;
+    margin-bottom: 4px; color: var(--sml-text);
   }
-  .sml-spec-row__value--accent { color: #58A6FF; }
-  .sml-spec-row__sub { font-size: 13px; color: #8B949E; line-height: 1.5; }
+  .sml-spec-row__value--accent { color: var(--sml-accent); }
+  .sml-spec-row__sub { font-size: 13px; color: var(--sml-text-2); line-height: 1.5; }
 
   /* ── Two-column why ───────────────────────────────────── */
   .sml-why {
-    padding: 96px 40px; border-bottom: 1px solid #30363D;
+    padding: 96px 40px; border-bottom: 1px solid var(--sml-border);
   }
   .sml-why__inner {
     max-width: 1200px; margin: 0 auto;
@@ -116,142 +116,140 @@
   }
   .sml-section-tag {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #58A6FF; letter-spacing: 0.12em;
+    font-size: 11px; color: var(--sml-accent); letter-spacing: 0.12em;
   }
   .sml-section-h {
     font-size: clamp(28px, 2.8vw, 40px); font-weight: 500;
     line-height: 1.05; letter-spacing: -0.025em;
-    margin-top: 14px; margin-bottom: 22px; color: #E6EDF3;
+    margin-top: 14px; margin-bottom: 22px; color: var(--sml-text);
   }
   .sml-why__body {
-    color: #8B949E; font-size: 15px; line-height: 1.65; margin-bottom: 18px;
+    color: var(--sml-text-2); font-size: 15px; line-height: 1.65; margin-bottom: 18px;
   }
 
   .sml-metrics {
     margin-top: 36px;
     display: grid; grid-template-columns: 1fr 1fr;
-    border: 1px solid #30363D;
+    border: 1px solid var(--sml-border);
   }
   .sml-metric {
     padding: 16px 18px;
-    border-right: 1px solid #30363D;
-    border-bottom: 1px solid #30363D;
+    border-right: 1px solid var(--sml-border);
+    border-bottom: 1px solid var(--sml-border);
+    background: var(--sml-bg-1);
   }
   .sml-metric:nth-child(even)       { border-right: none; }
   .sml-metric:nth-last-child(-n+2)  { border-bottom: none; }
   .sml-metric__key {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10px; color: #484F58; letter-spacing: 0.08em; text-transform: uppercase;
+    font-size: 10px; color: var(--sml-text-3); letter-spacing: 0.08em; text-transform: uppercase;
   }
   .sml-metric__val {
-    font-size: 22px; font-weight: 500; margin-top: 6px; color: #E6EDF3;
+    font-size: 22px; font-weight: 500; margin-top: 6px; color: var(--sml-text);
   }
-  .sml-metric__val--accent { color: #58A6FF; }
+  .sml-metric__val--accent { color: var(--sml-accent); }
 
   /* ── Code block ───────────────────────────────────────── */
   .sml-code-block {
-    background: #0A0D12; border: 1px solid #30363D; border-radius: 6px; overflow: hidden;
+    background: var(--sml-bg); border: 1px solid var(--sml-border); border-radius: 6px; overflow: hidden;
   }
   .sml-code-block__header {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    border-bottom: 1px solid #30363D; background: #0D1117;
+    border-bottom: 1px solid var(--sml-border); background: var(--sml-bg-1);
   }
   .sml-code-block__filename {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11.5px; color: #8B949E;
+    font-size: 11.5px; color: var(--sml-text-2);
   }
   .sml-code-block__badge {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 10.5px; color: #6E7680;
-    border: 1px solid #30363D; padding: 1px 6px; border-radius: 3px;
+    font-size: 10.5px; color: var(--sml-text-3);
+    border: 1px solid var(--sml-border); padding: 1px 6px; border-radius: 3px;
     margin-left: auto;
   }
   .sml-code-block__pre {
     margin: 0; padding: 18px 0; overflow-x: auto;
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 12.5px; line-height: 1.75; color: #C9D1D9;
+    font-size: 12.5px; line-height: 1.75;
   }
   .sml-code-line {
     display: flex; padding: 0 14px;
   }
   .sml-code-line__num {
-    display: inline-block; width: 28px; color: #484F58;
+    display: inline-block; width: 28px; color: var(--sml-text-3);
     text-align: right; margin-right: 18px; user-select: none; flex-shrink: 0;
   }
   .sml-code-block__footer {
-    border-top: 1px solid #30363D; padding: 10px 14px;
-    display: flex; align-items: center; gap: 16px; background: #0D1117;
+    border-top: 1px solid var(--sml-border); padding: 10px 14px;
+    display: flex; align-items: center; gap: 16px; background: var(--sml-bg-1);
   }
   .sml-code-block__cmd {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #6E7680;
+    font-size: 11px; color: var(--sml-text-2);
   }
   .sml-code-block__result {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #58A6FF; margin-left: auto;
+    font-size: 11px; color: var(--sml-accent); margin-left: auto;
   }
 
   /* ── Comparison ───────────────────────────────────────── */
-  .sml-compare { padding: 96px 40px; border-bottom: 1px solid #30363D; }
+  .sml-compare { padding: 96px 40px; border-bottom: 1px solid var(--sml-border); }
   .sml-compare__inner { max-width: 1200px; margin: 0 auto; }
   .sml-compare__table {
-    border: 1px solid #30363D; background: #0D1117; margin-top: 36px;
+    border: 1px solid var(--sml-border); background: var(--sml-bg-1); margin-top: 36px;
   }
   .sml-compare__row {
     display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr;
-    border-bottom: 1px solid #30363D;
+    border-bottom: 1px solid var(--sml-border);
   }
   .sml-compare__row:last-child { border-bottom: none; }
   .sml-compare__cell {
     padding: 14px 18px; font-size: 13px;
-    border-left: 1px solid #30363D; color: #6E7680;
+    border-left: 1px solid var(--sml-border); color: var(--sml-text-2);
   }
-  .sml-compare__cell:first-child { border-left: none; color: #8B949E; font-size: 13.5px; }
+  .sml-compare__cell:first-child { border-left: none; color: var(--sml-text); font-size: 13.5px; }
   .sml-compare__cell--sml {
-    color: #E6EDF3; font-weight: 500;
+    color: var(--sml-text); font-weight: 500;
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 12.5px; background: rgba(14, 165, 233, 0.04);
+    font-size: 12.5px; background: var(--sml-accent-d);
   }
   .sml-compare__head {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; letter-spacing: 0.08em; color: #484F58; font-weight: 400;
+    font-size: 11px; letter-spacing: 0.08em; color: var(--sml-text-3); font-weight: 400;
     text-transform: uppercase;
   }
-  .sml-compare__head--sml { color: #58A6FF; }
+  .sml-compare__head--sml { color: var(--sml-accent); }
   .sml-compare__footnote {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #484F58; margin-top: 16px; display: block;
+    font-size: 11px; color: var(--sml-text-3); margin-top: 16px; display: block;
   }
 
   /* ── Features grid ────────────────────────────────────── */
-  .sml-features { padding: 96px 40px; border-bottom: 1px solid #30363D; }
+  .sml-features { padding: 96px 40px; border-bottom: 1px solid var(--sml-border); }
   .sml-features__inner { max-width: 1200px; margin: 0 auto; }
   .sml-features__grid {
     display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
-    border: 1px solid #30363D; margin-top: 36px;
+    border: 1px solid var(--sml-border); margin-top: 36px;
+    background: var(--sml-border);
   }
   @media (max-width: 900px) {
     .sml-features__grid { grid-template-columns: 1fr 1fr; }
   }
   .sml-feature {
     padding: 28px 24px;
-    border-right: 1px solid #30363D;
-    border-bottom: 1px solid #30363D;
-    background: #0D1117;
+    background: var(--sml-bg-1);
   }
-  .sml-feature:nth-child(3n) { border-right: none; }
-  .sml-feature:nth-last-child(-n+3) { border-bottom: none; }
   .sml-feature__icon {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px; color: #58A6FF; letter-spacing: 0.1em;
+    font-size: 11px; color: var(--sml-accent); letter-spacing: 0.1em;
     margin-bottom: 14px;
   }
   .sml-feature__title {
-    font-size: 15px; font-weight: 600; color: #E6EDF3;
+    font-size: 15px; font-weight: 600; color: var(--sml-text);
     margin-bottom: 8px; letter-spacing: -0.01em;
   }
   .sml-feature__body {
-    font-size: 13px; color: #6E7680; line-height: 1.6;
+    font-size: 13px; color: var(--sml-text-2); line-height: 1.6;
   }
 </style>
 
@@ -292,7 +290,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
         <a href="model-guide/" class="sml-btn-secondary">Start modeling</a>
-        <span class="sml-hero__clone sml-mono">git clone github.com/sjames/llm-arch-model</span>
+        <span class="sml-hero__clone sml-mono">git clone github.com/sjames/syscribe</span>
       </div>
 
       <div class="sml-spec-table">
@@ -341,7 +339,7 @@
           <span class="sml-spec-row__label">TOOLCHAIN</span>
           <div>
             <div class="sml-spec-row__value">Rust · cargo run · zero config</div>
-            <div class="sml-spec-row__sub">Parse, validate, and browse any model directory: <code style="background:#161B22;border:1px solid #30363D;padding:2px 6px;border-radius:3px;">cargo run --package syscribe-server -- model/</code></div>
+            <div class="sml-spec-row__sub">Parse, validate, and browse any model directory: <code style="font-size:11px;">cargo run --package syscribe-server -- model/</code></div>
           </div>
         </div>
       </div>
@@ -408,25 +406,25 @@
             ("title: FC fault detection ≤ 50 ms",          "str"),
             ("status: approved",                            "key"),
             ("reqDomain: software",                        "key"),
-            ("silLevel: 3",                                 "num"),
-            ("asilLevel: C",                                "num"),
+            ("silLevel: 3",                                 "str"),
+            ("asilLevel: C",                                "str"),
             ("derivedFrom:",                               "key"),
-            ("  - REQ-UAV-SAFE-000",                       "ref"),
-            ("breakdownAdr: Decisions::SafetyADR",         "ref"),
+            ("  - REQ-UAV-SAFE-000",                       "accent"),
+            ("breakdownAdr: Decisions::SafetyADR",         "accent"),
             ("---",                                         "punct"),
             ("",                                            ""),
             ("The flight controller **shall** detect any",  "body"),
             ("single sensor failure within 50 ms and",      "body"),
             ("transition to the fault state.",              "body"),
-          ] %}{% for (line, kind) in lines %}<span class="sml-code-line"><span class="sml-code-line__num">{{ loop.index }}</span><span style="color:{% if kind == 'accent' or kind == 'key' or kind == 'ref' %}#58A6FF{% elif kind == 'punct' %}#6E7680{% else %}#C9D1D9{% endif %}">{{ line if line else "&nbsp;" }}</span></span>
+          ] %}{% for (line, kind) in lines %}<span class="sml-code-line"><span class="sml-code-line__num">{{ loop.index }}</span><span style="color:{% if kind == 'accent' %}var(--sml-accent){% elif kind == 'key' or kind == 'str' %}var(--sml-text){% elif kind == 'punct' %}var(--sml-text-2){% else %}var(--sml-text-2){% endif %}">{{ line if line else "&nbsp;" }}</span></span>
 {% endfor %}</pre>
           <div class="sml-code-block__footer">
             <span class="sml-code-block__cmd">$ cargo run --package syscribe -- model</span>
             <span class="sml-code-block__result">✓ 0 errors · 0 warnings</span>
           </div>
         </div>
-        <p style="margin-top:18px; font-size:13px; color:#484F58; line-height:1.6;">
-          Stable <code style="background:#0D1117;border:1px solid #30363D;padding:1px 5px;border-radius:3px;font-size:11px;color:#8B949E;">REQ-*</code> IDs survive file renames. Derivation and domain
+        <p style="margin-top:18px; font-size:13px; color:var(--sml-text-3); line-height:1.6;">
+          Stable <code style="font-size:11px;">REQ-*</code> IDs survive file renames. Derivation and domain
           are enforced cross-model by the validation engine.
         </p>
       </div>
@@ -498,7 +496,7 @@
       <div class="sml-compare__table">
         <div class="sml-compare__row">
           <div class="sml-compare__cell sml-compare__head"></div>
-          <div class="sml-compare__cell sml-compare__head sml-compare__head--sml">SYSML-MD</div>
+          <div class="sml-compare__cell sml-compare__head sml-compare__head--sml">SYSCRIBE</div>
           <div class="sml-compare__cell sml-compare__head">CAPELLA</div>
           <div class="sml-compare__cell sml-compare__head">PAPYRUS</div>
           <div class="sml-compare__cell sml-compare__head">CAMEO</div>
@@ -523,7 +521,7 @@
       </div>
       <span class="sml-compare__footnote">
         Feature comparison based on public documentation, 2026-05.
-        Sysml-md is a semantic <em>subset</em> of SysMLv2 — not a full implementation.
+        Syscribe is a semantic <em>subset</em> of SysMLv2 — not a full implementation.
       </span>
     </div>
   </section>
