@@ -65,6 +65,14 @@ The BDD shows the five sub-system `PartDef` blocks that compose `UAVSystem`, wit
 
 ---
 
+## Avionics sub-system
+
+The avionics bay IBD shows three part usages — `FlightController`, `IMU`, and `GPSReceiver` — with ports and flow connections inside the `AvionicsBay` boundary.
+
+![Avionics Bay IBD](AvionicsBayIBD.svg)
+
+---
+
 ## Propulsion sub-system
 
 The propulsion namespace defines an abstract `PropulsionSystem` with two concrete rotor configurations (`QuadRotorConfig`, `HexRotorConfig`), each typed by `RotorAssembly`. A `RotorAssembly` owns exactly one `Motor`.
@@ -99,6 +107,18 @@ The sequence diagram below shows the full message flow for `MissionExecution` ac
 
 ![Mission Execution Sequence](MissionExecutionSeq.svg)
 
+### Flight State Machine
+
+`FlightStates` models the UAV's operational lifecycle. Red transitions lead to the `fault` state; the gray dashed arc is the recovery path back to `disarmed`.
+
+![Flight States Machine](FlightStatesMachineD.svg)
+
+### Mission Execution Sequence
+
+The sequence diagram below shows the full message flow for `MissionExecution` across the four participants.
+
+![Mission Execution Sequence](MissionExecutionSeq.svg)
+
 The diagram covers four combined fragments:
 
 - **`loop [altitude < targetAlt]`** — takeoff throttle ramp and altitude telemetry loop
@@ -114,11 +134,11 @@ The diagram covers four combined fragments:
 |---|---|---|
 | [UAVSystemBDD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/UAVSystemBDD.md) | BDD | `UAV::UAVSystem` — top-level block decomposition |
 | [PropulsionSystemBDD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/PropulsionSystemBDD.md) | BDD | `UAV::Propulsion` — Motor / RotorAssembly composition |
-| [AvionicsBayIBD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/AvionicsBayIBD.md) | IBD | `UAV::Avionics::AvionicsBay` — internal connections |
+| [AvionicsBayIBD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/AvionicsBayIBD.md) | IBD | `UAV::Avionics::AvionicsBay` — FC, IMU, GPS ports and flows |
 | [PowerSystemIBD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/PowerSystemIBD.md) | IBD | `UAV::Power::PowerSystem` — battery → PDU power flow |
 | [MissionExecutionSeq](https://github.com/sjames/syscribe/blob/main/model/Diagrams/MissionExecutionSeq.md) | Sequence | `Behavior::MissionExecution` — full mission message flow |
-| [FlightStatesMachineD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/FlightStatesMachineD.md) | StateMachine | `Behavior::FlightStates` — flight phase transitions |
-| [SafetyRequirementsD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/SafetyRequirementsD.md) | Custom | Safety requirement / allocation / verification trace |
+| [FlightStatesMachineD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/FlightStatesMachineD.md) | StateMachine | `Behavior::FlightStates` — flight phase state machine |
+| [SafetyRequirementsD](https://github.com/sjames/syscribe/blob/main/model/Diagrams/SafetyRequirementsD.md) | Requirement | Safety requirement / allocation / verification trace |
 | [RequirementTraceMermaid](https://github.com/sjames/syscribe/blob/main/model/Diagrams/RequirementTraceMermaid.md) | Mermaid | `Requirements` — full traceability graph |
 
 ---
@@ -145,6 +165,10 @@ The diagram covers four combined fragments:
 | REQ-UAV-SAFE-001 | Autonomous safe landing on battery-critical or link-loss event | software |
 
 Each leaf requirement carries `derivedFrom:` pointing to its parent and `breakdownAdr:` referencing the ADR that justified the decomposition — enforced by validation rule E310.
+
+### Safety requirements trace
+
+![Safety Requirements Diagram](SafetyRequirementsD.svg)
 
 ---
 

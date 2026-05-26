@@ -2,6 +2,8 @@
 type: Diagram
 name: SafetyRequirementsD
 diagramKind: Requirement
+svgMode: companion
+svgFile: ./SafetyRequirementsD.svg
 subject: Requirements::SafetyReqs
 shapes:
   s-safety-root:
@@ -93,6 +95,8 @@ layout:
     w: 160
     h: 46
 ---
+
+<img src="./SafetyRequirementsD.svg" alt="Safety Requirements Diagram" width="100%"/>
 
 Safety requirements traceability showing derivation from the abstract safety root,
 allocation to hardware elements, and verification by test cases.
