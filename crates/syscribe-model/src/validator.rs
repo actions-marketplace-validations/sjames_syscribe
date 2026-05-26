@@ -410,14 +410,139 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
             }
         }
 
-        // E402: svgFile must exist on disk
-        if let Some(ref svg_file) = fm.svg_file {
+        // E402: companion SVG file must exist on disk
+        if fm.svg_mode.as_deref() == Some("companion") {
+            let companion_path = if let Some(ref sf) = fm.svg_file {
+                // Explicit svgFile: honour it as-is
+                sf.clone()
+            } else {
+                // Default: replace .md extension with .svg
+                let p = std::path::Path::new(&file);
+                p.with_extension("svg")
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            if !std::path::Path::new(&companion_path).exists() {
+                findings.push(error(
+                    "E402",
+                    &file,
+                    &format!("companion SVG file '{}' does not exist on disk", companion_path),
+                ));
+            }
+        } else if let Some(ref svg_file) = fm.svg_file {
+            // svgFile set without svgMode: companion — still validate existence
             if !std::path::Path::new(svg_file).exists() {
                 findings.push(error(
                     "E402",
                     &file,
                     &format!("`svgFile` '{}' does not exist on disk", svg_file),
                 ));
+            }
+        }
+
+        // W405: body must be consistent with svgMode
+        if let Some(ref mode) = fm.svg_mode {
+            match mode.as_str() {
+                "companion" => {
+                    if !elem.doc.contains("<img") {
+                        findings.push(warning(
+                            "W405",
+                            &file,
+                            "`svgMode: companion` but body contains no `<img` tag pointing to the SVG file",
+                        ));
+                    }
+                }
+                "inline" => {
+                    if !elem.doc.contains("```svg") {
+                        findings.push(warning(
+                            "W405",
+                            &file,
+                            "`svgMode: inline` but body contains no fenced ```svg block",
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // W406/W407: SVG id consistency — frontmatter shape/edge ids vs inline SVG
+        // Only checked for inline mode (companion SVG is not loaded by the validator)
+        if fm.svg_mode.as_deref().unwrap_or("inline") == "inline" {
+            // Collect ids declared in shapes: and edges: frontmatter
+            let fm_ids: HashSet<String> = {
+                let mut ids = HashSet::new();
+                let collect_map_keys = |map: &serde_yaml::Mapping, ids: &mut HashSet<String>| {
+                    for k in map.keys() {
+                        if let Some(s) = k.as_str() {
+                            ids.insert(s.to_string());
+                        }
+                    }
+                };
+                let collect_seq_ids = |seq: &[serde_yaml::Value], ids: &mut HashSet<String>| {
+                    for v in seq {
+                        if let serde_yaml::Value::Mapping(m) = v {
+                            if let Some(serde_yaml::Value::String(id)) =
+                                m.get(&serde_yaml::Value::String("id".into()))
+                            {
+                                ids.insert(id.clone());
+                            }
+                        }
+                    }
+                };
+                if let Some(s) = &fm.shapes {
+                    match s {
+                        serde_yaml::Value::Mapping(m) => collect_map_keys(m, &mut ids),
+                        serde_yaml::Value::Sequence(seq) => collect_seq_ids(seq, &mut ids),
+                        _ => {}
+                    }
+                }
+                if let Some(e) = &fm.edges {
+                    match e {
+                        serde_yaml::Value::Mapping(m) => collect_map_keys(m, &mut ids),
+                        serde_yaml::Value::Sequence(seq) => collect_seq_ids(seq, &mut ids),
+                        _ => {}
+                    }
+                }
+                ids
+            };
+
+            if !fm_ids.is_empty() || elem.doc.contains("```svg") {
+                // Extract id="..." values from the inline SVG block
+                let svg_ids: HashSet<String> = {
+                    let mut ids = HashSet::new();
+                    let mut remaining = elem.doc.as_str();
+                    while let Some(pos) = remaining.find("id=\"") {
+                        remaining = &remaining[pos + 4..];
+                        if let Some(end) = remaining.find('"') {
+                            ids.insert(remaining[..end].to_string());
+                            remaining = &remaining[end + 1..];
+                        } else {
+                            break;
+                        }
+                    }
+                    ids
+                };
+
+                // W406: frontmatter id with no matching SVG element
+                for id in &fm_ids {
+                    if !svg_ids.contains(id.as_str()) {
+                        findings.push(warning(
+                            "W406",
+                            &file,
+                            &format!("frontmatter shape/edge id '{}' has no matching `id` attribute in the inline SVG", id),
+                        ));
+                    }
+                }
+                // W407: SVG element id with no matching frontmatter entry
+                for id in &svg_ids {
+                    if !fm_ids.contains(id.as_str()) {
+                        findings.push(warning(
+                            "W407",
+                            &file,
+                            &format!("SVG element id '{}' has no matching entry in frontmatter `shapes`/`edges`", id),
+                        ));
+                    }
+                }
             }
         }
 
