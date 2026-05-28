@@ -1,0 +1,52 @@
+name: Tool Qualification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "qual/**"
+      - ".github/workflows/qual.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "qual/**"
+  workflow_dispatch:
+
+jobs:
+  qualify:
+    name: TCL2 qualification suite (48 TCs)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build syscribe
+        run: cargo build --package syscribe
+
+      - name: Validate TRS model (qual/ self-check)
+        run: |
+          ./target/debug/syscribe -m qual/ > qual-self-check.md
+          echo "Exit code: $?"
+          grep -E "Errors|Warnings" qual-self-check.md | head -3
+
+      - name: Run qualification test suite
+        run: bash qual/tests/run_qual.sh --no-build
+
+      - name: Upload Tool Validation Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TVR-${{ github.sha }}
+          path: qual/tests/tvr/TVR.md
+
+      - name: Upload TRS self-check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TRS-self-check-${{ github.sha }}
+          path: qual-self-check.md

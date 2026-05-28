@@ -70,6 +70,8 @@ nav:
       - UAV Autonomous Flight: demo-model/uav.md
   - Web Browser:
       - browser/index.md
+  - Tool Qualification:
+      - tool-qualification/index.md
   - Releases: releases/index.md
 
 extra_css:

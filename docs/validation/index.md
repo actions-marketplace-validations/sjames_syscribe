@@ -50,6 +50,12 @@ Errors block a clean build. Warnings are advisory.
 
 See [Rule Reference](rules.md) for every code.
 
+## Tool qualification
+
+The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains 48 requirements (`REQ-TRS-*`) and 48 test cases (`TC-TRS-*`) in Syscribe format — one test per validation rule group — along with a shell test runner that invokes the binary against crafted fixture models.
+
+Run `syscribe -m qual/` to validate the qualification model, or `bash qual/tests/run_qual.sh` to execute the full TCL2 test suite. See [Tool Qualification](../tool-qualification/index.md) for the complete story.
+
 ## Zero-finding model
 
 The UAV demo model in `model/` runs with **0 errors** and **2 warnings** (both W404 for `ScalarValues::*` standard library types not registered in the model tree — expected and correct).
