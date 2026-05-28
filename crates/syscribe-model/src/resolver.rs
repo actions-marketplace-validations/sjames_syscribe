@@ -7,6 +7,8 @@ static CONF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ADR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // Tier 2 safety/security stable-ID patterns
 static HE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// Tier 4 TARA sheet stable-ID pattern
+static TARA_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // Tier 4 FTA/FMEA stable-ID patterns
 static FT_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static FTG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -77,6 +79,7 @@ pub fn is_stable_id(s: &str) -> bool {
         || csg_re().is_match(s)
         || sc_re().is_match(s)
         || vr_re().is_match(s)
+        || tara_re().is_match(s)
         || ft_re().is_match(s)
         || ftg_re().is_match(s)
         || fte_re().is_match(s)
@@ -98,6 +101,13 @@ pub fn is_csg_id(s: &str) -> bool { csg_re().is_match(s) }
 pub fn is_sc_id(s: &str) -> bool { sc_re().is_match(s) }
 /// Returns true for VR-* IDs (VulnerabilityReport).
 pub fn is_vr_id(s: &str) -> bool { vr_re().is_match(s) }
+
+fn tara_re() -> &'static regex::Regex {
+    TARA_RE.get_or_init(|| regex::Regex::new(r"^TARA(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+
+/// Returns true for TARA-* IDs (TARASheet).
+pub fn is_tara_id(s: &str) -> bool { tara_re().is_match(s) }
 
 fn ft_re() -> &'static regex::Regex {
     FT_RE.get_or_init(|| regex::Regex::new(r"^FT(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
@@ -264,5 +274,9 @@ impl Resolver {
 
     pub fn is_fmea_sheet(elem: &RawElement) -> bool {
         matches!(elem.frontmatter.element_type, Some(ElementType::FMEASheet))
+    }
+
+    pub fn is_tara_sheet(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::TARASheet))
     }
 }

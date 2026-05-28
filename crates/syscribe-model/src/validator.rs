@@ -6,7 +6,8 @@ use crate::element::{ElementType, RawElement};
 use crate::graph::EdgeKind;
 use crate::resolver::{
     is_adr_id, is_conf_id, is_csg_id, is_ds_id, is_fm_id, is_fmea_id, is_ft_id, is_fte_id,
-    is_ftg_id, is_he_id, is_req_id, is_sc_id, is_sg_id, is_tc_id, is_ts_id, is_vr_id, Resolver,
+    is_ftg_id, is_he_id, is_req_id, is_sc_id, is_sg_id, is_tara_id, is_tc_id, is_ts_id,
+    is_vr_id, Resolver,
 };
 
 /// A single validation finding.
@@ -1167,6 +1168,26 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                 if rpn > 100 && fm.recommended_action.is_none() {
                     findings.push(warning("W903", &file, &format!("FMEAEntry RPN {} > 100 but has no `recommendedAction`", rpn)));
                 }
+            }
+        }
+
+        // ── Tier 4: TARASheet (E940-E941, W905) ─────────────────────────────────
+        if matches!(fm.element_type, Some(ElementType::TARASheet)) {
+            if fm.id.is_none() { findings.push(error("E940", &file, "`id` is required on TARASheet")); }
+            if fm.title.is_none() { findings.push(error("E940", &file, "`title` is required on TARASheet")); }
+            if fm.status.is_none() { findings.push(error("E940", &file, "`status` is required on TARASheet")); }
+            if let Some(ref id) = fm.id {
+                if !is_tara_id(id) {
+                    findings.push(error("E941", &file, &format!("`id` '{}' does not match TARA-* pattern", id)));
+                }
+            }
+            // W905: empty sheet — all four tables absent or empty
+            let all_empty = fm.damage_table.as_ref().map_or(true, |v| v.is_empty())
+                && fm.threat_table.as_ref().map_or(true, |v| v.is_empty())
+                && fm.goal_table.as_ref().map_or(true, |v| v.is_empty())
+                && fm.control_table.as_ref().map_or(true, |v| v.is_empty());
+            if all_empty {
+                findings.push(warning("W905", &file, "TARASheet has no rows in any section table — add damageTable, threatTable, goalTable, or controlTable entries"));
             }
         }
 

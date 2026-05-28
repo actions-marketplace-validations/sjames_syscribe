@@ -93,7 +93,76 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
     }
 
     explode_fmea_entries(&mut elements);
+    explode_tara_entries(&mut elements);
     Ok(elements)
+}
+
+/// Post-processing pass: for each TARASheet, synthesise DamageScenario, ThreatScenario,
+/// CybersecurityGoal, and SecurityControl elements from the four section tables.
+/// Each row must have an `id` key; rows without one are skipped.
+///
+/// Because the YAML keys in each row match the camelCase serde field names already
+/// defined in RawFrontmatter, we deserialise directly via serde_yaml::from_value
+/// and then override element_type.
+fn explode_tara_entries(elements: &mut Vec<RawElement>) {
+    let mut synthetic: Vec<RawElement> = Vec::new();
+
+    for sheet in elements.iter() {
+        if !matches!(sheet.frontmatter.element_type, Some(ElementType::TARASheet)) {
+            continue;
+        }
+
+        let sections: &[(&[serde_yaml::Value], ElementType)] = &[
+            (
+                sheet.frontmatter.damage_table.as_deref().unwrap_or(&[]),
+                ElementType::DamageScenario,
+            ),
+            (
+                sheet.frontmatter.threat_table.as_deref().unwrap_or(&[]),
+                ElementType::ThreatScenario,
+            ),
+            (
+                sheet.frontmatter.goal_table.as_deref().unwrap_or(&[]),
+                ElementType::CybersecurityGoal,
+            ),
+            (
+                sheet.frontmatter.control_table.as_deref().unwrap_or(&[]),
+                ElementType::SecurityControl,
+            ),
+        ];
+
+        for (rows, elem_type) in sections {
+            for row_val in *rows {
+                // Require an id key to identify the row
+                let entry_id = match row_val
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                {
+                    Some(id) => id,
+                    None => continue,
+                };
+
+                // Deserialise the row mapping into RawFrontmatter, then override type
+                let mut fm: RawFrontmatter =
+                    serde_yaml::from_value(row_val.clone()).unwrap_or_default();
+                fm.element_type = Some(elem_type.clone());
+                // Inherit sheet status when row has none
+                if fm.status.is_none() {
+                    fm.status = sheet.frontmatter.status.clone();
+                }
+
+                synthetic.push(RawElement {
+                    qualified_name: format!("{}::{}", sheet.qualified_name, entry_id),
+                    file_path: sheet.file_path.clone(),
+                    frontmatter: fm,
+                    doc: String::new(),
+                });
+            }
+        }
+    }
+
+    elements.extend(synthetic);
 }
 
 /// Post-processing pass: for each FMEASheet, synthesise a FMEAEntry RawElement

@@ -100,3 +100,9 @@ Planned:
 - Structural editing: adding and connecting elements from the browser
 - Validation report UI (unresolved references, type errors)
 - Additional diagram kinds (IBD, BDD, state machine, sequence)
+
+---
+
+## Shoutout
+
+If you use Syscribe in a project or find it useful, I'd love to hear about it — feel free to tag [@sojan_james](https://twitter.com/sojan_james) on Twitter/X.

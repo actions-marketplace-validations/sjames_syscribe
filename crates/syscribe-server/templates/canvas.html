@@ -363,6 +363,27 @@
       margin-bottom: 14px;
       word-break: break-all;
     }
+    #doc-panel-content .detail-id {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    #doc-panel-content .detail-id-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #8AABCC;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    #doc-panel-content .detail-id-value {
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+      color: #f1f5f9;
+      background: rgba(255,255,255,0.06);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
     #doc-panel-content .detail-doc {
       line-height: 1.7;
       color: #cbd5e1;
@@ -471,6 +492,11 @@
       font-family: ui-monospace, monospace;
       color: #4D9BF5;
       word-break: break-all;
+    }
+    .cy-tooltip .tt-id {
+      font-family: ui-monospace, monospace;
+      color: #8AABCC;
+      font-size: 10px;
     }
   </style>
 </head>
@@ -985,7 +1011,9 @@ function buildNodeTooltip(node) {
   const lbl    = esc(node.data('label') || node.id());
   const type   = esc(node.data('type')  || 'Unknown');
   const qn     = esc(node.data('qname') || node.id());
+  const elemId = node.data('elemId');
   const codes  = node.data('issueCodes') || [];
+  const idHtml = elemId ? `<br><span class="tt-id">${esc(elemId)}</span>` : '';
   let issueHtml = '';
   if (codes.length) {
     const hasErr = node.data('hasError');
@@ -993,7 +1021,7 @@ function buildNodeTooltip(node) {
     const icon   = hasErr ? '✖' : '⚠';
     issueHtml = `<br><span style="color:${color};font-size:10px">${icon} ${codes.map(esc).join(', ')}</span>`;
   }
-  return `<strong>${lbl}</strong><span class="tt-sub">${type}</span><br><span class="tt-qname">${qn}</span>${issueHtml}`;
+  return `<strong>${lbl}</strong><span class="tt-sub">${type}</span><br><span class="tt-qname">${qn}</span>${idHtml}${issueHtml}`;
 }
 
 function buildEdgeTooltip(edge) {

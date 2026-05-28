@@ -5,6 +5,9 @@
     <span class="badge {{ badge_class }}">{{ element_type }}</span>
   </div>
   <div class="detail-qname">{{ qualified_name }}</div>
+  {% if elem_id != "" %}
+  <div class="detail-id"><span class="detail-id-label">ID</span><code class="detail-id-value">{{ elem_id }}</code></div>
+  {% endif %}
   {% if doc_html != "" %}
   <div class="detail-doc">{{ doc_html|safe }}</div>
   {% else %}

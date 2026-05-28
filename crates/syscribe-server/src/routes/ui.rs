@@ -97,6 +97,7 @@ pub struct ElementDetailTemplate {
     pub name: String,
     pub element_type: String,
     pub qualified_name: String,
+    pub elem_id: String,
     pub doc_html: String,  // rendered HTML, emitted with |safe
     pub doc_raw: String,   // raw markdown, used in the edit textarea
     pub badge_class: String,
@@ -223,6 +224,7 @@ pub async fn element_detail(
                     .unwrap_or_else(|| e.qualified_name.clone()),
                 element_type,
                 qualified_name: e.qualified_name.clone(),
+                elem_id: e.frontmatter.id.clone().unwrap_or_default(),
                 doc_html: markdown_to_html(e.doc.trim()),
                 doc_raw: e.doc.trim().to_string(),
                 badge_class,

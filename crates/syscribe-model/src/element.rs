@@ -81,6 +81,8 @@ pub enum ElementType {
     // FMEA (IEC 60812 / SAE J1739)
     FMEASheet,
     FMEAEntry,
+    // TARA container (ISO/SAE 21434) — exploded by walker into Tier-2 types
+    TARASheet,
     // Namespace
     Package,
     LibraryPackage,
@@ -290,6 +292,13 @@ pub struct RawFrontmatter {
     // §3.14 — domain classification
     pub domain: Option<String>,
     pub is_deployment_package: Option<bool>,
+
+    // §T4-TARA — TARASheet section tables (ISO/SAE 21434)
+    // Each is a list of row-mappings exploded by the walker into Tier-2 elements.
+    pub damage_table: Option<Vec<serde_yaml::Value>>,   // → DamageScenario rows  (YAML: damageTable)
+    pub threat_table: Option<Vec<serde_yaml::Value>>,   // → ThreatScenario rows   (YAML: threatTable)
+    pub goal_table: Option<Vec<serde_yaml::Value>>,     // → CybersecurityGoal rows (YAML: goalTable)
+    pub control_table: Option<Vec<serde_yaml::Value>>,  // → SecurityControl rows  (YAML: controlTable)
 
     // §T4 — FaultTree (IEC 61025 / ISO 26262-9)
     pub top_event: Option<String>,              // SafetyGoal ref (YAML: topEvent)

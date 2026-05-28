@@ -28,6 +28,8 @@ pub struct NodeData {
     pub parent: Option<String>,
     #[serde(rename = "hasDoc")]
     pub has_doc: bool,
+    #[serde(rename = "elemId")]
+    pub elem_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -144,6 +146,7 @@ pub async fn get_graph(State(state): State<SharedState>) -> Json<GraphResponse> 
                 qname: pkg_qn.clone(),
                 parent: parent_of(pkg_qn),
                 has_doc: false,
+                elem_id: None,
             },
         });
     }
@@ -179,6 +182,7 @@ pub async fn get_graph(State(state): State<SharedState>) -> Json<GraphResponse> 
                 qname: elem.qualified_name.clone(),
                 parent: parent_of(&elem.qualified_name),
                 has_doc: !elem.doc.trim().is_empty(),
+                elem_id: elem.frontmatter.id.clone(),
             },
         });
     }

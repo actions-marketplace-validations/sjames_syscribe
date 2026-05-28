@@ -60,6 +60,8 @@ pub fn type_label(et: &ElementType) -> &'static str {
         ElementType::FaultTreeEvent => "FaultTreeEvent",
         ElementType::FMEASheet => "FMEASheet",
         ElementType::FMEAEntry => "FMEAEntry",
+        // TARA container
+        ElementType::TARASheet => "TARASheet",
         // Tier 2
         ElementType::HazardousEvent => "HazardousEvent",
         ElementType::SafetyGoal => "SafetyGoal",
@@ -1519,6 +1521,47 @@ Describe the system boundary and assumptions for this FMEA.
             eprintln!("FMEAEntry elements are synthesised from FMEASheet entries — use `template FMEASheet` instead.");
             std::process::exit(1);
         }
+        "tarasheet" => r#"---
+type: TARASheet
+id: TARA-PREFIX-001
+title: "TARA — [system or asset name]"
+status: draft
+damageTable:
+  - id: DS-PREFIX-001
+    title: "Unauthorized [action] enables [damage]"
+    damageSeverity: severe    # severe | major | moderate | negligible
+    impactCategories:
+      - safety                # safety | financial | operational | privacy
+threatTable:
+  - id: TS-PREFIX-001
+    title: "Attacker [action] via [attack surface]"
+    attackFeasibility: medium # high | medium | low | very_low
+    attackVector: network     # network | adjacent | local | physical
+    damageScenarios:
+      - DS-PREFIX-001
+goalTable:
+  - id: CSG-PREFIX-001
+    title: "Ensure [security property] of [asset]"
+    calLevel: CAL3            # CAL1 | CAL2 | CAL3 | CAL4
+    securityProperty: integrity # confidentiality | integrity | availability | authenticity
+    threatScenarios:
+      - TS-PREFIX-001
+controlTable:
+  - id: SC-PREFIX-001
+    title: "Implement [control mechanism]"
+    controlType: prevention   # prevention | detection | response | recovery
+    implementsGoals:
+      - CSG-PREFIX-001
+---
+
+## Scope
+
+Describe the system boundary, assets in scope, and assumptions for this TARA.
+
+## Methodology
+
+Reference the threat modelling approach used (e.g. STRIDE, PASTA, TARA per ISO/SAE 21434).
+"#,
         "hazardousevent" => r#"---
 type: HazardousEvent
 id: HE-PREFIX-001
@@ -1642,7 +1685,7 @@ How the vulnerability is being addressed.
             eprintln!("  ViewDef, ViewpointDef, MetadataDef, Package, FeatureDef");
             eprintln!("  HazardousEvent, SafetyGoal");
             eprintln!("  DamageScenario, ThreatScenario, CybersecurityGoal, SecurityControl, VulnerabilityReport");
-            eprintln!("  FaultTree, FaultTreeGate, FaultTreeEvent, FMEASheet");
+            eprintln!("  FaultTree, FaultTreeGate, FaultTreeEvent, FMEASheet, TARASheet");
             std::process::exit(1);
         }
     };
