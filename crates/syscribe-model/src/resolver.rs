@@ -7,6 +7,12 @@ static CONF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ADR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // Tier 2 safety/security stable-ID patterns
 static HE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// Tier 4 FTA/FMEA stable-ID patterns
+static FT_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static FTG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static FTE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static FMEA_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static FM_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static SG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static DS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -71,6 +77,11 @@ pub fn is_stable_id(s: &str) -> bool {
         || csg_re().is_match(s)
         || sc_re().is_match(s)
         || vr_re().is_match(s)
+        || ft_re().is_match(s)
+        || ftg_re().is_match(s)
+        || fte_re().is_match(s)
+        || fmea_re().is_match(s)
+        || fm_re().is_match(s)
 }
 
 /// Returns true for HE-* IDs (HazardousEvent).
@@ -87,6 +98,33 @@ pub fn is_csg_id(s: &str) -> bool { csg_re().is_match(s) }
 pub fn is_sc_id(s: &str) -> bool { sc_re().is_match(s) }
 /// Returns true for VR-* IDs (VulnerabilityReport).
 pub fn is_vr_id(s: &str) -> bool { vr_re().is_match(s) }
+
+fn ft_re() -> &'static regex::Regex {
+    FT_RE.get_or_init(|| regex::Regex::new(r"^FT(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+fn ftg_re() -> &'static regex::Regex {
+    FTG_RE.get_or_init(|| regex::Regex::new(r"^FTG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+fn fte_re() -> &'static regex::Regex {
+    FTE_RE.get_or_init(|| regex::Regex::new(r"^FTE(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+fn fmea_re() -> &'static regex::Regex {
+    FMEA_RE.get_or_init(|| regex::Regex::new(r"^FMEA(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+fn fm_re() -> &'static regex::Regex {
+    FM_RE.get_or_init(|| regex::Regex::new(r"^FM(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+}
+
+/// Returns true for FT-* IDs (FaultTree).
+pub fn is_ft_id(s: &str) -> bool { ft_re().is_match(s) }
+/// Returns true for FTG-* IDs (FaultTreeGate).
+pub fn is_ftg_id(s: &str) -> bool { ftg_re().is_match(s) }
+/// Returns true for FTE-* IDs (FaultTreeEvent).
+pub fn is_fte_id(s: &str) -> bool { fte_re().is_match(s) }
+/// Returns true for FMEA-* IDs (FMEASheet).
+pub fn is_fmea_id(s: &str) -> bool { fmea_re().is_match(s) }
+/// Returns true for FM-* IDs (FMEAEntry).
+pub fn is_fm_id(s: &str) -> bool { fm_re().is_match(s) }
 
 /// Returns true for ADR-* IDs.
 pub fn is_adr_id(s: &str) -> bool {
@@ -214,5 +252,17 @@ impl Resolver {
 
     pub fn is_vulnerability_report(elem: &RawElement) -> bool {
         matches!(elem.frontmatter.element_type, Some(ElementType::VulnerabilityReport))
+    }
+
+    pub fn is_fault_tree_gate(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::FaultTreeGate))
+    }
+
+    pub fn is_fault_tree_event(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::FaultTreeEvent))
+    }
+
+    pub fn is_fmea_sheet(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::FMEASheet))
     }
 }

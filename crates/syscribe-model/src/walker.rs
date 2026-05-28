@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use walkdir::WalkDir;
 use tracing::{warn, debug};
-use crate::element::RawElement;
+use crate::element::{ElementType, RawElement, RawFrontmatter};
 use crate::frontmatter::{split_frontmatter, parse_frontmatter};
 
 /// Derive a qualified name from a file path relative to the model root.
@@ -92,5 +92,101 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
         });
     }
 
+    explode_fmea_entries(&mut elements);
     Ok(elements)
+}
+
+/// Post-processing pass: for each FMEASheet, synthesise a FMEAEntry RawElement
+/// for every item in its `entries:` list.  Each entry must have an `id` key;
+/// entries without one are silently skipped (the validator will warn).
+fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
+    let mut synthetic: Vec<RawElement> = Vec::new();
+
+    for sheet in elements.iter() {
+        if !matches!(sheet.frontmatter.element_type, Some(ElementType::FMEASheet)) {
+            continue;
+        }
+        let entries = match &sheet.frontmatter.entries {
+            Some(v) if !v.is_empty() => v.clone(),
+            _ => continue,
+        };
+
+        for entry_val in &entries {
+            let map = match entry_val {
+                serde_yaml::Value::Mapping(m) => m,
+                _ => continue,
+            };
+
+            // Helpers for extracting typed values from the mapping
+            let str_val = |key: &str| -> Option<String> {
+                map.get(&serde_yaml::Value::String(key.into()))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            };
+            let u8_val = |key: &str| -> Option<u8> {
+                map.get(&serde_yaml::Value::String(key.into()))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n.min(255) as u8)
+            };
+            let strings_val = |key: &str| -> Option<Vec<String>> {
+                match map.get(&serde_yaml::Value::String(key.into())) {
+                    Some(serde_yaml::Value::String(s)) => Some(vec![s.clone()]),
+                    Some(serde_yaml::Value::Sequence(seq)) => Some(
+                        seq.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+                    ),
+                    _ => None,
+                }
+            };
+
+            let entry_id = match str_val("id") {
+                Some(id) => id,
+                None => continue,
+            };
+
+            let failure_mode = str_val("failureMode");
+            let title = failure_mode
+                .clone()
+                .or_else(|| str_val("title"))
+                .unwrap_or_else(|| entry_id.clone());
+
+            let s = u8_val("severity");
+            let o = u8_val("occurrence");
+            let d = u8_val("detection");
+            // Compute RPN if all three components are present; otherwise take explicit value
+            let rpn: Option<u32> = match (s, o, d) {
+                (Some(sv), Some(oc), Some(dt)) => Some(sv as u32 * oc as u32 * dt as u32),
+                _ => map
+                    .get(&serde_yaml::Value::String("rpn".into()))
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32),
+            };
+
+            let fm = RawFrontmatter {
+                element_type: Some(ElementType::FMEAEntry),
+                id: Some(entry_id.clone()),
+                title: Some(title),
+                status: str_val("status").or_else(|| sheet.frontmatter.status.clone()),
+                subject: str_val("ref"),
+                failure_mode,
+                effect: str_val("effect"),
+                cause: str_val("cause"),
+                fmea_severity: s,
+                occurrence: o,
+                detection: d,
+                rpn,
+                recommended_action: str_val("recommendedAction"),
+                satisfies: strings_val("satisfies"),
+                ..Default::default()
+            };
+
+            synthetic.push(RawElement {
+                qualified_name: format!("{}::{}", sheet.qualified_name, entry_id),
+                file_path: sheet.file_path.clone(),
+                frontmatter: fm,
+                doc: String::new(),
+            });
+        }
+    }
+
+    elements.extend(synthetic);
 }

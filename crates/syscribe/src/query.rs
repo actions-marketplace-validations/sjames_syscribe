@@ -54,6 +54,12 @@ pub fn type_label(et: &ElementType) -> &'static str {
         ElementType::UseCase => "UseCase",
         ElementType::State => "State",
         ElementType::Enumeration => "Enumeration",
+        // Tier 4
+        ElementType::FaultTree => "FaultTree",
+        ElementType::FaultTreeGate => "FaultTreeGate",
+        ElementType::FaultTreeEvent => "FaultTreeEvent",
+        ElementType::FMEASheet => "FMEASheet",
+        ElementType::FMEAEntry => "FMEAEntry",
         // Tier 2
         ElementType::HazardousEvent => "HazardousEvent",
         ElementType::SafetyGoal => "SafetyGoal",
@@ -358,6 +364,25 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     }
     if let Some(ref dk) = fm.diagram_kind { println!("| **diagramKind** | {} |", dk); }
     if let Some(ref sub) = fm.subject { println!("| **subject** | {} |", sub); }
+
+    // ── Tier 4: FTA/FMEA fields ──────────────────────────────────────────
+    if let Some(ref te) = fm.top_event { println!("| **topEvent** | {} |", te); }
+    if let Some(ref mt) = fm.mission_time { println!("| **missionTime** | {} |", mt); }
+    if let Some(ref gt) = fm.gate_type { println!("| **gateType** | {} |", gt); }
+    if let Some(ref inputs) = fm.inputs {
+        if !inputs.is_empty() { println!("| **inputs** | {} |", inputs.join(", ")); }
+    }
+    if let Some(ref ek) = fm.event_kind { println!("| **eventKind** | {} |", ek); }
+    if let Some(fr) = fm.failure_rate { println!("| **failureRate** | {} |", fr); }
+    if let Some(p) = fm.probability { println!("| **probability** | {} |", p); }
+    if let Some(ref fm_) = fm.failure_mode { println!("| **failureMode** | {} |", fm_); }
+    if let Some(ref eff) = fm.effect { println!("| **effect** | {} |", eff); }
+    if let Some(ref cau) = fm.cause { println!("| **cause** | {} |", cau); }
+    if let Some(s) = fm.fmea_severity { println!("| **fmeaSeverity** | {} |", s); }
+    if let Some(o) = fm.occurrence { println!("| **occurrence** | {} |", o); }
+    if let Some(d) = fm.detection { println!("| **detection** | {} |", d); }
+    if let Some(rpn) = fm.rpn { println!("| **RPN** | {} |", rpn); }
+    if let Some(ref ra) = fm.recommended_action { println!("| **recommendedAction** | {} |", ra); }
 
     // ── Tier 2: HARA fields ───────────────────────────────────────────────
     if let Some(ref s) = fm.severity { println!("| **severity** | {} |", s); }
@@ -1426,6 +1451,74 @@ groupKind: optional
 
 Description of this feature definition.
 "#,
+        "faulttree" => r#"---
+type: FaultTree
+id: FT-PREFIX-001
+title: "Fault tree for [undesired top event]"
+status: draft
+topEvent: SG-PREFIX-001     # SafetyGoal this tree analyses
+# missionTime: "1e9 h"
+---
+
+Describe the analysis scope and methodology.
+"#,
+        "faulttreegate" => r#"---
+type: FaultTreeGate
+id: FTG-PREFIX-001
+title: "OR gate — [description]"
+gateType: OR                # AND | OR | XOR | NOT | inhibit
+inputs:
+  - FTG-PREFIX-002          # child gate
+  - FTE-PREFIX-001          # or leaf event
+# probability: 1.2e-7       # optional; computed from inputs
+---
+"#,
+        "faulttreeevent" => r#"---
+type: FaultTreeEvent
+id: FTE-PREFIX-001
+title: "[Component] [failure description]"
+eventKind: basic            # basic | undeveloped | house
+# ref: Package::Component   # model element this failure belongs to
+# failureRate: 1.0e-9       # failures per hour (basic events)
+# probability: 1.0e-6
+---
+"#,
+        "fmeasheet" => r#"---
+type: FMEASheet
+id: FMEA-PREFIX-001
+title: "FMEA — [system or component name]"
+status: draft
+entries:
+  - id: FM-PREFIX-001
+    ref: Package::Component
+    failureMode: "Loss of output signal"
+    effect: "No command issued"
+    cause: "Software exception in main loop"
+    severity: 9             # 1–10
+    occurrence: 3           # 1–10
+    detection: 4            # 1–10
+    # rpn: 108              # computed automatically if omitted
+    recommendedAction: "Add watchdog monitor"
+    # satisfies: REQ-PREFIX-001
+  - id: FM-PREFIX-002
+    ref: Package::SensorA
+    failureMode: "Stuck-at-high output"
+    effect: "False positive reading"
+    cause: "Hardware fault"
+    severity: 7
+    occurrence: 2
+    detection: 6
+    recommendedAction: "Add redundant sensor cross-check"
+---
+
+## Scope
+
+Describe the system boundary and assumptions for this FMEA.
+"#,
+        "fmeaentry" => {
+            eprintln!("FMEAEntry elements are synthesised from FMEASheet entries — use `template FMEASheet` instead.");
+            std::process::exit(1);
+        }
         "hazardousevent" => r#"---
 type: HazardousEvent
 id: HE-PREFIX-001
@@ -1549,6 +1642,7 @@ How the vulnerability is being addressed.
             eprintln!("  ViewDef, ViewpointDef, MetadataDef, Package, FeatureDef");
             eprintln!("  HazardousEvent, SafetyGoal");
             eprintln!("  DamageScenario, ThreatScenario, CybersecurityGoal, SecurityControl, VulnerabilityReport");
+            eprintln!("  FaultTree, FaultTreeGate, FaultTreeEvent, FMEASheet");
             std::process::exit(1);
         }
     };

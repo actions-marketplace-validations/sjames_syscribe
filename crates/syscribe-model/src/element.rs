@@ -74,6 +74,13 @@ pub enum ElementType {
     CybersecurityGoal,
     SecurityControl,
     VulnerabilityReport,
+    // Fault Tree Analysis (IEC 61025 / ISO 26262-9)
+    FaultTree,
+    FaultTreeGate,
+    FaultTreeEvent,
+    // FMEA (IEC 60812 / SAE J1739)
+    FMEASheet,
+    FMEAEntry,
     // Namespace
     Package,
     LibraryPackage,
@@ -283,6 +290,26 @@ pub struct RawFrontmatter {
     // §3.14 — domain classification
     pub domain: Option<String>,
     pub is_deployment_package: Option<bool>,
+
+    // §T4 — FaultTree (IEC 61025 / ISO 26262-9)
+    pub top_event: Option<String>,              // SafetyGoal ref (YAML: topEvent)
+    pub mission_time: Option<String>,           // e.g. "1e9 h" (YAML: missionTime)
+    pub gate_type: Option<String>,              // FaultTreeGate: AND|OR|XOR|NOT|inhibit (YAML: gateType)
+    pub inputs: Option<Vec<String>>,            // FaultTreeGate input refs (YAML: inputs)
+    pub event_kind: Option<String>,             // FaultTreeEvent: basic|undeveloped|house (YAML: eventKind)
+    pub failure_rate: Option<f64>,              // FaultTreeEvent failure rate /h (YAML: failureRate)
+    pub probability: Option<f64>,               // cut-set or top-event probability (YAML: probability)
+
+    // §T4 — FMEASheet / FMEAEntry (IEC 60812 / SAE J1739)
+    pub entries: Option<Vec<serde_yaml::Value>>, // FMEASheet sub-entries (YAML: entries)
+    pub failure_mode: Option<String>,            // FMEAEntry: what fails (YAML: failureMode)
+    pub effect: Option<String>,                  // FMEAEntry: consequence (YAML: effect)
+    pub cause: Option<String>,                   // FMEAEntry: root cause (YAML: cause)
+    pub fmea_severity: Option<u8>,               // FMEAEntry severity 1–10 (YAML: fmeaSeverity)
+    pub occurrence: Option<u8>,                  // FMEAEntry occurrence 1–10 (YAML: occurrence)
+    pub detection: Option<u8>,                   // FMEAEntry detection 1–10 (YAML: detection)
+    pub rpn: Option<u32>,                        // FMEAEntry Risk Priority Number (YAML: rpn)
+    pub recommended_action: Option<String>,      // FMEAEntry mitigation (YAML: recommendedAction)
 
     // §T2 — HazardousEvent (ISO 26262 §7 HARA)
     pub severity: Option<String>,               // S0-S3

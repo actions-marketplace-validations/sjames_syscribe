@@ -5,8 +5,8 @@ use petgraph::visit::EdgeRef;
 use crate::element::{ElementType, RawElement};
 use crate::graph::EdgeKind;
 use crate::resolver::{
-    is_adr_id, is_conf_id, is_csg_id, is_ds_id, is_he_id, is_req_id, is_sc_id, is_sg_id,
-    is_tc_id, is_ts_id, is_vr_id, Resolver,
+    is_adr_id, is_conf_id, is_csg_id, is_ds_id, is_fm_id, is_fmea_id, is_ft_id, is_fte_id,
+    is_ftg_id, is_he_id, is_req_id, is_sc_id, is_sg_id, is_tc_id, is_ts_id, is_vr_id, Resolver,
 };
 
 /// A single validation finding.
@@ -1074,6 +1074,102 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
 
         // ── Documentation completeness (W6xx) ─────────────────────────────────
 
+        // ── Tier 4: FaultTree (E900-E902) ────────────────────────────────────
+        if matches!(fm.element_type, Some(ElementType::FaultTree)) {
+            if fm.id.is_none() { findings.push(error("E900", &file, "`id` is required on FaultTree")); }
+            if fm.title.is_none() { findings.push(error("E900", &file, "`title` is required on FaultTree")); }
+            if fm.status.is_none() { findings.push(error("E900", &file, "`status` is required on FaultTree")); }
+            if fm.top_event.is_none() { findings.push(error("E900", &file, "`topEvent` is required on FaultTree — reference a SafetyGoal")); }
+            if let Some(ref id) = fm.id {
+                if !is_ft_id(id) {
+                    findings.push(error("E901", &file, &format!("`id` '{}' does not match FT-* pattern", id)));
+                }
+            }
+        }
+
+        // ── Tier 4: FaultTreeGate (E903-E906) ────────────────────────────────
+        if matches!(fm.element_type, Some(ElementType::FaultTreeGate)) {
+            if fm.id.is_none() { findings.push(error("E903", &file, "`id` is required on FaultTreeGate")); }
+            if fm.title.is_none() { findings.push(error("E903", &file, "`title` is required on FaultTreeGate")); }
+            if fm.gate_type.is_none() { findings.push(error("E903", &file, "`gateType` is required on FaultTreeGate")); }
+            if let Some(ref id) = fm.id {
+                if !is_ftg_id(id) {
+                    findings.push(error("E904", &file, &format!("`id` '{}' does not match FTG-* pattern", id)));
+                }
+            }
+            // E905: gateType enum
+            if let Some(ref gt) = fm.gate_type {
+                if !["AND","OR","XOR","NOT","inhibit"].contains(&gt.as_str()) {
+                    findings.push(error("E905", &file, &format!("FaultTreeGate.gateType '{}' must be AND, OR, XOR, NOT, or inhibit", gt)));
+                }
+            }
+            // W901: gate with no inputs is a dead end
+            if fm.inputs.as_ref().map_or(true, |v| v.is_empty()) {
+                findings.push(warning("W901", &file, "FaultTreeGate has no `inputs` — it contributes nothing to the fault tree"));
+            }
+        }
+
+        // ── Tier 4: FaultTreeEvent (E907-E910) ───────────────────────────────
+        if matches!(fm.element_type, Some(ElementType::FaultTreeEvent)) {
+            if fm.id.is_none() { findings.push(error("E907", &file, "`id` is required on FaultTreeEvent")); }
+            if fm.title.is_none() { findings.push(error("E907", &file, "`title` is required on FaultTreeEvent")); }
+            if fm.event_kind.is_none() { findings.push(error("E907", &file, "`eventKind` is required on FaultTreeEvent")); }
+            if let Some(ref id) = fm.id {
+                if !is_fte_id(id) {
+                    findings.push(error("E908", &file, &format!("`id` '{}' does not match FTE-* pattern", id)));
+                }
+            }
+            // E909: eventKind enum
+            if let Some(ref ek) = fm.event_kind {
+                if !["basic","undeveloped","house"].contains(&ek.as_str()) {
+                    findings.push(error("E909", &file, &format!("FaultTreeEvent.eventKind '{}' must be basic, undeveloped, or house", ek)));
+                }
+            }
+        }
+
+        // ── Tier 4: FMEASheet (E911-E912) ────────────────────────────────────
+        if matches!(fm.element_type, Some(ElementType::FMEASheet)) {
+            if fm.id.is_none() { findings.push(error("E911", &file, "`id` is required on FMEASheet")); }
+            if fm.title.is_none() { findings.push(error("E911", &file, "`title` is required on FMEASheet")); }
+            if fm.status.is_none() { findings.push(error("E911", &file, "`status` is required on FMEASheet")); }
+            if let Some(ref id) = fm.id {
+                if !is_fmea_id(id) {
+                    findings.push(error("E912", &file, &format!("`id` '{}' does not match FMEA-* pattern", id)));
+                }
+            }
+            // W902: empty sheet
+            if fm.entries.as_ref().map_or(true, |v| v.is_empty()) {
+                findings.push(warning("W902", &file, "FMEASheet has no `entries` — add at least one failure mode row"));
+            }
+        }
+
+        // ── Tier 4: FMEAEntry (E913-E914, W903-W904) — synthesised by walker ─
+        if matches!(fm.element_type, Some(ElementType::FMEAEntry)) {
+            if let Some(ref id) = fm.id {
+                if !is_fm_id(id) {
+                    findings.push(error("E913", &file, &format!("FMEAEntry `id` '{}' does not match FM-* pattern", id)));
+                }
+            }
+            // E914: severity / occurrence / detection range 1–10
+            for (label, val) in [
+                ("fmeaSeverity", fm.fmea_severity),
+                ("occurrence", fm.occurrence),
+                ("detection", fm.detection),
+            ] {
+                if let Some(v) = val {
+                    if !(1..=10).contains(&v) {
+                        findings.push(error("E914", &file, &format!("FMEAEntry.{} {} is out of range 1–10", label, v)));
+                    }
+                }
+            }
+            // W903: high-RPN entry without a recommended action
+            if let Some(rpn) = fm.rpn {
+                if rpn > 100 && fm.recommended_action.is_none() {
+                    findings.push(warning("W903", &file, &format!("FMEAEntry RPN {} > 100 but has no `recommendedAction`", rpn)));
+                }
+            }
+        }
+
         // W600: PartDef and Part elements should have non-empty documentation
         if matches!(
             fm.element_type,
@@ -1500,6 +1596,77 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                     }
                 }
             }
+        }
+    }
+
+    // ── Tier 4 cross-reference checks ────────────────────────────────────────
+
+    for elem in elements {
+        let fm = &elem.frontmatter;
+
+        // E902: FaultTree.topEvent must resolve to a SafetyGoal
+        if matches!(fm.element_type, Some(ElementType::FaultTree)) {
+            if let Some(ref te) = fm.top_event {
+                match resolver.resolve_ref(elements, te) {
+                    None => findings.push(error("E902", &elem.file_path,
+                        &format!("`topEvent` '{}' does not resolve to any element", te))),
+                    Some(target) if !Resolver::is_safety_goal(target) => {
+                        findings.push(error("E902", &elem.file_path,
+                            &format!("`topEvent` '{}' does not resolve to a SafetyGoal", te)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // E906: FaultTreeGate.inputs must each resolve to a FaultTreeGate or FaultTreeEvent
+        if matches!(fm.element_type, Some(ElementType::FaultTreeGate)) {
+            if let Some(ref inputs) = fm.inputs {
+                for r in inputs {
+                    match resolver.resolve_ref(elements, r) {
+                        None => findings.push(error("E906", &elem.file_path,
+                            &format!("`inputs` '{}' does not resolve to any element", r))),
+                        Some(target)
+                            if !Resolver::is_fault_tree_gate(target)
+                                && !Resolver::is_fault_tree_event(target) =>
+                        {
+                            findings.push(error("E906", &elem.file_path,
+                                &format!("`inputs` '{}' is not a FaultTreeGate or FaultTreeEvent", r)));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // W904: FMEAEntry.ref (subject) should resolve to a known element
+        if matches!(fm.element_type, Some(ElementType::FMEAEntry)) {
+            if let Some(ref r) = fm.subject {
+                if resolver.resolve_ref(elements, r).is_none() {
+                    findings.push(warning("W904", &elem.file_path,
+                        &format!("FMEAEntry `ref` '{}' does not resolve to a known element", r)));
+                }
+            }
+        }
+    }
+
+    // W900: FaultTree with no FaultTreeGate or FaultTreeEvent children
+    for elem in elements {
+        if !matches!(elem.frontmatter.element_type, Some(ElementType::FaultTree)) {
+            continue;
+        }
+        let prefix = format!("{}::", elem.qualified_name);
+        let has_children = elements.iter().any(|e| {
+            e.qualified_name.starts_with(&prefix)
+                && matches!(
+                    e.frontmatter.element_type,
+                    Some(ElementType::FaultTreeGate) | Some(ElementType::FaultTreeEvent)
+                )
+        });
+        if !has_children {
+            let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
+            findings.push(warning("W900", &elem.file_path,
+                &format!("FaultTree '{}' has no FaultTreeGate or FaultTreeEvent children", id)));
         }
     }
 
