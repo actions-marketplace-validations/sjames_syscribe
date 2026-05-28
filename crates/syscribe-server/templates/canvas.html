@@ -27,13 +27,14 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg-dark:    #0f172a;
-      --bg-toolbar: #1e293b;
-      --bg-panel:   #1e293b;
-      --border:     #334155;
-      --text:       #e2e8f0;
-      --text-muted: #94a3b8;
-      --accent:     #6366f1;
+      --bg-dark:    #0E1520;
+      --bg-toolbar: #161E2E;
+      --bg-panel:   #161E2E;
+      --border:     #2B3E5A;
+      --text:       #D8E4F2;
+      --text-muted: #8AABCC;
+      --accent:     #2B74D8;
+      --accent-hi:  #4D9BF5;
     }
 
     html, body {
@@ -103,7 +104,7 @@
       transition: background 120ms, border-color 120ms;
       user-select: none;
     }
-    .tb-btn:hover  { background: rgba(255,255,255,0.12); border-color: #475569; }
+    .tb-btn:hover  { background: rgba(255,255,255,0.12); border-color: #3D5878; }
     .tb-btn:active { background: rgba(255,255,255,0.18); }
     .tb-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
@@ -199,9 +200,9 @@
       top: 10px;
       left: 38px;
       z-index: 15;
-      background: rgba(30,41,59,0.92);
-      border: 1px solid #475569;
-      color: #e2e8f0;
+      background: rgba(22,30,46,0.95);
+      border: 1px solid #2B3E5A;
+      color: #D8E4F2;
       border-radius: 6px;
       padding: 6px 14px;
       font-size: 12px;
@@ -210,7 +211,7 @@
       backdrop-filter: blur(4px);
       transition: background 120ms, border-color 120ms;
     }
-    #back-btn:hover { background: rgba(51,65,85,0.95); border-color: #64748b; }
+    #back-btn:hover { background: rgba(22,30,46,0.97); border-color: #3D5878; }
 
     /* ── Cytoscape container ── */
     #cy {
@@ -227,7 +228,7 @@
     #loading-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(15,23,42,0.88);
+      background: rgba(14,21,32,0.90);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -240,7 +241,7 @@
     }
     .spinner {
       width: 36px; height: 36px;
-      border: 3px solid rgba(99,102,241,0.25);
+      border: 3px solid rgba(43,116,216,0.25);
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
@@ -251,7 +252,7 @@
     #error-overlay {
       position: absolute;
       inset: 0;
-      background: rgba(15,23,42,0.92);
+      background: rgba(14,21,32,0.94);
       display: none;
       flex-direction: column;
       align-items: center;
@@ -304,7 +305,7 @@
       padding: 2px 6px;
       border-radius: 4px;
       font-weight: 600;
-      background: rgba(99,102,241,0.2);
+      background: rgba(43,116,216,0.2);
       color: #a5b4fc;
       flex-shrink: 0;
       white-space: nowrap;
@@ -338,10 +339,10 @@
       overflow-y: auto;
       padding: 14px;
       scrollbar-width: thin;
-      scrollbar-color: #334155 transparent;
+      scrollbar-color: #2B3E5A transparent;
     }
     #doc-panel-content::-webkit-scrollbar { width: 5px; }
-    #doc-panel-content::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+    #doc-panel-content::-webkit-scrollbar-thumb { background: #2B3E5A; border-radius: 99px; }
 
     /* Re-skin the element_detail.html fragment for the dark panel */
     #doc-panel-content .detail-name {
@@ -355,8 +356,8 @@
     #doc-panel-content .detail-qname {
       font-size: 11px;
       font-family: ui-monospace, monospace;
-      color: #7dd3fc;
-      background: rgba(14,165,233,0.10);
+      color: #4D9BF5;
+      background: rgba(43,116,216,0.12);
       padding: 4px 8px;
       border-radius: 4px;
       margin-bottom: 14px;
@@ -393,15 +394,15 @@
       width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 10px;
     }
     #doc-panel-content .detail-doc th,
-    #doc-panel-content .detail-doc td { border: 1px solid #334155; padding: 4px 8px; text-align: left; }
+    #doc-panel-content .detail-doc td { border: 1px solid #2B3E5A; padding: 4px 8px; text-align: left; }
     #doc-panel-content .detail-doc th { background: rgba(255,255,255,0.06); color: #f1f5f9; }
     #doc-panel-content .detail-doc blockquote {
-      border-left: 3px solid #475569; margin: 0 0 10px; padding: 4px 12px; color: #94a3b8;
+      border-left: 3px solid #2B3E5A; margin: 0 0 10px; padding: 4px 12px; color: #8AABCC;
     }
     #doc-panel-content .detail-doc pre.mermaid {
       background: transparent; padding: 0; text-align: center;
     }
-    #doc-panel-content .detail-empty { color: #64748b; font-style: italic; }
+    #doc-panel-content .detail-empty { color: #3D5878; font-style: italic; }
     #doc-panel-content .badge {
       display: inline-block; font-size: 10px; padding: 2px 6px;
       border-radius: 4px; font-weight: 500; margin-right: 4px;
@@ -409,14 +410,14 @@
     #doc-panel-content .badge-def  { background: rgba(59,130,246,0.2);  color: #93c5fd; }
     #doc-panel-content .badge-req  { background: rgba(245,158,11,0.2);  color: #fcd34d; }
     #doc-panel-content .badge-act  { background: rgba(20,184,166,0.2);  color: #5eead4; }
-    #doc-panel-content .badge-pkg  { background: rgba(100,116,139,0.2); color: #94a3b8; }
+    #doc-panel-content .badge-pkg  { background: rgba(43,116,216,0.10); color: #8AABCC; }
     /* Hide edit button inside the side panel */
     #doc-panel-content .detail-actions { display: none; }
 
     /* ── Validation findings in doc panel ── */
     .panel-findings {
       margin-top: 16px;
-      border-top: 1px solid #334155;
+      border-top: 1px solid #2B3E5A;
       padding-top: 12px;
     }
     .panel-findings-title {
@@ -424,7 +425,7 @@
       font-weight: 700;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: #64748b;
+      color: #3D5878;
       margin-bottom: 8px;
     }
     .panel-finding {
@@ -452,8 +453,8 @@
     /* ── Tooltip ── */
     .cy-tooltip {
       position: fixed;
-      background: #1e293b;
-      border: 1px solid #334155;
+      background: #161E2E;
+      border: 1px solid #2B3E5A;
       color: #e2e8f0;
       border-radius: 6px;
       padding: 7px 10px;
@@ -465,10 +466,10 @@
       box-shadow: 0 4px 18px rgba(0,0,0,0.45);
     }
     .cy-tooltip strong  { color: #f1f5f9; display: block; margin-bottom: 2px; }
-    .cy-tooltip .tt-sub { color: #94a3b8; font-size: 10px; }
+    .cy-tooltip .tt-sub { color: #8AABCC; font-size: 10px; }
     .cy-tooltip .tt-qname {
       font-family: ui-monospace, monospace;
-      color: #7dd3fc;
+      color: #4D9BF5;
       word-break: break-all;
     }
   </style>
@@ -493,7 +494,7 @@
     <div id="filter-chips">
       <span class="chip on" style="background:#3b82f6;color:#fff"
             data-types="PartDef,Part"         onclick="toggleChip(this)">Parts</span>
-      <span class="chip on" style="background:#6366f1;color:#fff"
+      <span class="chip on" style="background:#2B74D8;color:#fff"
             data-types="ItemDef,Item"         onclick="toggleChip(this)">Items</span>
       <span class="chip on" style="background:#f59e0b;color:#000"
             data-types="Requirement,RequirementDef" onclick="toggleChip(this)">Requirements</span>
@@ -503,7 +504,7 @@
             data-types="ADR"                  onclick="toggleChip(this)">ADR</span>
       <span class="chip on" style="background:#a855f7;color:#fff"
             data-types="ConnectionDef,Connection" onclick="toggleChip(this)">Connections</span>
-      <span class="chip on" style="background:#475569;color:#e2e8f0;border:1px solid #64748b"
+      <span class="chip on" style="background:#253350;color:#8AABCC;border:1px solid #2B3E5A"
             data-types="Package,LibraryPackage,Namespace" onclick="toggleChip(this)">Packages</span>
     </div>
 
@@ -608,13 +609,13 @@ const TYPE_COLORS = {
 };
 
 function typeColor(t) {
-  return TYPE_COLORS[t] || '#475569';
+  return TYPE_COLORS[t] || '#253350';
 }
 
 /** Lighten a hex color for use as a border accent. */
 function lighten(hex) {
   const c = hex.replace('#', '');
-  if (c.length < 6) return '#94a3b8';
+  if (c.length < 6) return '#8AABCC';
   const r = Math.min(255, parseInt(c.substring(0, 2), 16) + 70);
   const g = Math.min(255, parseInt(c.substring(2, 4), 16) + 70);
   const b = Math.min(255, parseInt(c.substring(4, 6), 16) + 70);
@@ -624,7 +625,7 @@ function lighten(hex) {
 /** Darken a hex color for the SysML header band. */
 function darken(hex) {
   const c = hex.replace('#', '');
-  if (c.length < 6) return '#0f172a';
+  if (c.length < 6) return '#0E1520';
   const r = Math.max(0, parseInt(c.substring(0, 2), 16) - 40);
   const g = Math.max(0, parseInt(c.substring(2, 4), 16) - 40);
   const b = Math.max(0, parseInt(c.substring(4, 6), 16) - 40);
@@ -702,8 +703,8 @@ function buildStylesheet() {
       selector: 'edge',
       style: {
         'width':               1.5,
-        'line-color':          '#334155',
-        'target-arrow-color':  '#334155',
+        'line-color':          '#2B3E5A',
+        'target-arrow-color':  '#2B3E5A',
         'target-arrow-shape':  'triangle-backcurve',
         'curve-style':         'bezier',
         'opacity':             0.65,
@@ -725,7 +726,7 @@ function buildStylesheet() {
     // ── Typed relationship edges ──
     {
       selector: 'edge[kind="supertype"]',
-      style: { 'line-color': '#64748b', 'target-arrow-color': '#64748b', 'line-style': 'dashed',  'target-arrow-shape': 'triangle-backcurve' },
+      style: { 'line-color': '#3D5878', 'target-arrow-color': '#3D5878', 'line-style': 'dashed',  'target-arrow-shape': 'triangle-backcurve' },
     },
     {
       selector: 'edge[kind="connection"]',
@@ -749,7 +750,7 @@ function buildStylesheet() {
     },
     {
       selector: 'edge[kind="subsets"]',
-      style: { 'line-color': '#6366f1', 'target-arrow-color': '#6366f1', 'line-style': 'dotted',  'target-arrow-shape': 'triangle-backcurve' },
+      style: { 'line-color': '#2B74D8', 'target-arrow-color': '#2B74D8', 'line-style': 'dotted',  'target-arrow-shape': 'triangle-backcurve' },
     },
     {
       selector: 'edge[kind="redefines"]',
@@ -757,7 +758,7 @@ function buildStylesheet() {
     },
     {
       selector: 'edge[kind="typedBy"]',
-      style: { 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'line-style': 'dotted',  'target-arrow-shape': 'triangle-backcurve' },
+      style: { 'line-color': '#8AABCC', 'target-arrow-color': '#8AABCC', 'line-style': 'dotted',  'target-arrow-shape': 'triangle-backcurve' },
     },
     // ── Validation issue indicators ──
     {
@@ -781,7 +782,7 @@ function buildStylesheet() {
     { selector: 'edge.dimmed', style: { 'opacity': 0.06 } },
     {
       selector: 'node.focused',
-      style: { 'border-width': 3, 'border-color': '#f8fafc', 'border-opacity': 1, 'opacity': 1 },
+      style: { 'border-width': 3, 'border-color': '#D8E4F2', 'border-opacity': 1, 'opacity': 1 },
     },
     { selector: 'node.search-dim', style: { 'opacity': 0.10 } },
     { selector: 'edge.search-dim', style: { 'opacity': 0.05 } },
