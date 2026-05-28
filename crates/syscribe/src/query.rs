@@ -1983,7 +1983,13 @@ How the vulnerability is being addressed.
 }
 
 pub fn print_help() {
-    println!("Usage: syscribe <model_root> [command] [args...]");
+    println!("Usage: syscribe [--model <root>] [command] [args...]");
+    println!();
+    println!("Model root (priority order):");
+    println!("  --model <path>                 Explicit flag");
+    println!("  SYSCRIBE_MODEL=<path>          Environment variable");
+    println!("  <first positional arg>         Legacy positional (backward-compatible)");
+    println!("  model/                         Default fallback");
     println!();
     println!("Commands:");
     println!("  (none)                         Full validation report (default)");
@@ -2015,27 +2021,29 @@ pub fn print_help() {
     println!("  spec safety                    Safety/security analysis elements (HARA/TARA/FTA/FMEA)");
     println!();
     println!("Options:");
+    println!("  --model <path>                 Model root directory");
     println!("  --agent-instructions           Print the LLM authoring prompt");
     println!("  --help, -h                     Show this help");
     println!();
     println!("Examples:");
-    println!("  syscribe model/ validate");
-    println!("  syscribe model/ validate --json");
-    println!("  syscribe model/ validate --file model/UAV/Avionics/FlightController.md");
-    println!("  syscribe model/ list PartDef");
-    println!("  syscribe model/ list PortDef UAV::Avionics");
-    println!("  syscribe model/ path-for UAV::Avionics::FlightController");
-    println!("  syscribe model/ check-ref Interfaces::TelemetryPortDef");
-    println!("  syscribe model/ next-id REQ-UAV-FC");
-    println!("  syscribe model/ template PartDef");
-    println!("  syscribe model/ template Requirement");
-    println!("  syscribe model/ find FlightController");
-    println!("  syscribe model/ show UAV::Avionics::FlightController");
-    println!("  syscribe model/ ls UAV::Avionics");
-    println!("  syscribe model/ tree UAV");
-    println!("  syscribe model/ trace REQ-UAV-FC-001");
-    println!("  syscribe model/ links UAV::Avionics::FlightController");
-    println!("  syscribe model/ why UAV::Avionics::FlightController");
-    println!("  syscribe model/ who-verifies REQ-UAV-SAFE-001");
-    println!("  syscribe model/ refs Interfaces::TelemetryPortDef");
+    println!("  syscribe --model model/ validate");
+    println!("  syscribe --model model/ validate --json");
+    println!("  syscribe --model model/ validate --file model/UAV/Avionics/FlightController.md");
+    println!("  syscribe --model model/ list PartDef");
+    println!("  syscribe --model model/ list PortDef UAV::Avionics");
+    println!("  syscribe --model model/ path-for UAV::Avionics::FlightController");
+    println!("  syscribe --model model/ check-ref Interfaces::TelemetryPortDef");
+    println!("  syscribe --model model/ next-id REQ-UAV-FC");
+    println!("  syscribe --model model/ template PartDef");
+    println!("  syscribe --model model/ template Requirement");
+    println!("  syscribe --model model/ find FlightController");
+    println!("  syscribe --model model/ show UAV::Avionics::FlightController");
+    println!("  syscribe --model model/ ls UAV::Avionics");
+    println!("  syscribe --model model/ tree UAV");
+    println!("  syscribe --model model/ trace REQ-UAV-FC-001");
+    println!("  syscribe --model model/ links UAV::Avionics::FlightController");
+    println!("  syscribe --model model/ why UAV::Avionics::FlightController");
+    println!("  syscribe --model model/ who-verifies REQ-UAV-SAFE-001");
+    println!("  syscribe --model model/ refs Interfaces::TelemetryPortDef");
+    println!("  SYSCRIBE_MODEL=model/ syscribe validate");
 }

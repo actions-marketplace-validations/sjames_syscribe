@@ -86,7 +86,35 @@ fn main() {
         return;
     }
 
-    let model_root_arg = args.get(1).cloned().unwrap_or_else(|| "model".to_string());
+    // Strip --model <path> or --model=<path> from args; collect remaining args.
+    let mut remaining: Vec<String> = Vec::new();
+    let mut model_flag: Option<String> = None;
+    {
+        let mut iter = args[1..].iter();
+        while let Some(a) = iter.next() {
+            if a == "--model" {
+                model_flag = iter.next().cloned();
+            } else if let Some(val) = a.strip_prefix("--model=") {
+                model_flag = Some(val.to_string());
+            } else {
+                remaining.push(a.clone());
+            }
+        }
+    }
+
+    // Priority: --model flag > SYSCRIBE_MODEL env var > positional arg > "model" default.
+    let had_explicit_model = model_flag.is_some() || std::env::var("SYSCRIBE_MODEL").is_ok();
+    let model_root_arg = model_flag
+        .or_else(|| std::env::var("SYSCRIBE_MODEL").ok())
+        .unwrap_or_else(|| remaining.first().cloned().unwrap_or_else(|| "model".to_string()));
+
+    // When model root came from a positional arg, the first remaining arg is consumed as the root.
+    let subcommand_args: &[String] = if !had_explicit_model && !remaining.is_empty() {
+        &remaining[1..] // first positional was the model root
+    } else {
+        &remaining[..] // model came from flag or env; remaining starts at subcommand
+    };
+
     let model_root = std::path::Path::new(&model_root_arg);
     let model_root_str = model_root.to_string_lossy().into_owned();
 
@@ -99,9 +127,10 @@ fn main() {
     };
 
     // ── Subcommand dispatch ───────────────────────────────────────────────────
-    if let Some(subcmd) = args.get(2).map(|s| s.as_str()) {
+    if let Some(subcmd) = subcommand_args.first().map(|s| s.as_str()) {
         let resolver = Resolver::new(&elems);
-        let key = args.get(3).map(|s| s.as_str()).unwrap_or("");
+        // subcommand_args[0] = subcommand, subcommand_args[1] = key, subcommand_args[2] = scope, …
+        let key = subcommand_args.get(1).map(|s| s.as_str()).unwrap_or("");
         match subcmd {
             "show" => {
                 query::cmd_show(&elems, &resolver, key);
@@ -114,7 +143,7 @@ fn main() {
             }
             "find" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> find <pattern>");
+                    eprintln!("Usage: syscribe --model <root> find <pattern>");
                     std::process::exit(1);
                 }
                 query::cmd_find(&elems, key);
@@ -127,18 +156,18 @@ fn main() {
             }
             "render" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> render <diagram_path>");
+                    eprintln!("Usage: syscribe --model <root> render <diagram_path>");
                     std::process::exit(1);
                 }
                 render::cmd_render(&elems, &resolver, key);
             }
             "diagram" => {
-                let subcmd = args.get(3).map(|s| s.as_str()).unwrap_or("");
-                let rest: Vec<String> = args.get(4..).unwrap_or(&[]).to_vec();
-                diagram::cmd_diagram(&elems, &resolver, subcmd, &rest);
+                let sub = subcommand_args.get(1).map(|s| s.as_str()).unwrap_or("");
+                let rest: Vec<String> = subcommand_args.get(2..).unwrap_or(&[]).to_vec();
+                diagram::cmd_diagram(&elems, &resolver, sub, &rest);
             }
             "validate" => {
-                let rest = &args[3..];
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
                 let file_filter = rest.windows(2)
                     .find(|w| w[0] == "--file")
@@ -153,36 +182,36 @@ fn main() {
             }
             "list" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> list <type> [scope]");
+                    eprintln!("Usage: syscribe --model <root> list <type> [scope]");
                     std::process::exit(1);
                 }
-                let scope = args.get(4).map(|s| s.as_str()).unwrap_or("");
+                let scope = subcommand_args.get(2).map(|s| s.as_str()).unwrap_or("");
                 query::cmd_list(&elems, key, scope);
             }
             "path-for" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> path-for <qname|id>");
+                    eprintln!("Usage: syscribe --model <root> path-for <qname|id>");
                     std::process::exit(1);
                 }
                 query::cmd_path_for(&elems, &resolver, key);
             }
             "check-ref" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> check-ref <qname|id>");
+                    eprintln!("Usage: syscribe --model <root> check-ref <qname|id>");
                     std::process::exit(1);
                 }
                 query::cmd_check_ref(&elems, &resolver, key);
             }
             "next-id" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> next-id <id-prefix>");
+                    eprintln!("Usage: syscribe --model <root> next-id <id-prefix>");
                     std::process::exit(1);
                 }
                 query::cmd_next_id(&elems, key);
             }
             "template" => {
                 if key.is_empty() {
-                    eprintln!("Usage: syscribe <model_root> template <type>");
+                    eprintln!("Usage: syscribe --model <root> template <type>");
                     std::process::exit(1);
                 }
                 query::cmd_template(key);

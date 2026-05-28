@@ -12,7 +12,7 @@ use tracing_subscriber::EnvFilter;
 #[command(about = "Syscribe model browser")]
 struct Cli {
     /// Path to the model root directory
-    #[arg(default_value = "model")]
+    #[arg(env = "SYSCRIBE_MODEL", default_value = "model")]
     model: PathBuf,
 
     /// Address to listen on
