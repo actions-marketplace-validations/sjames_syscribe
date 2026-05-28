@@ -262,9 +262,33 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                     findings.push(error("E803", &file, &format!("HazardousEvent.controllability '{}' must be C0, C1, C2, or C3", c)));
                 }
             }
+            // E833: IEC 61508 consequence Ca-Cd
+            if let Some(ref c) = fm.consequence {
+                if !["Ca","Cb","Cc","Cd"].contains(&c.as_str()) {
+                    findings.push(error("E833", &file, &format!("HazardousEvent.consequence '{}' must be Ca, Cb, Cc, or Cd (IEC 61508 risk graph)", c)));
+                }
+            }
+            // E834: IEC 61508 freqExposure Fa/Fb
+            if let Some(ref fe) = fm.freq_exposure {
+                if !["Fa","Fb"].contains(&fe.as_str()) {
+                    findings.push(error("E834", &file, &format!("HazardousEvent.freqExposure '{}' must be Fa or Fb (IEC 61508 risk graph)", fe)));
+                }
+            }
+            // E835: IEC 61508 avoidance Pa/Pb
+            if let Some(ref av) = fm.avoidance {
+                if !["Pa","Pb"].contains(&av.as_str()) {
+                    findings.push(error("E835", &file, &format!("HazardousEvent.avoidance '{}' must be Pa or Pb (IEC 61508 risk graph)", av)));
+                }
+            }
+            // E836: IEC 61508 demandRate W1-W3
+            if let Some(ref dr) = fm.demand_rate {
+                if !["W1","W2","W3"].contains(&dr.as_str()) {
+                    findings.push(error("E836", &file, &format!("HazardousEvent.demandRate '{}' must be W1, W2, or W3 (IEC 61508 risk graph)", dr)));
+                }
+            }
         }
 
-        // ── Tier 2: SafetyGoal (E805-E806) ───────────────────────────────────
+        // ── Tier 2: SafetyGoal (E805-E806, E837) ─────────────────────────────
         if matches!(fm.element_type, Some(ElementType::SafetyGoal)) {
             if fm.id.is_none() { findings.push(error("E805", &file, "`id` is required on SafetyGoal")); }
             if fm.title.is_none() { findings.push(error("E805", &file, "`title` is required on SafetyGoal")); }
@@ -274,9 +298,15 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                     findings.push(error("E806", &file, &format!("`id` '{}' does not match SG-* pattern", id)));
                 }
             }
-            // W801: SafetyGoal should carry an asilLevel
-            if fm.asil_level.is_none() {
-                findings.push(warning("W801", &file, "SafetyGoal has no asilLevel — every safety goal requires an ASIL assignment (ISO 26262-3 §6.4)"));
+            // E837: plLevel enum (ISO 13849-1)
+            if let Some(ref pl) = fm.pl_level {
+                if !["a","b","c","d","e"].contains(&pl.as_str()) {
+                    findings.push(error("E837", &file, &format!("SafetyGoal.plLevel '{}' must be a, b, c, d, or e (ISO 13849-1)", pl)));
+                }
+            }
+            // W801: SafetyGoal should carry an integrity level (asilLevel, silLevel, or plLevel)
+            if fm.asil_level.is_none() && fm.sil_level.is_none() && fm.pl_level.is_none() {
+                findings.push(warning("W801", &file, "SafetyGoal has no integrity level — set asilLevel (ISO 26262), silLevel (IEC 61508), or plLevel (ISO 13849-1)"));
             }
         }
 
@@ -1517,6 +1547,8 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
     let mut he_referenced: HashSet<String> = HashSet::new();
     // Build reverse index: csg_derived_reqs[csg_id_or_qn] — used for W804
     let mut csg_derived_reqs: HashSet<String> = HashSet::new();
+    // Build reverse index: sg_derived_reqs[sg_id_or_qn] — used for W805
+    let mut sg_derived_reqs: HashSet<String> = HashSet::new();
 
     for elem in elements {
         let fm = &elem.frontmatter;
@@ -1636,6 +1668,22 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                 }
             }
         }
+
+        // E832: derivedFromSafetyGoal must resolve to a SafetyGoal
+        if let Some(ref goal_ref) = fm.derived_from_safety_goal {
+            match resolver.resolve_ref(elements, goal_ref) {
+                None => findings.push(error("E832", &elem.file_path,
+                    &format!("`derivedFromSafetyGoal` '{}' does not resolve to any element", goal_ref))),
+                Some(target) if !Resolver::is_safety_goal(target) => {
+                    findings.push(error("E832", &elem.file_path,
+                        &format!("`derivedFromSafetyGoal` '{}' does not resolve to a SafetyGoal", goal_ref)));
+                }
+                Some(target) => {
+                    sg_derived_reqs.insert(target.qualified_name.clone());
+                    if let Some(ref id) = target.frontmatter.id { sg_derived_reqs.insert(id.clone()); }
+                }
+            }
+        }
     }
 
     // ── Tier 4 cross-reference checks ────────────────────────────────────────
@@ -1744,6 +1792,19 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
                 let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
                 findings.push(warning("W804", &elem.file_path,
                     &format!("CybersecurityGoal '{}' has no Requirement with `derivedFromSecurityGoal` pointing to it", id)));
+            }
+        }
+    }
+
+    // W805: SafetyGoal not referenced by any Requirement via derivedFromSafetyGoal
+    for elem in elements {
+        if Resolver::is_safety_goal(elem) {
+            let has_req = sg_derived_reqs.contains(&elem.qualified_name)
+                || elem.frontmatter.id.as_ref().map_or(false, |id| sg_derived_reqs.contains(id));
+            if !has_req {
+                let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
+                findings.push(warning("W805", &elem.file_path,
+                    &format!("SafetyGoal '{}' has no Requirement with `derivedFromSafetyGoal` pointing to it", id)));
             }
         }
     }

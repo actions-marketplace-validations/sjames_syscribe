@@ -249,6 +249,7 @@ fn outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
     }
     if let Some(ref s) = fm.breakdown_adr { out.push(("breakdownAdr".into(), s.clone())); }
     if let Some(ref g) = fm.derived_from_security_goal { out.push(("derivedFromSecurityGoal".into(), g.clone())); }
+    if let Some(ref g) = fm.derived_from_safety_goal { out.push(("derivedFromSafetyGoal".into(), g.clone())); }
     if let Some(ref s) = fm.allocated_from { out.push(("allocatedFrom".into(), s.clone())); }
     if let Some(ref s) = fm.allocated_to { out.push(("allocatedTo".into(), s.clone())); }
     if let Some(ref es) = fm.exhibits_states {
@@ -341,6 +342,7 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     if let Some(ref dir) = fm.direction { println!("| **direction** | {} |", dir); }
     if let Some(ref s) = fm.breakdown_adr { println!("| **breakdownAdr** | {} |", s); }
     if let Some(ref g) = fm.derived_from_security_goal { println!("| **derivedFromSecurityGoal** | {} |", g); }
+    if let Some(ref g) = fm.derived_from_safety_goal { println!("| **derivedFromSafetyGoal** | {} |", g); }
 
     // Supertype / typedBy
     if let Some(ref v) = fm.supertype {
@@ -393,8 +395,14 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     if let Some(ref e) = fm.exposure { println!("| **exposure** | {} |", e); }
     if let Some(ref c) = fm.controllability { println!("| **controllability** | {} |", c); }
     if let Some(ref os) = fm.operational_situation { println!("| **operationalSituation** | {} |", os); }
+    // IEC 61508 risk graph
+    if let Some(ref c) = fm.consequence { println!("| **consequence** | {} |", c); }
+    if let Some(ref fe) = fm.freq_exposure { println!("| **freqExposure** | {} |", fe); }
+    if let Some(ref av) = fm.avoidance { println!("| **avoidance** | {} |", av); }
+    if let Some(ref dr) = fm.demand_rate { println!("| **demandRate** | {} |", dr); }
     if let Some(ref ss) = fm.safe_state { println!("| **safeState** | {} |", ss); }
     if let Some(ref ft) = fm.ftti { println!("| **ftti** | {} |", ft); }
+    if let Some(ref pl) = fm.pl_level { println!("| **plLevel** | {} |", pl); }
     if let Some(ref hes) = fm.hazardous_events {
         if !hes.is_empty() { println!("| **hazardousEvents** | {} |", hes.join(", ")); }
     }
@@ -704,6 +712,25 @@ pub fn cmd_trace(
             println!("- **{}** — {} (`{}`)", adr_id, adr_title, adr_status);
         } else {
             println!("- {} (not found)", adr_ref);
+        }
+        println!();
+    }
+
+    // ── Safety Goal (derivedFromSafetyGoal) ──────────────────────────────
+    if let Some(ref sg_ref) = fm.derived_from_safety_goal {
+        println!("## Safety Goal (`derivedFromSafetyGoal`)");
+        println!();
+        if let Some(sg) = resolve(elements, resolver, sg_ref) {
+            let sg_id = sg.frontmatter.id.as_deref().unwrap_or(&sg.qualified_name);
+            let sg_title = sg.frontmatter.title.as_deref().unwrap_or("—");
+            let asil = sg.frontmatter.asil_level.as_deref()
+                .or_else(|| sg.frontmatter.sil_level.map(|_| "SIL").unwrap_or_default().into())
+                .unwrap_or("—");
+            let pl = sg.frontmatter.pl_level.as_deref().unwrap_or("");
+            let level = if !pl.is_empty() { format!("PL{}", pl) } else { asil.to_string() };
+            println!("- **{}** — {} (`{}`)", sg_id, sg_title, level);
+        } else {
+            println!("- {} (not found)", sg_ref);
         }
         println!();
     }
@@ -1152,6 +1179,7 @@ verificationMethod: test
 # derivedFrom:
 #   - REQ-PARENT-001
 # breakdownAdr: ADR-XXX-001
+# derivedFromSafetyGoal: SG-PREFIX-001
 # derivedFromSecurityGoal: CSG-PREFIX-001
 ---
 
@@ -1570,11 +1598,17 @@ type: HazardousEvent
 id: HE-PREFIX-001
 title: "Loss of [function] during [operating scenario]"
 status: draft
-# severity: S3       # S0 no injury | S1 light | S2 severe | S3 life-threatening
-# exposure: E4       # E0 incredibly unlikely … E4 high probability
-# controllability: C2 # C0 controllable | C1 simply | C2 normally | C3 uncontrollable
-# asilLevel: D       # derived from S×E×C; can also be set directly
+# ── ISO 26262 HARA parameters ──────────────────────────────────────────────
+# severity: S3         # S0 no injury | S1 light | S2 severe | S3 life-threatening
+# exposure: E4         # E0 incredibly unlikely … E4 high probability
+# controllability: C2  # C0 controllable | C1 simply | C2 normally | C3 uncontrollable
+# asilLevel: D         # derived from S×E×C; can also be set directly
 # operationalSituation: "Vehicle traveling >80 km/h on curved road"
+# ── IEC 61508 risk graph parameters (use instead of S/E/C for non-automotive) ──
+# consequence: Cc      # Ca slight | Cb serious | Cc death of one | Cd death of several
+# freqExposure: Fb     # Fa rare/unlikely | Fb frequent/likely
+# avoidance: Pb        # Pa possible | Pb barely possible
+# demandRate: W3       # W1 very slight | W2 slight | W3 relatively high
 ---
 
 Describe the hazardous situation: what goes wrong, under what conditions, and what harm could result.
@@ -1588,13 +1622,15 @@ type: SafetyGoal
 id: SG-PREFIX-001
 title: "Prevent [hazard] to avoid [harm]"
 status: draft
-asilLevel: D
+# ── Integrity level — choose one standard ─────────────────────────────────
+asilLevel: D           # ISO 26262: A | B | C | D
+# silLevel: 2          # IEC 61508: 1 | 2 | 3 | 4
+# plLevel: d           # ISO 13849-1: a | b | c | d | e
+# ──────────────────────────────────────────────────────────────────────────
 # safeState: "Controlled stop with residual braking"
 # ftti: "100ms"
 hazardousEvents:
   - HE-PREFIX-001
-# satisfies:
-#   - REQ-SYS-001
 ---
 
 The system shall avoid [hazard] in all driving situations.

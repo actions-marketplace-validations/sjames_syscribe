@@ -325,11 +325,17 @@ pub struct RawFrontmatter {
     pub exposure: Option<String>,               // E0-E4
     pub controllability: Option<String>,        // C0-C3
     pub operational_situation: Option<String>,  // free-text operating scenario
+    // IEC 61508 §3 risk graph parameters (alternative to ISO 26262 S/E/C)
+    pub consequence: Option<String>,            // Ca | Cb | Cc | Cd
+    pub freq_exposure: Option<String>,          // Fa | Fb  (YAML: freqExposure)
+    pub avoidance: Option<String>,              // Pa | Pb
+    pub demand_rate: Option<String>,            // W1 | W2 | W3  (YAML: demandRate)
 
-    // §T2 — SafetyGoal (ISO 26262 §7)
+    // §T2 — SafetyGoal (ISO 26262 §7 / IEC 61508 / ISO 13849)
     pub safe_state: Option<String>,             // description of the safe state
     pub ftti: Option<String>,                   // Fault Tolerant Time Interval (e.g. "20ms")
     pub hazardous_events: Option<Vec<String>>,  // HazardousEvent id/qname refs
+    pub pl_level: Option<String>,               // ISO 13849-1 Performance Level: a|b|c|d|e (YAML: plLevel)
 
     // §T2 — DamageScenario (ISO/SAE 21434 §15)
     pub damage_severity: Option<String>,        // severe|major|moderate|negligible
@@ -355,8 +361,9 @@ pub struct RawFrontmatter {
     pub affected_elements: Option<Vec<String>>, // qualified names of affected model elements
     pub mitigated_by: Option<Vec<String>>,      // SecurityControl id/qname refs
 
-    // §T2 — upstream goal link for native Requirement
+    // §T2 — upstream goal links for native Requirement
     pub derived_from_security_goal: Option<String>, // CSG-* that generated this requirement (YAML: derivedFromSecurityGoal)
+    pub derived_from_safety_goal: Option<String>,   // SG-* that generated this requirement (YAML: derivedFromSafetyGoal)
 
     // Catch-all for unknown fields
     #[serde(flatten)]
