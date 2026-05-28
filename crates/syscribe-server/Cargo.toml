@@ -23,3 +23,4 @@ petgraph = { workspace = true }
 notify = { workspace = true }
 futures-util = { workspace = true }
 clap = { workspace = true }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }

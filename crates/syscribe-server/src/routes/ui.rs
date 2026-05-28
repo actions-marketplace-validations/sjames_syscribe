@@ -30,6 +30,47 @@ fn html_escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Render Markdown to HTML.  Fenced ` ```mermaid ` blocks are emitted as
+/// `<pre class="mermaid">…</pre>` so that Mermaid.js can render them
+/// client-side.  All other content goes through pulldown-cmark's standard
+/// HTML renderer with tables and strikethrough enabled.
+fn markdown_to_html(md: &str) -> String {
+    use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd, html};
+
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+
+    let parser = Parser::new_ext(md, opts);
+    let mut events: Vec<Event<'_>> = Vec::new();
+    let mut in_mermaid = false;
+
+    for event in parser {
+        match &event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
+                if lang.as_ref() == "mermaid" =>
+            {
+                in_mermaid = true;
+                events.push(Event::Html(CowStr::Borrowed(
+                    "<pre class=\"mermaid\">",
+                )));
+            }
+            Event::End(TagEnd::CodeBlock) if in_mermaid => {
+                in_mermaid = false;
+                events.push(Event::Html(CowStr::Borrowed("</pre>")));
+            }
+            _ => {
+                events.push(event);
+            }
+        }
+    }
+
+    let mut out = String::with_capacity(md.len() * 2);
+    html::push_html(&mut out, events.into_iter());
+    out
+}
+
 #[derive(Debug)]
 pub struct TreeNode {
     pub qualified_name: String,
@@ -56,7 +97,8 @@ pub struct ElementDetailTemplate {
     pub name: String,
     pub element_type: String,
     pub qualified_name: String,
-    pub doc: String,
+    pub doc_html: String,  // rendered HTML, emitted with |safe
+    pub doc_raw: String,   // raw markdown, used in the edit textarea
     pub badge_class: String,
 }
 
@@ -181,7 +223,8 @@ pub async fn element_detail(
                     .unwrap_or_else(|| e.qualified_name.clone()),
                 element_type,
                 qualified_name: e.qualified_name.clone(),
-                doc: e.doc.trim().to_string(),
+                doc_html: markdown_to_html(e.doc.trim()),
+                doc_raw: e.doc.trim().to_string(),
                 badge_class,
             };
             Html(tmpl.render().unwrap_or_default())

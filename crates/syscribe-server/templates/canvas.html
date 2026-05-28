@@ -26,6 +26,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"></script>
   <!-- Cytoscape popper extension -->
   <script src="https://cdn.jsdelivr.net/npm/cytoscape-popper@2.0.0/cytoscape-popper.js"></script>
+  <!-- Mermaid (for diagrams embedded in element docs) -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -367,10 +369,43 @@
       word-break: break-all;
     }
     #doc-panel-content .detail-doc {
-      line-height: 1.65;
+      line-height: 1.7;
       color: #cbd5e1;
-      white-space: pre-wrap;
       font-size: 12px;
+    }
+    #doc-panel-content .detail-doc p  { margin: 0 0 10px; }
+    #doc-panel-content .detail-doc h1,
+    #doc-panel-content .detail-doc h2,
+    #doc-panel-content .detail-doc h3 { color: #f1f5f9; margin: 14px 0 6px; font-size: 13px; }
+    #doc-panel-content .detail-doc ul,
+    #doc-panel-content .detail-doc ol  { padding-left: 18px; margin: 0 0 10px; }
+    #doc-panel-content .detail-doc li  { margin-bottom: 3px; }
+    #doc-panel-content .detail-doc code {
+      background: rgba(255,255,255,0.08);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: ui-monospace, monospace;
+      font-size: 11px;
+    }
+    #doc-panel-content .detail-doc pre {
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      padding: 10px;
+      overflow-x: auto;
+      margin: 0 0 10px;
+    }
+    #doc-panel-content .detail-doc pre code { background: none; padding: 0; }
+    #doc-panel-content .detail-doc table {
+      width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 10px;
+    }
+    #doc-panel-content .detail-doc th,
+    #doc-panel-content .detail-doc td { border: 1px solid #334155; padding: 4px 8px; text-align: left; }
+    #doc-panel-content .detail-doc th { background: rgba(255,255,255,0.06); color: #f1f5f9; }
+    #doc-panel-content .detail-doc blockquote {
+      border-left: 3px solid #475569; margin: 0 0 10px; padding: 4px 12px; color: #94a3b8;
+    }
+    #doc-panel-content .detail-doc pre.mermaid {
+      background: transparent; padding: 0; text-align: center;
     }
     #doc-panel-content .detail-empty { color: #64748b; font-style: italic; }
     #doc-panel-content .badge {
@@ -1165,6 +1200,10 @@ function openDocPanel(qname, label, type) {
     .then(html => {
       loading.classList.remove('visible');
       content.innerHTML = html;
+      // Re-run Mermaid on any diagrams in the injected fragment
+      if (window.mermaid) {
+        mermaid.run({ nodes: content.querySelectorAll('pre.mermaid') });
+      }
     })
     .catch(err => {
       loading.classList.remove('visible');
@@ -1202,6 +1241,11 @@ document.addEventListener('keydown', e => {
 // ───────────────────────────────────────────────────────────────────────────
 //  Bootstrap: fetch /api/graph and init Cytoscape
 // ───────────────────────────────────────────────────────────────────────────
+// Initialise Mermaid (dark theme, manual rendering)
+if (window.mermaid) {
+  mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+}
+
 fetch('/api/graph')
   .then(r => {
     if (!r.ok) throw new Error('Server returned HTTP ' + r.status);

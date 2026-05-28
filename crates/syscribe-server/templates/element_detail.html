@@ -5,8 +5,8 @@
     <span class="badge {{ badge_class }}">{{ element_type }}</span>
   </div>
   <div class="detail-qname">{{ qualified_name }}</div>
-  {% if doc != "" %}
-  <div class="detail-doc">{{ doc }}</div>
+  {% if doc_html != "" %}
+  <div class="detail-doc">{{ doc_html|safe }}</div>
   {% else %}
   <p class="detail-empty">No documentation.</p>
   {% endif %}
@@ -23,7 +23,7 @@
   </div>
   <div class="edit-field">
     <label>Documentation</label>
-    <textarea id="edit-doc" rows="7">{{ doc }}</textarea>
+    <textarea id="edit-doc" rows="7">{{ doc_raw }}</textarea>
   </div>
   <div class="edit-actions">
     <button class="btn-primary" onclick="saveElement()">Save</button>
