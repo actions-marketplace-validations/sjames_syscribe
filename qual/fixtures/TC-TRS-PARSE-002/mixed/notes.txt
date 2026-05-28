@@ -1,0 +1,2 @@
+This is a plain text file that is not a Syscribe model element.
+The parser should ignore it.

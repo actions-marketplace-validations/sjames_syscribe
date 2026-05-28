@@ -112,6 +112,15 @@ fn main() {
     let model_root = std::path::Path::new(&model_root_arg);
     let model_root_str = model_root.to_string_lossy().into_owned();
 
+    if !model_root.exists() {
+        eprintln!("Error: model path does not exist: {}", model_root_str);
+        std::process::exit(1);
+    }
+    if !model_root.is_dir() {
+        eprintln!("Error: model path is not a directory: {}", model_root_str);
+        std::process::exit(1);
+    }
+
     let elems = match walker::walk_model(model_root) {
         Ok(e) => e,
         Err(err) => {

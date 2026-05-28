@@ -1,0 +1,18 @@
+---
+type: Package
+name: Requirements
+---
+
+Normative requirements for the Syscribe tool. Grouped by functional area:
+
+| Prefix | Area |
+|---|---|
+| `REQ-TRS-PARSE` | File discovery and frontmatter extraction (§11.1–11.2) |
+| `REQ-TRS-QNAME` | Qualified name derivation (§11.3) |
+| `REQ-TRS-XREF` | Cross-reference resolution (§11.5–11.6) |
+| `REQ-TRS-ELEM` | Element type handling (§2, §11.4) |
+| `REQ-TRS-ID` | ID scheme validation (§8.11, §8.12, §8.15) |
+| `REQ-TRS-VAL` | Validation rule enforcement (§11.12) |
+| `REQ-TRS-TRACE` | Traceability rules (§12) |
+| `REQ-TRS-OUT` | Output and reporting |
+| `REQ-TRS-CLI` | CLI interface |

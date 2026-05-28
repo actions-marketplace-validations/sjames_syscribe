@@ -1,0 +1,10 @@
+---
+id: REQ-PAR-001
+type: Requirement
+title: Parent requirement
+status: draft
+reqDomain: system
+verificationMethod: test
+---
+
+This element **shall** satisfy the test condition. This is a parent requirement that has derived children.

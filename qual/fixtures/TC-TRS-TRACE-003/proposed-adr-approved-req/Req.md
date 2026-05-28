@@ -1,0 +1,13 @@
+---
+id: REQ-CHD-001
+type: Requirement
+title: Approved requirement with proposed ADR
+status: approved
+reqDomain: system
+verificationMethod: test
+derivedFrom:
+  - REQ-PAR-001
+breakdownAdr: ADR-DRAFT-001
+---
+
+This element **shall** satisfy the test condition. Approved requirement with a `proposed` (not yet accepted) breakdown ADR — should produce W303.

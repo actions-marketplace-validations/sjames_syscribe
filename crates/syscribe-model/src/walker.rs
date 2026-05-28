@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use walkdir::WalkDir;
 use tracing::{warn, debug};
-use crate::element::{ElementType, RawElement, RawFrontmatter};
+use crate::element::{ElementType, ParseIssue, RawElement, RawFrontmatter};
 use crate::frontmatter::{split_frontmatter, parse_frontmatter};
 
 /// Derive a qualified name from a file path relative to the model root.
@@ -70,16 +70,16 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
         };
 
         let (fm_str, body) = split_frontmatter(&content);
-        let frontmatter = match fm_str {
+        let (frontmatter, parse_issue) = match fm_str {
             None => {
                 debug!("No frontmatter in {}", file_path);
-                Default::default()
+                (Default::default(), Some(ParseIssue::NoFrontmatter))
             }
             Some(yaml) => match parse_frontmatter(yaml) {
-                Ok(fm) => fm,
+                Ok(fm) => (fm, None),
                 Err(e) => {
                     warn!("Frontmatter parse error in {}: {}", file_path, e);
-                    Default::default()
+                    (Default::default(), Some(ParseIssue::YamlError(e.to_string())))
                 }
             }
         };
@@ -89,6 +89,7 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
             file_path,
             frontmatter,
             doc: body.to_string(),
+            parse_issue,
         });
     }
 
@@ -157,6 +158,7 @@ fn explode_tara_entries(elements: &mut Vec<RawElement>) {
                     file_path: sheet.file_path.clone(),
                     frontmatter: fm,
                     doc: String::new(),
+                    parse_issue: None,
                 });
             }
         }
@@ -253,6 +255,7 @@ fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
                 file_path: sheet.file_path.clone(),
                 frontmatter: fm,
                 doc: String::new(),
+                parse_issue: None,
             });
         }
     }

@@ -161,12 +161,17 @@ pub struct Resolver {
     pub by_qname: HashMap<String, usize>,
     /// Index by stable id field (native Requirement, TestCase, and Configuration only).
     pub by_id: HashMap<String, usize>,
+    /// Index by `name:` display field.  Only the first occurrence is stored when
+    /// names are not unique (display names are not required to be unique across the
+    /// model, so this is a best-effort fallback for short-name references).
+    pub by_name: HashMap<String, usize>,
 }
 
 impl Resolver {
     pub fn new(elements: &[RawElement]) -> Self {
         let mut by_qname = HashMap::new();
         let mut by_id = HashMap::new();
+        let mut by_name = HashMap::new();
 
         for (i, e) in elements.iter().enumerate() {
             by_qname.insert(e.qualified_name.clone(), i);
@@ -175,9 +180,12 @@ impl Resolver {
                     by_id.insert(id.clone(), i);
                 }
             }
+            if let Some(ref name) = e.frontmatter.name {
+                by_name.entry(name.clone()).or_insert(i);
+            }
         }
 
-        Self { by_qname, by_id }
+        Self { by_qname, by_id, by_name }
     }
 
     pub fn get<'a>(&self, elements: &'a [RawElement], qname: &str) -> Option<&'a RawElement> {
@@ -188,15 +196,21 @@ impl Resolver {
         self.by_id.get(id).map(|&i| &elements[i])
     }
 
-    /// Resolve a cross-reference string from `verifies:` or `derivedFrom:`.
-    /// Step 0: if it matches a stable-ID pattern (REQ-*, TC-*, CONF-*), look up by id.
-    /// Otherwise fall back to qualified-name lookup.
+    /// Resolve a cross-reference string.
+    /// Resolution order:
+    ///   1. Stable-ID patterns (REQ-*, TC-*, CONF-*, …) → by_id index.
+    ///   2. Qualified name (contains `::` or matches a known qname) → by_qname index.
+    ///   3. Display name fallback → by_name index (covers short-name references such as
+    ///      `supertype: HwBase` when the element's `name:` is "HwBase").
     pub fn resolve_ref<'a>(&self, elements: &'a [RawElement], r: &str) -> Option<&'a RawElement> {
         if is_stable_id(r) {
-            self.get_by_id(elements, r)
-        } else {
-            self.get(elements, r)
+            return self.get_by_id(elements, r);
         }
+        if let Some(elem) = self.get(elements, r) {
+            return Some(elem);
+        }
+        // Fallback: try the display name index
+        self.by_name.get(r).map(|&i| &elements[i])
     }
 
     /// True if `elem` is a native Requirement (type: Requirement with a REQ-* id).

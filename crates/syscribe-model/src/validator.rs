@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use petgraph::algo::toposort;
 use petgraph::graph::DiGraph;
 use petgraph::visit::EdgeRef;
-use crate::element::{ElementType, RawElement};
+use crate::element::{ElementType, ParseIssue, RawElement};
 use crate::graph::EdgeKind;
 use crate::resolver::{
     is_adr_id, is_conf_id, is_csg_id, is_ds_id, is_fm_id, is_fmea_id, is_ft_id, is_fte_id,
@@ -1562,14 +1562,46 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
         }
     }
 
-    // W008: element has no type: field (untyped)
+    // E001 / E002 / E005 / W008: parse-time issues and missing/unknown type fields
     for elem in elements {
-        if elem.frontmatter.element_type.is_none() {
-            findings.push(warning(
-                "W008",
-                &elem.file_path,
-                &format!("'{}' has no type: field — element will be ignored by most commands", elem.qualified_name),
-            ));
+        match &elem.parse_issue {
+            Some(ParseIssue::NoFrontmatter) => {
+                findings.push(error(
+                    "E001",
+                    &elem.file_path,
+                    "file does not begin with '---' (missing frontmatter delimiter)",
+                ));
+            }
+            Some(ParseIssue::YamlError(msg)) => {
+                findings.push(error(
+                    "E002",
+                    &elem.file_path,
+                    &format!("frontmatter is not valid YAML 1.2: {}", msg),
+                ));
+            }
+            None => {
+                // E005: type: value present but not in the element type inventory
+                if matches!(elem.frontmatter.element_type, Some(ElementType::Unknown)) {
+                    findings.push(error(
+                        "E005",
+                        &elem.file_path,
+                        &format!(
+                            "'{}' has an unrecognised `type:` value — not in the element type inventory",
+                            elem.qualified_name
+                        ),
+                    ));
+                } else if elem.frontmatter.element_type.is_none() {
+                    // W008: no type: field at all
+                    findings.push(warning(
+                        "W008",
+                        &elem.file_path,
+                        &format!(
+                            "'{}' has no type: field — element will be ignored by most commands",
+                            elem.qualified_name
+                        ),
+                    ));
+                }
+            }
         }
     }
 
@@ -2363,6 +2395,9 @@ fn check_scenario_outline_has_examples(doc: &str, file: &str, findings: &mut Vec
             continue;
         }
         if in_gherkin && trimmed == "```" {
+            if in_outline {
+                findings.push(error("E014", file, "Scenario Outline has no Examples: table"));
+            }
             in_gherkin = false;
             in_outline = false;
             continue;

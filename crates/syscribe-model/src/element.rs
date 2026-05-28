@@ -404,6 +404,17 @@ pub struct RawFrontmatter {
     pub extra: std::collections::HashMap<String, serde_yaml::Value>,
 }
 
+/// A parse-time error recorded on a `RawElement` when frontmatter could not be
+/// read.  Carried on the element so the validator can emit the right code (E001
+/// or E002) rather than the generic W008 "no type field" warning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseIssue {
+    /// File does not begin with `---` (E001)
+    NoFrontmatter,
+    /// YAML between delimiters is not valid YAML 1.2 (E002)
+    YamlError(String),
+}
+
 /// A parsed model element: qualified name + frontmatter + doc body.
 #[derive(Debug, Clone, Serialize)]
 pub struct RawElement {
@@ -411,4 +422,7 @@ pub struct RawElement {
     pub file_path: String,
     pub frontmatter: RawFrontmatter,
     pub doc: String,
+    /// Set when the file had no `---` opener (E001) or unparseable YAML (E002).
+    #[serde(skip)]
+    pub parse_issue: Option<ParseIssue>,
 }
