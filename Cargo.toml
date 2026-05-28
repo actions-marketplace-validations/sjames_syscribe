@@ -20,3 +20,5 @@ futures-util = "0.3"
 regex = "1"
 quick-xml = "0.36"
 clap = { version = "4", features = ["derive"] }
+rust-embed = { version = "8", features = ["compression"] }
+mime_guess = "2"

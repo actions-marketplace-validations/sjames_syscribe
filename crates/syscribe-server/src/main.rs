@@ -22,6 +22,7 @@ struct Cli {
 
 mod routes;
 mod state;
+mod static_assets;
 
 use routes::api_graph::{get_children, get_connections};
 use routes::elements::{get_element, list_elements};
@@ -65,6 +66,7 @@ async fn main() -> Result<()> {
         .route("/api/graph", get(get_graph))
         .route("/api/validation", get(get_validation))
         .route("/ws", get(ws_handler))
+        .route("/static/{*path}", get(static_assets::static_handler))
         .layer(axum::Extension(reload_tx))
         .layer(CorsLayer::permissive())
         .with_state(shared);
