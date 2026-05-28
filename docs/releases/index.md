@@ -2,6 +2,53 @@
 
 `RELEASES`
 
+## 0.2.0 — 2026-05-28
+
+### Demo models
+
+- **Engine ECU** (`model_auto/`) — full ISO 26262 / ISO/SAE 21434 reference model: ASIL A–D safety goals, HARA, FTA, FMEA, TARA, 14 test cases
+- **SIL 4 Computer-Based Interlocking** (`model_sil/`) — full IEC 61508 / EN 50128 / EN 50159 reference model: SIL 4 2oo2D architecture, formal B-Method specification obligation, quantitative FTA (< 10⁻⁸ /h), 11 test cases
+- Separate documentation pages for each demo model in the docs
+
+### CLI
+
+- Model root is now set with `-m <path>` / `--model <path>` or the `SYSCRIBE_MODEL` environment variable — positional argument removed
+- New `spec` subcommand: `syscribe spec`, `syscribe spec types`, `syscribe spec fields`, `syscribe spec validation`, `syscribe spec traceability`, `syscribe spec safety` — in-terminal format spec browser
+- New `trace`, `why`, `who-verifies` commands for traceability queries
+- New `next-id`, `template`, `check-ref`, `path-for` commands for model authoring
+- New `validate --json` flag for machine-readable output
+- New `types` and `untyped` commands for model inspection
+
+### Validation
+
+- **Safety/security integrity level rules**: E841/E842/E843 (ASIL/SIL consistency across inheritance and deployment), W808 (integrity level not set on safety-critical element)
+- **W806**: SafetyGoal not grounded in any HazardousEvent or HARA element
+- **W305**: parent Requirement must have at least one integration-level (L3/L4/L5) TestCase
+- **W410/W411/W412**: cross-reference target existence checks
+- **W408/W409**: `%% ref:` annotation validation in Mermaid diagram blocks
+- Various false-positive fixes (W006, W007, W406/W407 SVG-internal IDs)
+
+### Format
+
+- `derivedFromSafetyGoal:` link from Requirement to SafetyGoal (IEC 61508 / ISO 13849)
+- `derivedFromSecurityGoal:` link from Requirement to CybersecurityGoal
+- `allocatedFrom` / `allocatedTo` now accept lists for multi-source allocation
+- Full Tier 4 safety analysis elements: FaultTree (file-per-node), FMEA (exploded entries), TARASheet (exploded container)
+- Full safety/security analysis documentation added to the Modeling Guide
+
+### Web browser
+
+- Interactive Cytoscape.js model canvas at `/canvas`
+- Validation errors and warnings highlighted on canvas nodes
+- Validation findings shown in element detail panel
+- Element documentation body rendered as Markdown with embedded Mermaid diagram support
+- `diagram` CLI with `compose`, `layout`, `expose` sub-commands; Cassowary-based layout solver
+- SEQ and REQ diagram renderers; A\* obstacle-aware edge routing; full SysML edge style set
+- JS dependencies vendored and served from the embedded binary (no external CDN at runtime)
+- Unified engineering blueprint colour scheme across docs and canvas
+
+---
+
 ## 0.1.0 — 2026-05-26
 
 Initial public release.
@@ -18,7 +65,7 @@ Initial public release.
 
 - 80+ validation rules across 12 groups (E001–E503, W001–W601)
 - Computed reverse indices: `verified_by`, `derived_children`
-- CLI report tool: `cargo run --package syscribe -- model/` — 10-section Markdown output
+- CLI report tool: `syscribe -m model/` — 10-section Markdown output
 
 ### Web browser
 
