@@ -395,6 +395,7 @@ syscribe model/ refs CSG-SYS-001
 | W006 | Warning | `silLevel` and `asilLevel` both set on the same element — incompatible standards |
 | W800 | Warning | HazardousEvent not referenced by any SafetyGoal |
 | W801 | Warning | SafetyGoal has no integrity level (`asilLevel`, `silLevel`, or `plLevel`) |
+| W806 | Warning | SafetyGoal has no `hazardousEvents` — not grounded in any hazard analysis |
 | W804 | Warning | CybersecurityGoal has no `Requirement` with `derivedFromSecurityGoal` |
 | W805 | Warning | SafetyGoal has no `Requirement` with `derivedFromSafetyGoal` |
 | W808 | Warning | Element's integrity level is lower than its source (`derivedFromSafetyGoal`, `derivedFrom`, or `satisfies`) but no `breakdownAdr` is set |

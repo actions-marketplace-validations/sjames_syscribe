@@ -1812,6 +1812,20 @@ pub fn validate(elements: &[RawElement]) -> ValidationResult {
         }
     }
 
+    // W806: SafetyGoal with no hazardousEvents reference — not grounded in a hazard analysis
+    for elem in elements {
+        if Resolver::is_safety_goal(elem) {
+            let has_he = elem.frontmatter.hazardous_events
+                .as_ref()
+                .map_or(false, |v| !v.is_empty());
+            if !has_he {
+                let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
+                findings.push(warning("W806", &elem.file_path,
+                    &format!("SafetyGoal '{}' has no `hazardousEvents` — it is not grounded in any hazard analysis", id)));
+            }
+        }
+    }
+
     // W802: CybersecurityGoal not implemented by any SecurityControl
     for elem in elements {
         if Resolver::is_cybersecurity_goal(elem) {
