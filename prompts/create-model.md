@@ -35,6 +35,9 @@ Key interfaces between elements:
 
 Safety concerns (if any):
   - ...
+
+Security concerns (if any):
+  - ...
 ```
 
 ---
@@ -309,6 +312,18 @@ One-line description of this package.
 | `ADR` | architecture decision | `Decisions/` |
 | `Allocation` | `allocation` | `Allocations/` |
 | `Diagram` | diagram | `Diagrams/` |
+| `HazardousEvent` | native hazard (HARA) | `Safety/HARA/` |
+| `SafetyGoal` | native safety goal | `Safety/HARA/` |
+| `DamageScenario` | native damage scenario (TARA) | `Safety/TARA/` or inside `TARASheet` |
+| `ThreatScenario` | native threat scenario | `Safety/TARA/` or inside `TARASheet` |
+| `CybersecurityGoal` | native cybersecurity goal | `Safety/TARA/` or inside `TARASheet` |
+| `SecurityControl` | native security control | `Safety/TARA/` or inside `TARASheet` |
+| `VulnerabilityReport` | tracked vulnerability | `Safety/TARA/` |
+| `TARASheet` | TARA container (exploded at parse time) | `Safety/TARA/` |
+| `FaultTree` | FTA root element | `Safety/FTA/` |
+| `FaultTreeGate` | FTA logic gate | `Safety/FTA/<FT-id>/` |
+| `FaultTreeEvent` | FTA leaf event | `Safety/FTA/<FT-id>/` |
+| `FMEASheet` | FMEA container | `Safety/FMEA/` |
 
 For a ready-to-fill frontmatter skeleton for any type, run:
 
@@ -358,10 +373,14 @@ Key fields that apply to most element types:
 | Field | Notes |
 |---|---|
 | `reqDomain` | `system` · `hardware` · `software` — required on leaf requirements |
-| `silLevel` | Integer 1–4; must accompany `asilLevel` |
-| `asilLevel` | `A` · `B` · `C` · `D`; must accompany `silLevel` |
+| `silLevel` | Integer 1–4 (IEC 61508). **Do not set both `silLevel` and `asilLevel`** — they are incompatible standards (W006). |
+| `asilLevel` | `A` · `B` · `C` · `D` (ISO 26262). Mutually exclusive with `silLevel`. |
+| `plLevel` | `a` · `b` · `c` · `d` · `e` (ISO 13849-1 Performance Level). Mutually exclusive with the above. |
+| `derivedFromSafetyGoal` | ID of the `SafetyGoal` that motivated this requirement. The SafetyGoal's integrity level must also be set on this element (E841). |
+| `derivedFromSecurityGoal` | ID of the `CybersecurityGoal` that motivated this requirement. Requires `verificationMethod:` (W807). |
+| `verificationMethod` | `test` · `inspection` · `analysis` · `demonstration` — required for ASIL B/C/D (W701). |
 | `derivedFrom` | List of parent Requirement `id`s — triggers §12 rules |
-| `breakdownAdr` | Qualified name of an `accepted` ADR — **required whenever `derivedFrom` is set** (E310) |
+| `breakdownAdr` | Qualified name of an `accepted` ADR — **required whenever `derivedFrom` is set** (E310); also required when integrity level is lower than the source (W808) |
 
 ### Normative body rules
 
@@ -602,6 +621,103 @@ The `reqDomain:` of the leaf Requirement must match the `domain:` of the element
 ### §12.6 — HW/SW independence
 Do not use `supertype:` or `typedBy:` across the `hardware`/`software` boundary (error E315). Use `Allocation` elements for cross-domain binding.
 
+### §12.7 — Integrity level propagation
+Once a `SafetyGoal` carries `asilLevel:`, `silLevel:`, or `plLevel:`, every downstream element in the traceability chain must also carry the same field:
+
+| Link | Error if field missing | Warning if lower without ADR |
+|---|---|---|
+| `derivedFromSafetyGoal:` → SafetyGoal | E841 | W808 |
+| `derivedFrom:` → parent Requirement | E842 | W808 |
+| `satisfies:` → Requirement | E843 | W808 |
+
+A lower level (ASIL decomposition per ISO 26262-9) is valid only when `breakdownAdr:` references an `accepted` ADR documenting the decomposition rationale.
+
+---
+
+## Part 10b — Safety and Security Analysis Workflow
+
+### HARA (ISO 26262 / IEC 61508)
+
+**Authoring order:**
+1. Create `HazardousEvent` elements — one per identified hazard/operating-situation combination.
+2. Create `SafetyGoal` elements — each references one or more `HazardousEvent`s via `hazardousEvents:` and carries an integrity level.
+3. Create `Requirement` elements with `derivedFromSafetyGoal:` — these inherit the integrity level (§12.7).
+4. Create `TestCase` elements verifying those requirements.
+
+**Key validation rules:**
+- W800 — `HazardousEvent` not covered by any `SafetyGoal`
+- W801 — `SafetyGoal` has no integrity level
+- W806 — `SafetyGoal` has no `hazardousEvents:` (not grounded in HARA)
+- E841 — `Requirement` missing integrity level when `SafetyGoal` has one
+
+**Templates:** `syscribe model/ template HazardousEvent`, `template SafetyGoal`
+
+### TARA (ISO/SAE 21434) — TARASheet (recommended)
+
+Use a single `TARASheet` file. The parser explodes it into individual `DamageScenario`, `ThreatScenario`, `CybersecurityGoal`, and `SecurityControl` elements.
+
+```yaml
+type: TARASheet
+id: TARA-SYS-001
+title: "TARA — CAN bus"
+status: draft
+damageTable:
+  - id: DS-SYS-001
+    title: "..."
+    damageSeverity: severe
+    impactCategories: [safety]
+threatTable:
+  - id: TS-SYS-001
+    ...
+    damageScenarios: [DS-SYS-001]
+goalTable:
+  - id: CSG-SYS-001
+    ...
+    threatScenarios: [TS-SYS-001]
+controlTable:
+  - id: SC-SYS-001
+    ...
+    implementsGoals: [CSG-SYS-001]
+```
+
+**Template:** `syscribe model/ template TARASheet`
+
+After the TARASheet is in place, create `Requirement` elements with `derivedFromSecurityGoal: CSG-SYS-001` and set `verificationMethod:`.
+
+**Binding a SecurityControl to an architecture element** (OSLC-compliant direction — architecture element holds the reference):
+
+```yaml
+# In Hardware/ECU.md
+type: PartDef
+allocatedFrom:
+  - SC-SYS-001    # this component implements this security control
+```
+
+### FTA (Fault Tree Analysis)
+
+**Directory layout:** `FaultTreeGate` and `FaultTreeEvent` must be nested **inside a subdirectory named after the FaultTree file** (W900 fires if flat):
+
+```
+Safety/FTA/
+  FT-SYS-001.md               ← FaultTree
+  FT-SYS-001/
+    FTG-SYS-001.md            ← top gate
+    FTE-SYS-001.md            ← basic event
+```
+
+```bash
+syscribe model/ template FaultTree      > Safety/FTA/FT-SYS-001.md
+mkdir -p Safety/FTA/FT-SYS-001
+syscribe model/ template FaultTreeGate  > Safety/FTA/FT-SYS-001/FTG-SYS-001.md
+syscribe model/ template FaultTreeEvent > Safety/FTA/FT-SYS-001/FTE-SYS-001.md
+```
+
+### FMEA
+
+Use a single `FMEASheet` file with an `entries:` list. Each entry becomes a virtual `FMEAEntry` element at parse time.
+
+**Template:** `syscribe model/ template FMEASheet`
+
 ---
 
 ## Part 11 — Change Request Patterns
@@ -679,6 +795,12 @@ draft → review → approved → implemented → verified
 | E314 | `isDeploymentPackage: true` with no `Allocation` | Add an Allocation to a hardware element |
 | E315 | Cross-domain `supertype:` or `typedBy:` | Use Allocation for HW↔SW binding |
 | E500–E503 | `allocatedFrom`/`allocatedTo` does not resolve | Use correct qualified names |
+| E841 | `derivedFromSafetyGoal` source has integrity level; this element has none | Add `asilLevel`, `silLevel`, or `plLevel` |
+| E842 | `derivedFrom` parent has integrity level; this element has none | Add the same integrity level field |
+| E843 | `satisfies` target has integrity level; this element has none | Add the same integrity level field |
+| W006 | Both `silLevel` and `asilLevel` set on the same element | Use only one — they are incompatible standards |
+| W806 | `SafetyGoal` has no `hazardousEvents:` | Add `hazardousEvents:` referencing the relevant `HE-*` IDs |
+| W808 | Integrity level is lower than source but no `breakdownAdr:` | Add `breakdownAdr:` documenting the ASIL/SIL decomposition |
 
 ---
 
@@ -748,6 +870,19 @@ model/
 - [ ] Any retired TestCase has `status: retired` — do not delete it
 - [ ] Any superseded ADR has `status: superseded` — do not delete it
 - [ ] All `breakdownAdr:` references on child requirements point to the current ADR
+
+### For every SafetyGoal (new or updated)
+
+- [ ] `id:` matches `^SG(-[A-Z0-9]{2,12})+-[0-9]{3}$`
+- [ ] `hazardousEvents:` references at least one `HE-*` element (W806)
+- [ ] Exactly one integrity level is set: `asilLevel:`, `silLevel:`, or `plLevel:` — never more than one (W006)
+
+### For every safety/security Requirement
+
+- [ ] If `derivedFromSafetyGoal:` is set → the same integrity level field is set on this element (E841)
+- [ ] If `derivedFromSecurityGoal:` is set → `verificationMethod:` is also set (W807)
+- [ ] If integrity level is lower than the source SafetyGoal/parent → `breakdownAdr:` is set (W808)
+- [ ] Do not set both `silLevel:` and `asilLevel:` — use one standard per element (W006)
 
 ### Cross-references
 
