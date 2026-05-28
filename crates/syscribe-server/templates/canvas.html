@@ -479,6 +479,9 @@
 
     <div class="spacer"></div>
 
+    <!-- Issues filter toggle -->
+    <button class="tb-btn" id="btn-issues" onclick="toggleIssuesOnly()" title="Show only elements with errors or warnings">Issues</button>
+
     <!-- Hide packages toggle -->
     <button class="tb-btn" id="btn-hide-pkg" onclick="toggleHidePackages()">Hide Packages</button>
 
@@ -726,6 +729,23 @@ function buildStylesheet() {
       selector: 'edge[kind="typedBy"]',
       style: { 'line-color': '#94a3b8', 'target-arrow-color': '#94a3b8', 'line-style': 'dotted',  'target-arrow-shape': 'triangle-backcurve' },
     },
+    // ── Validation issue indicators ──
+    {
+      selector: 'node[hasWarning]',
+      style: {
+        'border-width':   3,
+        'border-color':   '#f59e0b',
+        'border-opacity': 1,
+      },
+    },
+    {
+      selector: 'node[hasError]',
+      style: {
+        'border-width':   4,
+        'border-color':   '#ef4444',
+        'border-opacity': 1,
+      },
+    },
     // ── Dim/highlight/focus classes ──
     { selector: 'node.dimmed', style: { 'opacity': 0.12 } },
     { selector: 'edge.dimmed', style: { 'opacity': 0.06 } },
@@ -739,6 +759,8 @@ function buildStylesheet() {
     { selector: 'edge.type-hidden', style: { 'display': 'none' } },
     { selector: 'node.focus-hidden', style: { 'display': 'none' } },
     { selector: 'edge.focus-hidden', style: { 'display': 'none' } },
+    { selector: 'node.issue-hidden', style: { 'display': 'none' } },
+    { selector: 'edge.issue-hidden', style: { 'display': 'none' } },
   ];
 }
 
@@ -751,6 +773,7 @@ let packagesHidden = false;
 let inFocusMode   = false;
 let savedPositions = null;   // {id: {x,y}} snapshot before focus mode
 const hiddenTypes = new Set();
+let issuesOnly = false;
 
 const REQ_TYPES = new Set(['Requirement', 'RequirementDef']);
 const TC_TYPES  = new Set(['TestCase']);
@@ -927,10 +950,18 @@ function initCytoscape(graphData) {
 //  Tooltip helpers
 // ───────────────────────────────────────────────────────────────────────────
 function buildNodeTooltip(node) {
-  const lbl  = esc(node.data('label') || node.id());
-  const type = esc(node.data('type')  || 'Unknown');
-  const qn   = esc(node.data('qname') || node.id());
-  return `<strong>${lbl}</strong><span class="tt-sub">${type}</span><br><span class="tt-qname">${qn}</span>`;
+  const lbl    = esc(node.data('label') || node.id());
+  const type   = esc(node.data('type')  || 'Unknown');
+  const qn     = esc(node.data('qname') || node.id());
+  const codes  = node.data('issueCodes') || [];
+  let issueHtml = '';
+  if (codes.length) {
+    const hasErr = node.data('hasError');
+    const color  = hasErr ? '#ef4444' : '#f59e0b';
+    const icon   = hasErr ? '✖' : '⚠';
+    issueHtml = `<br><span style="color:${color};font-size:10px">${icon} ${codes.map(esc).join(', ')}</span>`;
+  }
+  return `<strong>${lbl}</strong><span class="tt-sub">${type}</span><br><span class="tt-qname">${qn}</span>${issueHtml}`;
 }
 
 function buildEdgeTooltip(edge) {
@@ -1170,6 +1201,31 @@ function toggleHidePackages() {
   applyTypeFilter(); // re-evaluate edge visibility
 }
 
+function toggleIssuesOnly() {
+  if (!cy) return;
+  issuesOnly = !issuesOnly;
+  const btn = document.getElementById('btn-issues');
+  btn.classList.toggle('active', issuesOnly);
+  btn.textContent = issuesOnly ? 'All Elements' : 'Issues';
+
+  cy.nodes().forEach(node => {
+    if (!issuesOnly) {
+      node.removeClass('issue-hidden');
+      return;
+    }
+    const hasIssue = node.data('hasError') || node.data('hasWarning');
+    if (hasIssue) { node.removeClass('issue-hidden'); }
+    else          { node.addClass('issue-hidden'); }
+  });
+  cy.edges().forEach(edge => {
+    if (!issuesOnly) { edge.removeClass('issue-hidden'); return; }
+    const srcHidden = edge.source().hasClass('issue-hidden');
+    const tgtHidden = edge.target().hasClass('issue-hidden');
+    if (srcHidden || tgtHidden) { edge.addClass('issue-hidden'); }
+    else                        { edge.removeClass('issue-hidden'); }
+  });
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 //  Fit
 // ───────────────────────────────────────────────────────────────────────────
@@ -1259,13 +1315,13 @@ if (window.mermaid) {
   mermaid.initialize({ startOnLoad: false, theme: 'dark' });
 }
 
-fetch('/api/graph')
-  .then(r => {
-    if (!r.ok) throw new Error('Server returned HTTP ' + r.status);
-    return r.json();
-  })
-  .then(data => {
-    initCytoscape(data);
+Promise.all([
+  fetch('/api/graph').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }),
+  fetch('/api/validation').then(r => r.ok ? r.json() : { findings: [] }),
+])
+  .then(([graphData, valData]) => {
+    initCytoscape(graphData);
+    applyValidationData(valData);
   })
   .catch(err => {
     document.getElementById('loading-overlay').style.display = 'none';
@@ -1274,6 +1330,28 @@ fetch('/api/graph')
       'Failed to load graph data: ' + err.message;
     overlay.classList.add('visible');
   });
+
+function applyValidationData(valData) {
+  if (!cy || !valData || !valData.findings) return;
+  // Build qname → { hasError, hasWarning, codes[] }
+  const issueMap = {};
+  for (const f of valData.findings) {
+    if (!f.qname) continue;
+    if (!issueMap[f.qname]) issueMap[f.qname] = { hasError: false, hasWarning: false, codes: [] };
+    const entry = issueMap[f.qname];
+    if (f.severity === 'error')   entry.hasError   = true;
+    if (f.severity === 'warning') entry.hasWarning = true;
+    if (!entry.codes.includes(f.code)) entry.codes.push(f.code);
+  }
+  // Apply to matching nodes
+  cy.nodes().forEach(node => {
+    const entry = issueMap[node.data('qname')];
+    if (!entry) return;
+    if (entry.hasError)   node.data('hasError', true);
+    if (entry.hasWarning) node.data('hasWarning', true);
+    node.data('issueCodes', entry.codes);
+  });
+}
 </script>
 </body>
 </html>

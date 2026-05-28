@@ -8,6 +8,7 @@ pub struct FindingDto {
     pub code: &'static str,
     pub severity: &'static str,
     pub file: String,
+    pub qname: String,
     pub message: String,
 }
 
@@ -37,14 +38,23 @@ pub async fn get_validation(State(state): State<SharedState>) -> Json<Validation
     let findings: Vec<FindingDto> = result
         .findings
         .iter()
-        .map(|f| FindingDto {
-            code: f.code,
-            severity: match f.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-            },
-            file: f.file.clone(),
-            message: f.message.clone(),
+        .map(|f| {
+            let qname = store
+                .elements
+                .iter()
+                .find(|e| e.file_path == f.file)
+                .map(|e| e.qualified_name.clone())
+                .unwrap_or_default();
+            FindingDto {
+                code: f.code,
+                severity: match f.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                },
+                file: f.file.clone(),
+                qname,
+                message: f.message.clone(),
+            }
         })
         .collect();
 
