@@ -31,9 +31,54 @@ pub fn derive_qname(rel_path: &Path) -> String {
     parts.join("::")
 }
 
+/// Load ignore patterns from `<model_root>/.sysmlignore` (one gitignore-style pattern per line).
+fn load_sysmlignore(model_root: &Path) -> Vec<String> {
+    let path = model_root.join(".sysmlignore");
+    match std::fs::read_to_string(&path) {
+        Ok(content) => content
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(str::to_string)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Return true if `rel` (relative to model root) matches any of the patterns.
+/// Supports: exact filename (`README.md`), directory prefix (`Draft/`), simple glob (`*.log`).
+fn is_ignored(rel: &Path, patterns: &[String]) -> bool {
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    let filename = rel.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    for pat in patterns {
+        if pat.ends_with('/') {
+            // Directory pattern: any path whose first component matches
+            let dir = pat.trim_end_matches('/');
+            if rel_str.starts_with(&format!("{}/", dir)) {
+                return true;
+            }
+        } else if pat.contains('*') {
+            // Simple glob on filename only
+            let re_src = regex::escape(pat).replace("\\*", ".*");
+            if let Ok(re) = regex::Regex::new(&format!("^{}$", re_src)) {
+                if re.is_match(&filename) {
+                    return true;
+                }
+            }
+        } else {
+            // Exact filename or exact relative path
+            if filename == *pat || rel_str == *pat {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Walk `model_root`, parse every `.md` file, return `Vec<RawElement>`.
 pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
     let mut elements = Vec::new();
+    let ignore_patterns = load_sysmlignore(model_root);
 
     // Two-pass: collect all paths first, sort so _index.md comes before siblings
     let mut paths: Vec<PathBuf> = WalkDir::new(model_root)
@@ -42,6 +87,11 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().map_or(false, |ext| ext == "md"))
+        .filter(|e| {
+            if ignore_patterns.is_empty() { return true; }
+            let rel = e.path().strip_prefix(model_root).unwrap_or(e.path());
+            !is_ignored(rel, &ignore_patterns)
+        })
         .map(|e| e.into_path())
         .collect();
 
