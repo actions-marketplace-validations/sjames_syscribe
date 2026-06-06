@@ -107,7 +107,12 @@ syscribe -m model_auto/ validate --file model_auto/System/Software/SafetyMonitor
 syscribe -m model_auto/ validate --deny W004,W009    # named warnings become fatal
 syscribe -m model_auto/ validate --max-warnings 0    # any warning fails the build
 syscribe -m model_auto/ validate --warnings-as-errors
+
+# Fetch & verify remote sourceFiles via the .syscribe.toml [remote] hook (opt-in)
+syscribe -m model_auto/ validate --fetch-remote
 ```
+
+`sourceFile:` values resolve by form — bare/`model:` (model root), `repo:` (repo root), absolute, `file://`, or a remote `scheme://` URI. Remote URIs are accepted unverified by default; with a `[remote] download` hook in `.syscribe.toml` and `--fetch-remote`, they are downloaded (cached under `.syscribe/cache/`) and checked like local files. The hook only runs with the explicit flag.
 
 ### Query the model
 

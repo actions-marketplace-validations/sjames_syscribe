@@ -520,12 +520,27 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
 
         // W004: sourceFile must exist. Local paths (model-/repo-relative, absolute,
-        // or file://) are checked on disk; remote URIs are accepted as external
-        // and not verified locally (§11.12).
+        // or file://) are checked on disk. Remote URIs are accepted as external
+        // and not verified locally — unless a download hook is enabled
+        // (`--fetch-remote`), in which case a fetch failure is flagged (§11.12).
         if let Some(ref sf) = fm.source_file {
-            if let crate::config::SourceLocation::Local(p) = config.classify_source(sf) {
-                if !p.exists() {
-                    findings.push(warning("W004", &file, &format!("sourceFile '{}' does not exist on disk", sf)));
+            match config.classify_source(sf) {
+                crate::config::SourceLocation::Local(p) => {
+                    if !p.exists() {
+                        findings.push(warning("W004", &file, &format!("sourceFile '{}' does not exist on disk", sf)));
+                    }
+                }
+                crate::config::SourceLocation::Remote(uri) => {
+                    if let Some(hook) = &config.remote_hook {
+                        let retrieved = hook.fetch(&uri).map_or(false, |p| p.exists());
+                        if !retrieved {
+                            findings.push(warning(
+                                "W004",
+                                &file,
+                                &format!("remote sourceFile '{}' could not be retrieved via the configured download hook", sf),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -535,7 +550,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // that W004's file-level check cannot see). Skipped for remote sourceFiles,
         // which cannot be read locally.
         if let (Some(sf), Some(fns)) = (&fm.source_file, &fm.test_functions) {
-            if let crate::config::SourceLocation::Local(src_path) = config.classify_source(sf) {
+            // Local path, or a downloaded remote copy when a fetch hook is enabled.
+            if let Some(src_path) = config.resolve_source_local(sf) {
                 if src_path.exists() {
                     use crate::matchers::FnResolution;
                     let func_key = serde_yaml::Value::String("function".into());

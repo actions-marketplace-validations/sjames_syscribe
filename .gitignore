@@ -2,3 +2,4 @@ target/
 temp/
 site/
 *.layout.json
+.syscribe/cache/

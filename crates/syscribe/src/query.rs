@@ -2100,6 +2100,7 @@ pub fn print_help() {
     println!("           [--max-warnings <N>]  Fail (exit 2) when warnings exceed N");
     println!("           [--warnings-as-errors] Treat every warning as a gate failure (exit 2)");
     println!("           [--results <f>]       Ingest test results for this run (W010), without writing the sidecar");
+    println!("           [--fetch-remote]      Run the .syscribe.toml [remote] download hook to fetch & verify remote sourceFiles");
     println!("  ingest-results [--format cargo-json|junit] <file>");
     println!("                                 Parse test results into .syscribe/results.json (enables W010)");
     println!("  export [--ndjson]              Structured model graph as JSON (default) or NDJSON");

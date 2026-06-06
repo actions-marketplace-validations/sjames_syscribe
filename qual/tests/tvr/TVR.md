@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 70 |
-| Passed | 70 |
+| Total test cases | 71 |
+| Passed | 71 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -897,6 +897,17 @@
 | Scenario | Result |
 |---|---|
 | absolute and file:// resolve without new W004 | ✓ PASS |
+
+---
+
+### TC-TRS-VAL-013 — Verify the remote sourceFile download hook: opt-in fetch, function verification, and retrieval-failure flagging.
+
+**Verifies:** REQ-TRS-VAL-013  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --fetch-remote fetches and verifies | ✓ PASS |
 
 ---
 

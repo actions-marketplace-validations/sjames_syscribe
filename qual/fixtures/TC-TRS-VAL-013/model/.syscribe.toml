@@ -1,0 +1,2 @@
+[remote]
+download = "case '{url}' in *fail*) exit 1 ;; *) printf 'fn remote_present(){}\n' > {dest} ;; esac"

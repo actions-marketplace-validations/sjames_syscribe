@@ -5027,7 +5027,21 @@ A `sourceFile:` value is interpreted by its form, so each element can choose how
 
 The repository root is taken from `repo_root` in `<model_root>/.syscribe.toml` (resolved against the model root when relative), or auto-detected as the nearest ancestor directory containing `.git`.
 
-Local forms are subject to `W004` (existence) and `W009` (function resolution). Remote URIs are treated as external: `W004` is not emitted and `W009` is skipped, since the file cannot be read during validation.
+Local forms are subject to `W004` (existence) and `W009` (function resolution). Remote URIs are treated as external: `W004` is not emitted and `W009` is skipped, since the file cannot be read during validation — **unless** a download hook is enabled (see below).
+
+##### Remote download hook
+
+A model may configure a hook that fetches remote sourceFiles so they can be verified like local ones:
+
+```toml
+[remote]
+download = "curl -fsSL {url} -o {dest}"
+# cache_dir = ".syscribe/cache"   # optional (default shown)
+```
+
+The `download` command is run via POSIX `sh`; `{url}` and `{dest}` are substituted as shell-quoted values, and `SYSCRIBE_URL` / `SYSCRIBE_DEST` are set in the environment. Fetched files are cached under `cache_dir` keyed by URL (extension preserved so the matcher still selects the language).
+
+For safety the hook is **opt-in**: defining it has no effect until the user runs `validate --fetch-remote`, so validating an untrusted model never executes configured commands. With `--fetch-remote`, a successfully fetched remote file is subject to `W009`; a URL the hook cannot retrieve raises `W004`.
 
 #### Function matchers (`W009`)
 

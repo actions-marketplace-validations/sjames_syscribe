@@ -252,6 +252,14 @@ fn main() {
                         vcfg_run.results = Some(data);
                     }
                 }
+                // Opt-in: enable the .syscribe.toml download hook for remote sourceFiles.
+                if rest.iter().any(|a| a == "--fetch-remote") {
+                    vcfg_run.remote_hook =
+                        syscribe_model::remote::RemoteHook::load(model_root);
+                    if vcfg_run.remote_hook.is_none() {
+                        eprintln!("--fetch-remote: no [remote] download hook configured in .syscribe.toml");
+                    }
+                }
                 query::cmd_validate(&elems, &vcfg_run, &gate, file_filter, json);
             }
             "ingest-results" => {

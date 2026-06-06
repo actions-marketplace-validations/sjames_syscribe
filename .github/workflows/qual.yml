@@ -15,7 +15,7 @@ on:
 
 jobs:
   qualify:
-    name: TCL2 qualification suite (70 TCs)
+    name: TCL2 qualification suite (71 TCs)
     runs-on: ubuntu-latest
 
     steps:

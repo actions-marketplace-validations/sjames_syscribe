@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::matchers::MatcherConfig;
+use crate::remote::RemoteHook;
 use crate::results::ResultsData;
 
 /// Where a `sourceFile:` value points, after classifying its semantics.
@@ -46,6 +47,13 @@ pub struct ValidateConfig {
     /// Ingested test-run results (`W010`). Loaded from
     /// `<model_root>/.syscribe/results.json`.
     pub results: Option<ResultsData>,
+
+    /// Opt-in download hook for remote `sourceFile:` URIs. `None` (the default)
+    /// means remote sources are accepted but not fetched — defining a hook in
+    /// `.syscribe.toml` does **not** enable it; the CLI sets this only when
+    /// `validate --fetch-remote` is passed, so validation never runs configured
+    /// commands implicitly.
+    pub remote_hook: Option<RemoteHook>,
 }
 
 /// Minimal view of `.syscribe.toml` for the path settings (matchers are loaded
@@ -69,6 +77,20 @@ impl ValidateConfig {
             repo_root,
             matchers,
             results,
+            // Remote fetching is opt-in (CLI `--fetch-remote`); never enabled here.
+            remote_hook: None,
+        }
+    }
+
+    /// Resolve a `sourceFile:` value to a local path for checking/reading.
+    ///
+    /// Local forms return their path. A remote URI returns a downloaded cache
+    /// path **only** when a [`RemoteHook`] is enabled and the fetch succeeds;
+    /// otherwise `None` (the file is treated as unverifiable external).
+    pub fn resolve_source_local(&self, value: &str) -> Option<PathBuf> {
+        match self.classify_source(value) {
+            SourceLocation::Local(p) => Some(p),
+            SourceLocation::Remote(uri) => self.remote_hook.as_ref().and_then(|h| h.fetch(&uri)),
         }
     }
 
