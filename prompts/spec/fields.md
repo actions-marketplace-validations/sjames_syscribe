@@ -196,6 +196,8 @@ All frontmatter fields. Optional unless marked **required**.
 | `appliesWhen` | Any element (incl. TestCase) | string/list | Boolean expression over FeatureDef QNames: `and`/`or`/`not`/parentheses; a bare QName or a list (AND) also work. Element/TestCase is included only in variants where it holds. A TestCase with no `appliesWhen` runs in every Configuration. |
 | `featureModel` | FeatureDef/Configuration | string | QName of the system FeatureDef model root |
 | `features` | Configuration | map | Feature selections: `<FeatureDef QName>: true/false` (§9.8) |
+| `parameters` | FeatureDef | list | Typed parameters (§9.7): each `{name, type, range, enumValues, default, isFixed, isRequired, value}` |
+| `parameterBindings` | Configuration | map | Bind feature parameters: `<FeatureDef QName>::<param>: <value>` (validated: E203–E206, E222, W017) |
 | `groupKind` | FeatureDef | string | `mandatory` · `optional` · `alternative` · `or` |
 | `cardinality` | FeatureDef | string | For `or` groups: `"1..*"` etc. |
 | `isFixed` | FeatureDef parameter | bool | Prohibits binding override |

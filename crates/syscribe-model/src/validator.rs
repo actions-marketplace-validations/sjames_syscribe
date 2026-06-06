@@ -1806,6 +1806,137 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
     }
 
+    // E203–E206 / E222 / W017: FeatureDef parameter binding validation (§9.7).
+    // Single-level only — two-level `bindTo` propagation (E202), derived-
+    // expression cycles (E207), and cross-feature `parameterConstraints`
+    // (E213/W014) are intentionally not yet implemented.
+    {
+        let has_feature_def = elements
+            .iter()
+            .any(|e| matches!(e.frontmatter.element_type, Some(ElementType::FeatureDef)));
+        if has_feature_def {
+            struct ParamMeta {
+                is_fixed: bool,
+                range: Option<(f64, f64)>,
+                enum_values: Option<Vec<String>>,
+                is_required: bool,
+                has_default: bool,
+            }
+            let parse_range = |s: &str| -> Option<(f64, f64)> {
+                let (lo, hi) = s.split_once("..")?;
+                Some((lo.trim().parse().ok()?, hi.trim().parse().ok()?))
+            };
+            let num = |v: &serde_yaml::Value| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64));
+
+            // Per-FeatureDef parameter metadata, keyed by feature qualified name.
+            let mut feature_params: HashMap<String, HashMap<String, ParamMeta>> = HashMap::new();
+            for fd in elements
+                .iter()
+                .filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::FeatureDef)))
+            {
+                let mut params: HashMap<String, ParamMeta> = HashMap::new();
+                if let Some(list) = &fd.frontmatter.parameters {
+                    for p in list {
+                        let serde_yaml::Value::Mapping(m) = p else { continue };
+                        let get = |k: &str| m.get(serde_yaml::Value::String(k.to_string()));
+                        let Some(name) = get("name").and_then(|v| v.as_str()) else { continue };
+                        let is_fixed = get("isFixed").and_then(|v| v.as_bool()).unwrap_or(false)
+                            || get("derivedFrom").is_some()
+                            || get("value").is_some();
+                        let range = get("range").and_then(|v| v.as_str()).and_then(parse_range);
+                        let enum_values = get("enumValues").map(|v| {
+                            yaml_strings(v).into_iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                        });
+                        let is_required =
+                            get("isRequired").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let has_default = get("default").is_some() || get("value").is_some();
+                        params.insert(
+                            name.to_string(),
+                            ParamMeta { is_fixed, range, enum_values, is_required, has_default },
+                        );
+                    }
+                }
+                feature_params.insert(fd.qualified_name.clone(), params);
+            }
+
+            for cfg in elements
+                .iter()
+                .filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::Configuration)))
+            {
+                let sel = cfg.frontmatter.feature_selections();
+                let is_selected = |feat: &str| sel.get(feat).copied().unwrap_or(false);
+                let file = &cfg.file_path;
+                let mut bound: HashSet<String> = HashSet::new();
+
+                if let Some(serde_yaml::Value::Mapping(bindings)) =
+                    &cfg.frontmatter.parameter_bindings
+                {
+                    for (k, val) in bindings {
+                        let Some(path) = k.as_str() else { continue };
+                        let Some((feat, pname)) = path.rsplit_once("::") else {
+                            findings.push(error("E222", file, &format!(
+                                "parameterBindings key '{}' is not a '<FeatureDef>::<param>' path", path)));
+                            continue;
+                        };
+                        bound.insert(path.to_string());
+                        let Some(params) = feature_params.get(feat) else {
+                            findings.push(error("E222", file, &format!(
+                                "parameterBindings path '{}' references unknown FeatureDef '{}'", path, feat)));
+                            continue;
+                        };
+                        let Some(meta) = params.get(pname) else {
+                            findings.push(error("E222", file, &format!(
+                                "parameterBindings path '{}' references undeclared parameter '{}' on '{}'", path, pname, feat)));
+                            continue;
+                        };
+                        if !is_selected(feat) {
+                            findings.push(error("E203", file, &format!(
+                                "parameterBindings binds '{}' but feature '{}' is not selected", path, feat)));
+                        }
+                        if meta.is_fixed {
+                            findings.push(error("E204", file, &format!(
+                                "parameterBindings binds '{}' which is fixed (isFixed/value/derivedFrom) and may not be overridden", path)));
+                        }
+                        if let Some((lo, hi)) = meta.range {
+                            if let Some(n) = num(val) {
+                                if n < lo || n > hi {
+                                    findings.push(error("E205", file, &format!(
+                                        "parameterBindings '{}' = {} is outside range {}..{}", path, n, lo, hi)));
+                                }
+                            }
+                        }
+                        if let Some(allowed) = &meta.enum_values {
+                            if let Some(s) = val.as_str() {
+                                if !allowed.iter().any(|a| a == s) {
+                                    findings.push(error("E206", file, &format!(
+                                        "parameterBindings '{}' = '{}' is not in enumValues {:?}", path, s, allowed)));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // W017: a selected feature's required, non-fixed, default-less
+                // parameter must be bound. (Spec §9.11 names this W010, which is
+                // already taken by test-result ingestion in this tool.)
+                for (feat, params) in &feature_params {
+                    if !is_selected(feat) {
+                        continue;
+                    }
+                    for (pname, meta) in params {
+                        if meta.is_required && !meta.is_fixed && !meta.has_default {
+                            let path = format!("{}::{}", feat, pname);
+                            if !bound.contains(&path) {
+                                findings.push(warning("W017", file, &format!(
+                                    "required parameter '{}' of selected feature '{}' is not bound (and has no default)", path, feat)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // W015: per-Configuration coverage (variant-aware uncovered requirement).
     // Only active when the variability dimension is on (REQ-TRS-VAR-001). For
     // each Configuration C and each non-draft requirement R that is *active* in

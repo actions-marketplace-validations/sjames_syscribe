@@ -709,6 +709,8 @@ Every operand must resolve to a `FeatureDef` (else `E209`).
 
 If two configurations would have identical `features:` (e.g. emulator vs physical rig), model the distinguishing axis as its own feature (e.g. an `ExecEnv` alternative group) rather than reaching for a separate field.
 
+**Feature parameters (quantitative variability, §9.7).** A `FeatureDef` may declare typed `parameters:` (each `{name, type, range: "min..max", enumValues, default, isFixed, isRequired}`); a `Configuration` binds them under `parameterBindings:` keyed by `<FeatureDef QName>::<param>`. Bindings are validated: a binding for an unselected feature (`E203`), of a fixed parameter (`E204`), out of `range:` (`E205`), not in `enumValues:` (`E206`), or to an undeclared parameter (`E222`) is an error; a selected feature's required, default-less parameter left unbound warns (`W017`). (Two-level `bindTo:` propagation and cross-feature `parameterConstraints` are not yet enforced.)
+
 ---
 
 ## Part 10 — §12 Traceability Rules
@@ -914,6 +916,8 @@ draft → review → approved → implemented → verified
 | E209 | `appliesWhen:` malformed or an operand is not a `FeatureDef` | Fix the expression; every operand must be a `FeatureDef` QName |
 | W015 | Requirement active in a `Configuration` with no covering in-config TestCase | Add a `TestCase` whose `appliesWhen:` holds in that config and `verifies:` the requirement (see Part 9b) |
 | W016 | `Configuration` parsed no feature selections (e.g. used `selections:`) | Use a `features:` map of `<FeatureDef>: true/false` (run `template Configuration`) |
+| E203–E206 / E222 | Bad `parameterBindings`: unselected feature / fixed param / out of range / not in enum / undeclared path | Bind only selected, configurable params with in-range, in-enum values keyed `<FeatureDef>::<param>` |
+| W017 | Selected feature's required parameter left unbound | Bind it in `parameterBindings:` or give the parameter a `default:` |
 
 ---
 

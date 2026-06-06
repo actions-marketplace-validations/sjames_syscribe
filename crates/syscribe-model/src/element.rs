@@ -339,6 +339,10 @@ pub struct RawFrontmatter {
     pub excludes: Option<Vec<String>>,
     pub contributes_to: Option<String>,
 
+    // §9.7 — FeatureDef parameters (also used by ActionDef/CalculationDef as a
+    // generic typed-parameter list; only FeatureDef parameters are validated).
+    pub parameters: Option<Vec<serde_yaml::Value>>,
+
     // §9.8 — Configuration
     pub feature_model: Option<String>,
     pub parameter_bindings: Option<serde_yaml::Value>,

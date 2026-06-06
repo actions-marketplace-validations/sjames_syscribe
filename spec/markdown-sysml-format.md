@@ -4413,6 +4413,9 @@ sourceFile: "src/flight/mixing_hex.rs"
 | `W014` | A `parameterConstraint` has `appliesWhen:` that references a feature not in any `Configuration` |
 | `W015` | A requirement is **active** in a `Configuration` (its `appliesWhen:` holds for that configuration's `features:`) but no non-draft `TestCase` that runs in that `Configuration` (§9.10) verifies it. Emitted only when the variability dimension is active (§9.10.1); draft requirements/tests are suppressed; gate with `--deny W015`. |
 | `W016` | A `Configuration` parsed **zero** feature selections while a `FeatureDef` exists in the model — e.g. it used an unrecognized `selections:` key instead of the `features:` map (§9.8). Surfaces the otherwise-silent failure that yields an all-N/A coverage matrix. |
+| `W017` | A selected feature declares a parameter `isRequired: true` (not fixed, no `default:`) that the `Configuration` does not bind. (This is §9.7's nominal `W010`; the validator uses `W017` because `W010` is taken by test-result ingestion.) |
+
+> **Implementation note.** The single-level binding rules `E203`–`E206`, the unresolved-path error `E222`, and `W017` are enforced. Two-level `bindTo:` propagation (`E202`), circular `derivedFrom:` detection (`E207`), and cross-feature `parameterConstraints` (`E213`/`W014`) are specified but not yet implemented. `E222` is an implementation code for a binding path that resolves to no declared parameter.
 
 ---
 

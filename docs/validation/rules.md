@@ -68,9 +68,14 @@
 |---|---|
 | E200 | Configuration `id` does not match `CONF-*` pattern |
 | E201 | Configuration missing `id`, `title`, `status`, or `featureModel` |
+| E203 | `parameterBindings` binds a parameter of a feature that is not selected |
+| E204 | `parameterBindings` binds a fixed parameter (`isFixed`/`value`/`derivedFrom`) |
+| E205 | A bound parameter value is outside the parameter's `range:` |
+| E206 | A bound parameter value is not in the parameter's `enumValues:` |
 | E209 | `appliesWhen:` is malformed, or an operand does not resolve to a FeatureDef. `appliesWhen:` accepts a bare QName, a list (AND), or a boolean expression (`and`/`or`/`not`/parentheses); every operand is checked. |
+| E222 | A `parameterBindings` key does not resolve to a declared `FeatureDef` parameter (bad path, unknown feature, or undeclared parameter) |
 
-## PLE warnings (W015–W016)
+## PLE warnings (W015–W017)
 
 The variability dimension is **opt-in**: it is dormant — and these checks do not fire — unless the model has at least one `FeatureDef` and something linking to it (a `Configuration`, or any element/`TestCase` with `appliesWhen:`).
 
@@ -78,6 +83,7 @@ The variability dimension is **opt-in**: it is dormant — and these checks do n
 |---|---|
 | W015 | A requirement is **active** in a `Configuration` (its `appliesWhen:` holds for that configuration's selections) but no non-draft `TestCase` that runs in that `Configuration` verifies it. Draft requirements and draft tests are suppressed. Gate it in CI with `--deny W015`. |
 | W016 | A `Configuration` parsed **zero** feature selections while a feature model exists — e.g. it used a legacy/unrecognized `selections:` key instead of the `features:` map (§9.8). Without this warning the block is silently ignored and every cell in `matrix` comes back N/A. Not emitted when no `FeatureDef` is present. |
+| W017 | A selected feature declares a required parameter (`isRequired: true`, not fixed, no `default:`) that the `Configuration` does not bind. (§9.11 names this `W010`, which this tool already uses for test-result ingestion.) |
 
 A `TestCase` *runs in* a `Configuration` iff its `appliesWhen:` is satisfied by that configuration's `features:` selections; a `TestCase` with no `appliesWhen:` runs in every configuration. The same relationship powers `syscribe matrix`.
 
