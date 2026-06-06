@@ -2,7 +2,7 @@
 id: TC-W009-CC-001
 type: TestCase
 title: "c testFunction resolves in source"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-W009-CLEAN-001

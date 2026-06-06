@@ -2,7 +2,7 @@
 id: TC-W009-GEN-001
 type: TestCase
 title: "generic testFunction resolves in source"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-W009-CLEAN-001

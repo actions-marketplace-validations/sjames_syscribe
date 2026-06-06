@@ -2,7 +2,7 @@
 id: TC-W009-TRIG-RS-001
 type: TestCase
 title: "Rust testFunction was renamed in the source"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-W009-TRIG-001

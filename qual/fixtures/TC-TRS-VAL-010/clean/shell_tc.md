@@ -2,7 +2,7 @@
 id: TC-W009-SH-001
 type: TestCase
 title: "shell testFunction resolves in source"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-W009-CLEAN-001

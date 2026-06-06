@@ -24,6 +24,10 @@ pub struct Finding {
 pub enum Severity {
     Error,
     Warning,
+    /// Informational: surfaces a fact (e.g. a planned, not-yet-implemented test)
+    /// without failing validation. Never causes a non-zero exit on its own, but
+    /// can be selected explicitly via `--deny <code>`.
+    Info,
 }
 
 impl std::fmt::Display for Finding {
@@ -31,6 +35,7 @@ impl std::fmt::Display for Finding {
         let tag = match self.severity {
             Severity::Error => "ERROR",
             Severity::Warning => "WARN",
+            Severity::Info => "INFO",
         };
         write!(f, "[{}] {} {}: {}", tag, self.code, self.file, self.message)
     }
@@ -50,6 +55,9 @@ impl ValidationResult {
     }
     pub fn warnings(&self) -> impl Iterator<Item = &Finding> {
         self.findings.iter().filter(|f| f.severity == Severity::Warning)
+    }
+    pub fn infos(&self) -> impl Iterator<Item = &Finding> {
+        self.findings.iter().filter(|f| f.severity == Severity::Info)
     }
 }
 
@@ -519,27 +527,47 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 "both silLevel (IEC 61508) and asilLevel (ISO 26262) are set — these are incompatible standards; use only one"));
         }
 
+        // Source-drift checks (W004/W009) are scoped to TestCase status (issue #6):
+        //   active           -> "live": drift is a real defect, emit W004/W009.
+        //   draft|review|approved -> "planned": sources may not exist yet, emit
+        //                            informational I010 instead.
+        //   retired (or unknown)  -> suppress entirely.
+        // Non-TestCase elements with a sourceFile are always checked (W004).
+        let is_tc = matches!(fm.element_type, Some(ElementType::TestCase));
+        let tc_status = fm.status.as_deref().unwrap_or("");
+        let drift_live = !is_tc || tc_status == "active";
+        let drift_planned = is_tc && matches!(tc_status, "draft" | "review" | "approved");
+        let drift_relevant = drift_live || drift_planned;
+
         // W004: sourceFile must exist. Local paths (model-/repo-relative, absolute,
         // or file://) are checked on disk. Remote URIs are accepted as external
         // and not verified locally — unless a download hook is enabled
         // (`--fetch-remote`), in which case a fetch failure is flagged (§11.12).
         if let Some(ref sf) = fm.source_file {
-            match config.classify_source(sf) {
-                crate::config::SourceLocation::Local(p) => {
-                    if !p.exists() {
-                        findings.push(warning("W004", &file, &format!("sourceFile '{}' does not exist on disk", sf)));
+            if drift_relevant {
+                let (missing, w004_msg, i010_msg) = match config.classify_source(sf) {
+                    crate::config::SourceLocation::Local(p) => (
+                        !p.exists(),
+                        format!("sourceFile '{}' does not exist on disk", sf),
+                        format!("planned TestCase (status: {}): sourceFile '{}' is not present yet", tc_status, sf),
+                    ),
+                    crate::config::SourceLocation::Remote(uri) => {
+                        let miss = match &config.remote_hook {
+                            Some(hook) => !hook.fetch(&uri).map_or(false, |p| p.exists()),
+                            None => false, // remote, no hook: accepted, not checked
+                        };
+                        (
+                            miss,
+                            format!("remote sourceFile '{}' could not be retrieved via the configured download hook", sf),
+                            format!("planned TestCase (status: {}): remote sourceFile '{}' could not be retrieved", tc_status, sf),
+                        )
                     }
-                }
-                crate::config::SourceLocation::Remote(uri) => {
-                    if let Some(hook) = &config.remote_hook {
-                        let retrieved = hook.fetch(&uri).map_or(false, |p| p.exists());
-                        if !retrieved {
-                            findings.push(warning(
-                                "W004",
-                                &file,
-                                &format!("remote sourceFile '{}' could not be retrieved via the configured download hook", sf),
-                            ));
-                        }
+                };
+                if missing {
+                    if drift_live {
+                        findings.push(warning("W004", &file, &w004_msg));
+                    } else {
+                        findings.push(info("I010", &file, &i010_msg));
                     }
                 }
             }
@@ -547,26 +575,30 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
         // W009: every testFunctions[].function must resolve to a definition in
         // sourceFile (function-level traceability — catches renamed/deleted tests
-        // that W004's file-level check cannot see). Skipped for remote sourceFiles,
-        // which cannot be read locally.
+        // that W004's file-level check cannot see). Live TestCases drift to W009;
+        // planned TestCases surface I010; remote (un-fetched) and retired are skipped.
         if let (Some(sf), Some(fns)) = (&fm.source_file, &fm.test_functions) {
-            // Local path, or a downloaded remote copy when a fetch hook is enabled.
-            if let Some(src_path) = config.resolve_source_local(sf) {
-                if src_path.exists() {
-                    use crate::matchers::FnResolution;
-                    let func_key = serde_yaml::Value::String("function".into());
-                    for tf in fns {
-                        if let serde_yaml::Value::Mapping(map) = tf {
-                            if let Some(serde_yaml::Value::String(func)) = map.get(&func_key) {
-                                match config.matchers.resolve(&src_path, func) {
-                                    FnResolution::Found => {}
-                                    FnResolution::NotFound => findings.push(warning(
-                                        "W009",
-                                        &file,
-                                        &format!("testFunction '{}' not found in sourceFile '{}'", func, sf),
-                                    )),
-                                    // File existed for resolve() but became unreadable; W004 covers absence.
-                                    FnResolution::Unreadable => {}
+            if drift_relevant {
+                if let Some(src_path) = config.resolve_source_local(sf) {
+                    if src_path.exists() {
+                        use crate::matchers::FnResolution;
+                        let func_key = serde_yaml::Value::String("function".into());
+                        for tf in fns {
+                            if let serde_yaml::Value::Mapping(map) = tf {
+                                if let Some(serde_yaml::Value::String(func)) = map.get(&func_key) {
+                                    if config.matchers.resolve(&src_path, func) == FnResolution::NotFound {
+                                        if drift_live {
+                                            findings.push(warning("W009", &file, &format!(
+                                                "testFunction '{}' not found in sourceFile '{}'", func, sf,
+                                            )));
+                                        } else {
+                                            findings.push(info("I010", &file, &format!(
+                                                "planned TestCase (status: {}): testFunction '{}' not present in sourceFile '{}'",
+                                                tc_status, func, sf,
+                                            )));
+                                        }
+                                    }
+                                    // Found / Unreadable: nothing.
                                 }
                             }
                         }
@@ -2457,6 +2489,10 @@ fn error(code: &'static str, file: &str, msg: &str) -> Finding {
 
 fn warning(code: &'static str, file: &str, msg: &str) -> Finding {
     Finding { code, file: file.to_string(), message: msg.to_string(), severity: Severity::Warning }
+}
+
+fn info(code: &'static str, file: &str, msg: &str) -> Finding {
+    Finding { code, file: file.to_string(), message: msg.to_string(), severity: Severity::Info }
 }
 
 /// Extract the normative text: everything before the first `##` heading.

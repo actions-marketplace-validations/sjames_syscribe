@@ -50,6 +50,7 @@ pub async fn get_validation(State(state): State<SharedState>) -> Json<Validation
                 severity: match f.severity {
                     Severity::Error => "error",
                     Severity::Warning => "warning",
+                    Severity::Info => "info",
                 },
                 file: f.file.clone(),
                 qname,

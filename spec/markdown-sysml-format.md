@@ -4968,11 +4968,11 @@ This section defines the normative set of parse-time errors, model-time errors, 
 | `W001` | Native `Requirement` normative text contains no `shall` |
 | `W002` | Native `Requirement` with `status: approved` or `status: implemented` has no `active` TestCase in `verifiedBy` |
 | `W003` | Native `Requirement` with `status: verified` but `verifiedBy` is empty or all entries have `status: retired` |
-| `W004` | A **local** `sourceFile:` path does not exist on disk. Remote-URI sourceFiles are accepted and not checked locally (see *sourceFile location semantics*). |
+| `W004` | A **local** `sourceFile:` path does not exist on disk. For a `TestCase`, emitted only when `status: active` (see *TestCase drift scoping*). Remote-URI sourceFiles are accepted and not checked locally (see *sourceFile location semantics*). |
 | `W005` | Native `Requirement` has neither `derivedFrom:` entries nor `derivedChildren` (possible orphan not connected to any requirement hierarchy) |
 | `W006` | Both `silLevel:` (IEC 61508) and `asilLevel:` (ISO 26262) are set on the same element — incompatible standards; use only one |
 | `W007` | Frontmatter contains an unrecognised key (lenient mode; key is preserved in the element's extra-fields map) |
-| `W009` | A `testFunctions[].function` does not resolve to a definition in its (existing) `sourceFile` — function-level traceability drift (renamed/deleted test). See *Function matchers* below. |
+| `W009` | A `testFunctions[].function` does not resolve to a definition in its (existing) `sourceFile` — function-level traceability drift (renamed/deleted test). Emitted only for `TestCase`s with `status: active` (see *TestCase drift scoping*). See *Function matchers* below. |
 | `W010` | An `active` `TestCase`'s `testFunctions[].function` last failed, was ignored/skipped, or was absent in the ingested test results. See *Test result ingestion* below. Inert unless results have been ingested. |
 | `W300` | Leaf `Requirement` at `status: approved` or `status: implemented` has no satisfying architecture element (no element has `satisfies:` pointing to it) |
 | `W301` | Leaf `Requirement` is satisfied by more than one architecture element — only one expected at leaf level |
@@ -5042,6 +5042,28 @@ download = "curl -fsSL {url} -o {dest}"
 The `download` command is run via POSIX `sh`; `{url}` and `{dest}` are substituted as shell-quoted values, and `SYSCRIBE_URL` / `SYSCRIBE_DEST` are set in the environment. Fetched files are cached under `cache_dir` keyed by URL (extension preserved so the matcher still selects the language).
 
 For safety the hook is **opt-in**: defining it has no effect until the user runs `validate --fetch-remote`, so validating an untrusted model never executes configured commands. With `--fetch-remote`, a successfully fetched remote file is subject to `W009`; a URL the hook cannot retrieve raises `W004`.
+
+#### TestCase drift scoping
+
+The source-drift checks `W004` (sourceFile existence) and `W009` (testFunction resolution) are scoped to a `TestCase`'s lifecycle, because drift is only meaningful once a test is claimed to exist. The `TestCase` `status` vocabulary and its drift treatment:
+
+| `status` | Meaning | Drift treatment |
+|---|---|---|
+| `draft` | specified skeleton, not implemented | **planned** — informational `I010`, no `W004`/`W009` |
+| `review` | spec under review | **planned** — `I010` |
+| `approved` | spec approved, not yet implemented | **planned** — `I010` |
+| `active` | implemented and live | **live** — `W004`/`W009` apply |
+| `retired` | decommissioned | suppressed — no `W004`/`W009`/`I010` |
+
+A non-`TestCase` element that carries a `sourceFile:` is always checked (`W004`), independent of any status. This lets a model honestly carry planned verification (e.g. future HIL/WCET cases) without fake stubs or warning noise, while `validate --deny W004,W009` gates the live verification set cleanly.
+
+#### Informational codes
+
+Informational findings surface a fact without failing validation. They never cause a non-zero exit on their own, but can be selected explicitly with `--deny <code>`.
+
+| Code | Condition |
+|---|---|
+| `I010` | A planned `TestCase` (`status` `draft`/`review`/`approved`) has a `sourceFile`/`testFunctions[].function` that is not present yet (the planned-verification counterpart of `W004`/`W009`). |
 
 #### Function matchers (`W009`)
 

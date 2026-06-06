@@ -1,20 +1,20 @@
 ---
-id: TC-V12-MODEL-001
+id: TC-V14-AD-001
 type: TestCase
-title: "tc_model"
+title: "tc_active_drift"
 status: active
 testLevel: L3
 verifies:
-  - REQ-V12-001
+  - REQ-V14-001
 sourceFile: model:tests.rs
 testFunctions:
-  - function: "m::tests::present_case"
+  - function: "m::renamed"
     scenario: "case"
 ---
 
 ```gherkin
-Feature: tc_model
+Feature: tc_active_drift
   Scenario: case
-    Given a source file
-    Then it resolves
+    Given x
+    Then y
 ```

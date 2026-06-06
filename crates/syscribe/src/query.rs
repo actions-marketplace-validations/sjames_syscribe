@@ -1090,14 +1090,21 @@ pub struct GateOptions {
 }
 
 impl GateOptions {
-    /// Returns the warnings that trip the gate, given the full warning list.
-    fn denied<'a>(&self, warnings: &[&'a syscribe_model::validator::Finding])
-        -> Vec<&'a syscribe_model::validator::Finding>
-    {
-        if self.warnings_as_errors {
-            return warnings.to_vec();
-        }
-        warnings.iter().filter(|f| self.deny.contains(f.code)).copied().collect()
+    /// Returns the findings that trip the gate. Warnings are gated by `--deny` (or
+    /// all of them under `--warnings-as-errors`); informational findings are gated
+    /// only when their code is explicitly listed in `--deny`.
+    fn denied<'a>(
+        &self,
+        warnings: &[&'a syscribe_model::validator::Finding],
+        infos: &[&'a syscribe_model::validator::Finding],
+    ) -> Vec<&'a syscribe_model::validator::Finding> {
+        let mut out: Vec<&syscribe_model::validator::Finding> = if self.warnings_as_errors {
+            warnings.to_vec()
+        } else {
+            warnings.iter().filter(|f| self.deny.contains(f.code)).copied().collect()
+        };
+        out.extend(infos.iter().filter(|f| self.deny.contains(f.code)).copied());
+        out
     }
 }
 
@@ -1121,9 +1128,10 @@ pub fn cmd_validate(
 
     let errors: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Error).copied().collect();
     let warnings: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Warning).copied().collect();
+    let infos: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Info).copied().collect();
 
     // Gate evaluation (independent of output format).
-    let denied = gate.denied(&warnings);
+    let denied = gate.denied(&warnings, &infos);
     let over_max = gate.max_warnings.map_or(false, |m| warnings.len() > m);
     let gate_tripped = !denied.is_empty() || over_max;
 
@@ -1140,7 +1148,11 @@ pub fn cmd_validate(
         let items: Vec<serde_json::Value> = findings.iter().map(|f| {
             serde_json::json!({
                 "code": f.code,
-                "severity": match f.severity { Severity::Error => "error", Severity::Warning => "warning" },
+                "severity": match f.severity {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                    Severity::Info => "info",
+                },
                 "file": f.file,
                 "message": f.message,
             })
@@ -1179,6 +1191,17 @@ pub fn cmd_validate(
         println!("| Code | File | Message |");
         println!("|---|---|---|");
         for f in &warnings {
+            println!("| {} | {} | {} |", f.code, f.file, f.message);
+        }
+        println!();
+    }
+
+    if !infos.is_empty() {
+        println!("Informational ({}):", infos.len());
+        println!();
+        println!("| Code | File | Message |");
+        println!("|---|---|---|");
+        for f in &infos {
             println!("| {} | {} | {} |", f.code, f.file, f.message);
         }
         println!();

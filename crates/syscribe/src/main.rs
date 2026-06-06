@@ -370,6 +370,7 @@ fn main() {
 
     let error_count = result.errors().count();
     let warning_count = result.warnings().count();
+    let info_count = result.infos().count();
 
     // Pre-compute sets we reuse across sections
     let native_reqs: Vec<&RawElement> = elems.iter().filter(|e| is_native_req(e)).collect();
@@ -428,6 +429,7 @@ fn main() {
     println!("| Total elements | {} |", elems.len());
     println!("| Errors | {} |", error_count);
     println!("| Warnings | {} |", warning_count);
+    println!("| Informational | {} |", info_count);
     println!("| Requirements (total) | {} |", req_count);
     println!("| Requirements (parent) | {} |", parent_req_count);
     println!("| Requirements (leaf) | {} |", leaf_req_count);
@@ -447,8 +449,9 @@ fn main() {
 
     let errors: Vec<_> = result.errors().collect();
     let warnings: Vec<_> = result.warnings().collect();
+    let infos: Vec<_> = result.infos().collect();
 
-    if errors.is_empty() && warnings.is_empty() {
+    if errors.is_empty() && warnings.is_empty() && infos.is_empty() {
         println!("> **All validation rules pass — 0 errors, 0 warnings.**");
     } else {
         if !errors.is_empty() {
@@ -467,6 +470,16 @@ fn main() {
             println!("| Code | File | Message |");
             println!("|---|---|---|");
             for f in &warnings {
+                println!("| {} | {} | {} |", f.code, f.file, f.message);
+            }
+            println!();
+        }
+        if !infos.is_empty() {
+            println!("### Informational");
+            println!();
+            println!("| Code | File | Message |");
+            println!("|---|---|---|");
+            for f in &infos {
                 println!("| {} | {} | {} |", f.code, f.file, f.message);
             }
             println!();

@@ -2,7 +2,7 @@
 id: TC-V12-REMOTE-001
 type: TestCase
 title: "tc_remote"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-V12-001

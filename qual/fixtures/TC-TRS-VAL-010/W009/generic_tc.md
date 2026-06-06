@@ -2,7 +2,7 @@
 id: TC-W009-TRIG-GEN-001
 type: TestCase
 title: "Generic test file no longer contains the named test"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-W009-TRIG-001

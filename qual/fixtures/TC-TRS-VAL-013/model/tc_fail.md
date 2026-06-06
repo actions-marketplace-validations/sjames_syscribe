@@ -2,7 +2,7 @@
 id: TC-V13-FAIL-001
 type: TestCase
 title: "tc_fail"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-V13-001

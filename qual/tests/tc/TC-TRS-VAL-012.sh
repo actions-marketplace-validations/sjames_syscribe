@@ -18,7 +18,7 @@ tc_TRS_VAL_012() {
 id: $2
 type: TestCase
 title: "$1"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-V12-001

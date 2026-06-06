@@ -2,7 +2,7 @@
 id: TC-V12-MISS-001
 type: TestCase
 title: "tc_missing"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-V12-001

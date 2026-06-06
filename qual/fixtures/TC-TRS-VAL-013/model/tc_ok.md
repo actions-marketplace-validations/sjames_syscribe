@@ -2,7 +2,7 @@
 id: TC-V13-OK-001
 type: TestCase
 title: "tc_ok"
-status: draft
+status: active
 testLevel: L3
 verifies:
   - REQ-V13-001

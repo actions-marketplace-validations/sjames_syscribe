@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 71 |
-| Passed | 71 |
+| Total test cases | 73 |
+| Passed | 73 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -908,6 +908,28 @@
 | Scenario | Result |
 |---|---|
 | --fetch-remote fetches and verifies | ✓ PASS |
+
+---
+
+### TC-TRS-VAL-014 — Verify W004/W009 fire for active TestCases only, while non-TestCase sourceFiles are still checked.
+
+**Verifies:** REQ-TRS-VAL-014  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| drift checks scoped to active TestCases | ✓ PASS |
+
+---
+
+### TC-TRS-VAL-015 — Verify informational I010 for planned TestCase sources: emitted for draft, deniable, exit-neutral, none for retired.
+
+**Verifies:** REQ-TRS-VAL-015  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --deny I010 gates | ✓ PASS |
 
 ---
 
