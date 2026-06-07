@@ -336,7 +336,23 @@ fn main() {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
                 let deep = rest.iter().any(|a| a == "--deep");
-                query::cmd_feature_check(&elems, json, deep);
+                let count = rest.iter().any(|a| a == "--count");
+                let enumerate = rest.iter().any(|a| a == "--enumerate");
+                let prove = rest
+                    .windows(2)
+                    .find(|w| w[0] == "--prove")
+                    .map(|w| w[1].as_str());
+                query::cmd_feature_check(&elems, json, deep, count, enumerate, prove);
+            }
+            "configure" => {
+                let conf = subcommand_args.get(1).map(|s| s.as_str()).unwrap_or("");
+                if conf.is_empty() || conf.starts_with("--") {
+                    eprintln!("Usage: syscribe --model <root> configure <Configuration> [--json]");
+                    std::process::exit(1);
+                }
+                let rest = subcommand_args.get(2..).unwrap_or(&[]);
+                let json = rest.iter().any(|a| a == "--json");
+                query::cmd_configure(&elems, conf, json);
             }
             "path-for" => {
                 if key.is_empty() {

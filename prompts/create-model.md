@@ -90,7 +90,9 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe model/ refs <qname\|id>` | What elements reference this element (for a `Configuration`: the TestCases that run in it) |
 | `syscribe model/ matrix [--json] [--tag <t>]` | Requirement × Configuration coverage grid (variant-aware; see Part 9b) |
 | `syscribe model/ feature-check [--json]` | Holistic feature-model validation (requires/excludes, cycles, bindTo, constraints); separate from `validate` |
-| `syscribe model/ feature-check --deep` | SAT-backed analysis: void / dead / core / false-optional features, full-semantics config validity, with explanations |
+| `syscribe model/ feature-check --deep` | SAT-backed analysis: void / dead / core / false-optional features, full-semantics config validity, explanations + diagnoses |
+| `syscribe model/ feature-check --count` / `--enumerate` | Count / list the valid configurations the feature model permits |
+| `syscribe model/ configure <Configuration>` | Assisted configuration: from a partial selection, report satisfiability + forced/free features |
 
 **Traceability:**
 
@@ -715,7 +717,7 @@ If two configurations would have identical `features:` (e.g. emulator vs physica
 
 **Holistic checks — run `feature-check` (not part of `validate`).** `syscribe feature-check` validates the feature model as a whole: `requires:`/`excludes:` resolution (`E212`) and satisfaction per configuration (`E219`/`E220`), dead/always-on optional features (`W011`/`W012`), circular `derivedFrom:` (`E207`), `bindTo:` propagation outside the component `range:` (`E202`), and cross-feature `parameterConstraints` declared on a package `_index.md` — unresolved paths (`E213`) and `appliesWhen:` features used in no configuration (`W014`).
 
-**Whole-space analysis — `feature-check --deep`.** Adds SAT-backed reasoning over a propositional encoding of the feature model (Boolean layer only; deterministic, no external solver): **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), **invalid configurations** under full group/cardinality semantics (`E225`), a reported set of **core** features, and a conflict-set explanation for each unsatisfiability. Use it to prove the feature model itself is sound, beyond linting the authored configurations. (Configuration counting and numeric/parameter SMT reasoning are not yet implemented.)
+**Whole-space analysis — `feature-check --deep`.** Adds SAT-backed reasoning over a propositional encoding of the feature model (Boolean layer only; deterministic, no external solver; comfortably ~500 features): **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), **invalid configurations** under full group/cardinality semantics (`E225`), **core** features, a minimal conflict-set explanation, and **diagnoses** (minimal correction sets) for void models. Companion commands: `--count`/`--enumerate` report the valid-configuration space, and `configure <Configuration>` completes a partial selection (forced/free features). Use these to prove the feature model itself is sound and to drive configuration, beyond linting authored configs. (Numeric/parameter SMT reasoning and DRAT proofs are not yet implemented.)
 
 ---
 

@@ -1201,8 +1201,16 @@ impl GateOptions {
 /// analyses (void/dead/core/false-optional/configuration-validity). Exit `0` when
 /// there are no error-severity findings, `1` otherwise. Dormant (exit 0 with a
 /// notice) when no FeatureDef.
-pub fn cmd_feature_check(elements: &[RawElement], json: bool, deep: bool) {
+pub fn cmd_feature_check(
+    elements: &[RawElement],
+    json: bool,
+    deep: bool,
+    count: bool,
+    enumerate: bool,
+    prove: Option<&str>,
+) {
     use syscribe_model::feature_model;
+    use syscribe_model::feature_model::EnumOutcome;
     use syscribe_model::validator::Severity;
 
     if !feature_model::has_feature_model(elements) {
@@ -1220,6 +1228,15 @@ pub fn cmd_feature_check(elements: &[RawElement], json: bool, deep: bool) {
     } else {
         None
     };
+    let variants = if count || enumerate {
+        Some(feature_model::enumerate_variants(elements, feature_model::MAX_ENUM))
+    } else {
+        None
+    };
+    // --prove: emit DIMACS CNF of each UNSAT finding (externally re-checkable).
+    let proofs: Option<Vec<String>> = prove.map(|dir| {
+        feature_model::write_proofs(elements, std::path::Path::new(dir)).unwrap_or_default()
+    });
     if let Some(r) = &deep_rep {
         findings.extend(r.findings.iter().cloned());
     }
@@ -1252,9 +1269,31 @@ pub fn cmd_feature_check(elements: &[RawElement], json: bool, deep: bool) {
             doc.insert("coreFeatures".into(), serde_json::json!(r.core));
             doc.insert("falseOptionalFeatures".into(), serde_json::json!(r.false_optional));
             doc.insert("invalidConfigurations".into(), serde_json::json!(r.invalid_configs));
+            doc.insert("diagnoses".into(), serde_json::json!(r.diagnoses));
             if let Some(reason) = &r.skipped {
                 doc.insert("deepSkipped".into(), serde_json::json!(reason));
             }
+        }
+        if let Some(v) = &variants {
+            match v {
+                EnumOutcome::Variants { configs, truncated } => {
+                    if *truncated {
+                        doc.insert("variantCount".into(), serde_json::json!({ "atLeast": configs.len() }));
+                    } else {
+                        doc.insert("variantCount".into(), serde_json::json!(configs.len()));
+                    }
+                    if enumerate {
+                        doc.insert("variants".into(), serde_json::json!(configs));
+                    }
+                }
+                EnumOutcome::Skipped(reason) => {
+                    doc.insert("variantSkipped".into(), serde_json::json!(reason));
+                }
+                EnumOutcome::Dormant => {}
+            }
+        }
+        if let Some(p) = &proofs {
+            doc.insert("proofs".into(), serde_json::json!(p));
         }
         println!("{}", serde_json::to_string_pretty(&serde_json::Value::Object(doc)).unwrap());
     } else {
@@ -1284,13 +1323,93 @@ pub fn cmd_feature_check(elements: &[RawElement], json: bool, deep: bool) {
                 println!("- core features: {}", if r.core.is_empty() { "none".into() } else { r.core.join(", ") });
                 println!("- false-optional: {}", if r.false_optional.is_empty() { "none".into() } else { r.false_optional.join(", ") });
                 println!("- invalid configurations: {}", if r.invalid_configs.is_empty() { "none".into() } else { r.invalid_configs.join(", ") });
+                if !r.diagnoses.is_empty() {
+                    let opts: Vec<String> = r.diagnoses.iter().map(|m| format!("relax {{{}}}", m.join(", "))).collect();
+                    println!("- diagnoses (fixes): {}", opts.join(" | "));
+                }
                 println!("(deep analysis covers the Boolean feature layer only; parameter satisfiability is not checked)");
+            }
+        }
+        if let Some(v) = &variants {
+            println!();
+            match v {
+                EnumOutcome::Variants { configs, truncated } => {
+                    if *truncated {
+                        println!("Valid configurations: ≥ {} (truncated)", configs.len());
+                    } else {
+                        println!("Valid configurations: {}", configs.len());
+                    }
+                    if enumerate {
+                        for (i, c) in configs.iter().enumerate() {
+                            println!("  {}. {}", i + 1, if c.is_empty() { "(none)".into() } else { c.join(", ") });
+                        }
+                    }
+                }
+                EnumOutcome::Skipped(reason) => println!("{}", reason),
+                EnumOutcome::Dormant => {}
+            }
+        }
+        if let Some(p) = &proofs {
+            println!();
+            if p.is_empty() {
+                println!("Proofs: none written (no UNSAT findings, or dormant/over-limit).");
+            } else {
+                println!("Proofs (DIMACS CNF, externally re-checkable as UNSAT): {}", p.join(", "));
             }
         }
     }
 
     if has_error {
         std::process::exit(1);
+    }
+}
+
+/// `configure <Configuration>`: assisted configuration (REQ-TRS-FMA-008). Treats
+/// the configuration's `features:` as a partial selection and reports
+/// satisfiability + forced/free features. Exit `1` if the partial selection is
+/// contradictory; dormant (exit 0) with no feature model.
+pub fn cmd_configure(elements: &[RawElement], conf: &str, json: bool) {
+    use syscribe_model::feature_model::{configure, ConfigureOutcome};
+    match configure(elements, conf) {
+        ConfigureOutcome::Dormant => {
+            if json {
+                println!("[]");
+            } else {
+                println!("No feature model present — nothing to configure.");
+            }
+        }
+        ConfigureOutcome::NotFound => {
+            eprintln!("Configuration not found: {conf}");
+            std::process::exit(1);
+        }
+        ConfigureOutcome::Report { satisfiable, forced_true, forced_false, free, explanation } => {
+            if json {
+                let doc = serde_json::json!({
+                    "satisfiable": satisfiable,
+                    "forcedTrue": forced_true,
+                    "forcedFalse": forced_false,
+                    "free": free,
+                    "explanation": explanation,
+                });
+                println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+            } else {
+                println!("# Configure: {}", conf);
+                println!();
+                println!("- satisfiable: {}", satisfiable);
+                if let Some(e) = &explanation {
+                    println!("- conflict: {}", e);
+                }
+                if satisfiable {
+                    let or_none = |v: &[String]| if v.is_empty() { "none".to_string() } else { v.join(", ") };
+                    println!("- forced (true): {}", or_none(&forced_true));
+                    println!("- forced (false): {}", or_none(&forced_false));
+                    println!("- free: {}", or_none(&free));
+                }
+            }
+            if !satisfiable {
+                std::process::exit(1);
+            }
+        }
     }
 }
 
@@ -2323,7 +2442,10 @@ pub fn print_help() {
     println!("                                 derivedFrom cycles, bindTo ranges, parameterConstraints). Separate from");
     println!("                                 `validate`; exit 0 if no errors, 1 otherwise; dormant with no feature model.");
     println!("                                 --deep adds SAT-backed analysis: void model, dead/core/false-optional");
-    println!("                                 features, and full-semantics configuration validity (Boolean layer only).");
+    println!("                                 features, full-semantics config validity, and void-model diagnoses.");
+    println!("                                 --count / --enumerate report the number of valid configurations.");
+    println!("  configure <Configuration> [--json]  Assisted configuration: from a partial selection, report");
+    println!("                                 satisfiability + forced/free features (exit 1 if contradictory).");
     println!("  show <qname|id>                Show element details and documentation");
     println!("  ls [qname]                     List namespace children (default: root)");
     println!("  tree [qname]                   Recursive namespace tree (default: root)");

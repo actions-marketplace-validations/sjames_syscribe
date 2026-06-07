@@ -332,6 +332,9 @@ pub struct DeepReport {
     pub core: Vec<String>,
     pub false_optional: Vec<String>,
     pub invalid_configs: Vec<String>,
+    /// Minimal correction sets for a void model (each a list of constraint
+    /// labels whose removal restores satisfiability) — REQ-TRS-FMA-010.
+    pub diagnoses: Vec<Vec<String>>,
     /// Set (with a reason) when the deep analysis was skipped (size guard).
     pub skipped: Option<String>,
 }
@@ -345,6 +348,7 @@ impl DeepReport {
             core: Vec::new(),
             false_optional: Vec::new(),
             invalid_configs: Vec::new(),
+            diagnoses: Vec::new(),
             skipped: None,
         }
     }
@@ -407,6 +411,53 @@ impl Encoding {
         labels.sort();
         labels.dedup();
         labels.join("; ")
+    }
+
+    /// Minimal correction sets (diagnoses) for a void model: each is a set of
+    /// relaxable authoring constraints whose removal restores satisfiability
+    /// (REQ-TRS-FMA-010). Structural `child ⇒ parent` clauses are never offered.
+    fn correction_sets(&self) -> Vec<Vec<String>> {
+        let relaxable: Vec<usize> = self
+            .cons
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !matches!(c.kind, CKind::ChildParent))
+            .map(|(i, _)| i)
+            .collect();
+        let all: Vec<usize> = (0..self.cons.len()).collect();
+        // Singleton corrections: a relaxable constraint whose removal alone fixes it.
+        let mut out: Vec<Vec<String>> = Vec::new();
+        for &r in &relaxable {
+            let subset: Vec<usize> = all.iter().copied().filter(|&x| x != r).collect();
+            if crate::solver::is_sat(&self.cnf_subset(&subset), &[]) {
+                out.push(vec![self.cons[r].label.clone()]);
+            }
+        }
+        // No singleton fix → one greedy minimal correction set (complement of a
+        // maximal satisfiable subset).
+        if out.is_empty() {
+            let mut keep: Vec<usize> = self
+                .cons
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| matches!(c.kind, CKind::ChildParent))
+                .map(|(i, _)| i)
+                .collect();
+            let mut mcs: Vec<String> = Vec::new();
+            for &r in &relaxable {
+                let mut trial = keep.clone();
+                trial.push(r);
+                if crate::solver::is_sat(&self.cnf_subset(&trial), &[]) {
+                    keep.push(r);
+                } else {
+                    mcs.push(self.cons[r].label.clone());
+                }
+            }
+            if !mcs.is_empty() {
+                out.push(mcs);
+            }
+        }
+        out
     }
 }
 
@@ -631,9 +682,20 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     if !sat.is_sat(&[]) {
         rep.void = true;
         let core = enc.unsat_core(&[]);
+        rep.diagnoses = enc.correction_sets();
+        let fixes = if rep.diagnoses.is_empty() {
+            String::new()
+        } else {
+            let opts: Vec<String> = rep
+                .diagnoses
+                .iter()
+                .map(|m| format!("relax {{{}}}", m.join(", ")))
+                .collect();
+            format!(" Possible fixes: {}.", opts.join(" or "))
+        };
         rep.findings.push(err("E223", &root_file, format!(
-            "feature model is void (no valid configuration exists). Conflicting constraints: {}",
-            enc.core_labels(&core))));
+            "feature model is void (no valid configuration exists). Conflicting constraints: {}.{}",
+            enc.core_labels(&core), fixes)));
         return rep;
     }
 
@@ -702,4 +764,187 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     rep.false_optional.sort();
     rep.invalid_configs.sort();
     rep
+}
+
+// ── Assisted configuration (REQ-TRS-FMA-008) ────────────────────────────────
+
+pub enum ConfigureOutcome {
+    /// No feature model present (dormant).
+    Dormant,
+    /// The named configuration was not found.
+    NotFound,
+    Report {
+        satisfiable: bool,
+        forced_true: Vec<String>,
+        forced_false: Vec<String>,
+        free: Vec<String>,
+        explanation: Option<String>,
+    },
+}
+
+/// Treat a `Configuration`'s `features:` as a *partial* assignment (set features
+/// fixed; absent features open) and report whether it can be completed, plus the
+/// forced and free features.
+pub fn configure(elements: &[RawElement], conf: &str) -> ConfigureOutcome {
+    let fdefs: Vec<&RawElement> =
+        elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if fdefs.is_empty() {
+        return ConfigureOutcome::Dormant;
+    }
+    let cfg = elements.iter().find(|e| {
+        is(e, ElementType::Configuration)
+            && (e.frontmatter.id.as_deref() == Some(conf) || e.qualified_name == conf)
+    });
+    let Some(cfg) = cfg else {
+        return ConfigureOutcome::NotFound;
+    };
+
+    let enc = build_encoding(&fdefs);
+    let mut assumptions: Vec<Lit> = Vec::new();
+    let mut fixed: HashSet<usize> = HashSet::new();
+    for (feat, val) in cfg.frontmatter.feature_selections() {
+        if let Some(&v) = enc.var_of.get(&feat) {
+            assumptions.push(if val { Lit::pos(v) } else { Lit::neg(v) });
+            fixed.insert(v);
+        }
+    }
+
+    let mut sat = crate::solver::Solver::from_cnf(&enc.cnf());
+    if !sat.is_sat(&assumptions) {
+        let core = enc.unsat_core(&assumptions);
+        return ConfigureOutcome::Report {
+            satisfiable: false,
+            forced_true: Vec::new(),
+            forced_false: Vec::new(),
+            free: Vec::new(),
+            explanation: Some(enc.core_labels(&core)),
+        };
+    }
+
+    let (mut forced_true, mut forced_false, mut free) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, name) in enc.names.iter().enumerate() {
+        if fixed.contains(&i) {
+            continue; // already chosen, not open
+        }
+        let mut a = assumptions.clone();
+        a.push(Lit::neg(i));
+        if !sat.is_sat(&a) {
+            forced_true.push(name.clone());
+            continue;
+        }
+        let mut a = assumptions.clone();
+        a.push(Lit::pos(i));
+        if !sat.is_sat(&a) {
+            forced_false.push(name.clone());
+        } else {
+            free.push(name.clone());
+        }
+    }
+    forced_true.sort();
+    forced_false.sort();
+    free.sort();
+    ConfigureOutcome::Report {
+        satisfiable: true,
+        forced_true,
+        forced_false,
+        free,
+        explanation: None,
+    }
+}
+
+// ── Variant-space count / enumeration (REQ-TRS-FMA-009) ──────────────────────
+
+pub enum EnumOutcome {
+    Dormant,
+    Skipped(String),
+    /// Valid configurations (each a sorted list of selected feature qnames) and
+    /// whether enumeration was truncated at the cap.
+    Variants { configs: Vec<Vec<String>>, truncated: bool },
+}
+
+/// Default enumeration cap.
+pub const MAX_ENUM: usize = 100_000;
+
+pub fn enumerate_variants(elements: &[RawElement], cap: usize) -> EnumOutcome {
+    let fdefs: Vec<&RawElement> =
+        elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if fdefs.is_empty() {
+        return EnumOutcome::Dormant;
+    }
+    if fdefs.len() > MAX_DEEP_FEATURES {
+        return EnumOutcome::Skipped(format!(
+            "variant analysis skipped: {} features exceeds the limit of {}",
+            fdefs.len(),
+            MAX_DEEP_FEATURES
+        ));
+    }
+    let enc = build_encoding(&fdefs);
+    let mut sat = crate::solver::Solver::from_cnf(&enc.cnf());
+    let mut configs: Vec<Vec<String>> = Vec::new();
+    let mut truncated = false;
+    while let Some(bits) = sat.next_model() {
+        if configs.len() >= cap {
+            truncated = true;
+            break;
+        }
+        let selected: Vec<String> = enc
+            .names
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| bits[*i])
+            .map(|(_, n)| n.clone())
+            .collect();
+        configs.push(selected);
+    }
+    configs.sort();
+    EnumOutcome::Variants { configs, truncated }
+}
+
+// ── Proof-carrying evidence (REQ-TRS-FMA-011, partial) ──────────────────────
+// batsat 0.6.0 does not expose a solver-recorded DRAT refutation, so we emit the
+// DIMACS CNF of each UNSAT formula (Φ for void, Φ∧F for a dead feature). That
+// CNF is externally re-checkable as UNSAT by any solver; the DRAT *proof* itself
+// is deferred pending a proof-recording solver.
+
+fn dimacs(cnf: &Cnf) -> String {
+    let mut s = format!("p cnf {} {}\n", cnf.num_vars, cnf.clauses.len());
+    for cl in &cnf.clauses {
+        for l in cl {
+            let n = (l.var + 1) as i64;
+            s.push_str(&format!("{} ", if l.neg { -n } else { n }));
+        }
+        s.push_str("0\n");
+    }
+    s
+}
+
+/// Write a DIMACS CNF for each UNSAT finding into `dir`; returns the filenames
+/// written (empty when dormant, over the size guard, or the model is sound).
+pub fn write_proofs(elements: &[RawElement], dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    let fdefs: Vec<&RawElement> =
+        elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if fdefs.is_empty() || fdefs.len() > MAX_DEEP_FEATURES {
+        return Ok(Vec::new());
+    }
+    std::fs::create_dir_all(dir)?;
+    let enc = build_encoding(&fdefs);
+    let cnf = enc.cnf();
+    let mut sat = crate::solver::Solver::from_cnf(&cnf);
+    let mut written = Vec::new();
+
+    if !sat.is_sat(&[]) {
+        std::fs::write(dir.join("void.cnf"), dimacs(&cnf))?;
+        written.push("void.cnf".to_string());
+        return Ok(written); // void dominates
+    }
+    for (i, name) in enc.names.iter().enumerate() {
+        if !sat.is_sat(&[Lit::pos(i)]) {
+            let mut c2 = cnf.clone();
+            c2.add(vec![Lit::pos(i)]);
+            let fname = format!("dead-{}.cnf", name.replace("::", "_"));
+            std::fs::write(dir.join(&fname), dimacs(&c2))?;
+            written.push(fname);
+        }
+    }
+    Ok(written)
 }

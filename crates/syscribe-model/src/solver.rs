@@ -77,6 +77,32 @@ impl Solver {
         let asm: Vec<BLit> = assumptions.iter().map(|l| blit(&self.vars, *l)).collect();
         self.inner.solve_limited(&asm) == lbool::TRUE
     }
+
+    /// Model bit-vector over our variables. Precondition: the last solve was SAT.
+    fn model_bits(&self) -> Vec<bool> {
+        let gm = self.inner.get_model();
+        self.vars
+            .iter()
+            .map(|v| gm[v.idx() as usize] == lbool::TRUE)
+            .collect()
+    }
+
+    /// Enumerate the next model (no assumptions), then add a blocking clause so a
+    /// subsequent call yields a different model. Returns `None` when exhausted.
+    pub fn next_model(&mut self) -> Option<Vec<bool>> {
+        if !self.ok || self.inner.solve_limited(&[]) != lbool::TRUE {
+            return None;
+        }
+        let bits = self.model_bits();
+        let mut blocking: Vec<BLit> = self
+            .vars
+            .iter()
+            .enumerate()
+            .map(|(i, v)| BLit::new(*v, !bits[i])) // literal that is false under `bits`
+            .collect();
+        self.ok &= self.inner.add_clause_reuse(&mut blocking);
+        Some(bits)
+    }
 }
 
 /// One-shot satisfiability check against a fresh solver.

@@ -273,7 +273,18 @@ $ syscribe -m model/ feature-check --deep
 $ syscribe -m model/ feature-check --deep --json
 ```
 
-`--deep` detects **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), and **invalid configurations** under full group/cardinality semantics (`E225`), reports **core** features, and explains each unsatisfiability with a conflict set. It covers the Boolean feature layer only (parameter satisfiability is out of scope) and skips with a notice on models above a feature-count guard.
+`--deep` detects **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), and **invalid configurations** under full group/cardinality semantics (`E225`), reports **core** features, explains each unsatisfiability with a minimal conflict set, and proposes **diagnoses** (minimal correction sets — how to fix a void model). It comfortably handles ~500 features, covers the Boolean feature layer only (parameter satisfiability is out of scope), and skips with a notice above a feature-count guard (1000).
+
+Related solver-backed capabilities:
+
+```
+$ syscribe -m model/ feature-check --count          # number of valid configurations the model permits
+$ syscribe -m model/ feature-check --enumerate      # list every valid configuration
+$ syscribe -m model/ feature-check --deep --prove <dir>   # write DIMACS CNF of each UNSAT finding (re-checkable)
+$ syscribe -m model/ configure <Configuration>      # from a partial selection: satisfiable? forced/free features?
+```
+
+`configure` treats a `Configuration`'s `features:` as a *partial* selection (set features fixed, absent open) and reports whether it can be completed plus which features are **forced** or still **free** — a feature configurator. (`--prove` emits the externally-checkable DIMACS CNF; a DRAT refutation proof is deferred — batsat does not expose one.)
 
 ---
 
