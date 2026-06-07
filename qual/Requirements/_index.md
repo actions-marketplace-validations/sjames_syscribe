@@ -19,6 +19,7 @@ Normative requirements for the Syscribe tool. Grouped by functional area:
 | `REQ-TRS-PARAM` | FeatureDef parameter binding validation (§9.7) |
 | `REQ-TRS-FM` | Explicit feature-model validation command (`feature-check`, §9) |
 | `REQ-TRS-FMA` | Solver-backed feature-model analysis: `feature-check --deep`, cores, `configure`, variant count, diagnoses, DRAT proofs (`ADR-FM-002`) |
+| `REQ-TRS-PROJ` | Configuration projection: the `--config` lens, per-variant validation, escaping refs, global guarantee, family checks (`ADR-PROJ-001`) |
 | `REQ-TRS-TAG` | Generic tag filtering (orthogonal to variability) |
 | `REQ-TRS-OUT` | Output and reporting |
 | `REQ-TRS-CLI` | CLI interface |
