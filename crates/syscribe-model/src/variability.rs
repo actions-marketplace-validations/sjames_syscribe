@@ -372,4 +372,123 @@ mod tests {
         assert!(e.eval(&|q: &str| ["F::A", "F::B"].contains(&q)));
         assert!(!e.eval(&|q: &str| ["F::A"].contains(&q)));
     }
+
+    // ── exhaustive boolean-logic oracle ──────────────────────────────────────
+    // Render an AST with explicit parens (unambiguous), parse it back, and assert
+    // the parsed expression evaluates identically to the original AST across ALL
+    // variable assignments. This rigorously exercises tokenizer + parser + eval +
+    // operands for arbitrary nested structures, independent of precedence.
+    fn render(e: &FeatureExpr) -> String {
+        match e {
+            FeatureExpr::Feat(q) => q.clone(),
+            FeatureExpr::Not(a) => format!("(not {})", render(a)),
+            FeatureExpr::And(a, b) => format!("({} and {})", render(a), render(b)),
+            FeatureExpr::Or(a, b) => format!("({} or {})", render(a), render(b)),
+        }
+    }
+
+    fn xorshift(state: &mut u64) -> u64 {
+        *state ^= *state << 13;
+        *state ^= *state >> 7;
+        *state ^= *state << 17;
+        *state
+    }
+
+    fn gen(state: &mut u64, depth: u32, vars: &[&str]) -> FeatureExpr {
+        if depth == 0 || xorshift(state) % 3 == 0 {
+            let v = vars[(xorshift(state) as usize) % vars.len()];
+            return FeatureExpr::Feat(v.to_string());
+        }
+        match xorshift(state) % 3 {
+            0 => FeatureExpr::Not(Box::new(gen(state, depth - 1, vars))),
+            1 => FeatureExpr::And(
+                Box::new(gen(state, depth - 1, vars)),
+                Box::new(gen(state, depth - 1, vars)),
+            ),
+            _ => FeatureExpr::Or(
+                Box::new(gen(state, depth - 1, vars)),
+                Box::new(gen(state, depth - 1, vars)),
+            ),
+        }
+    }
+
+    fn assign<'a>(vars: &'a [&'a str], mask: u32) -> impl Fn(&str) -> bool + 'a {
+        move |q: &str| {
+            vars.iter()
+                .position(|v| *v == q)
+                .map(|i| (mask >> i) & 1 == 1)
+                .unwrap_or(false)
+        }
+    }
+
+    #[test]
+    fn render_parse_eval_oracle() {
+        let vars = ["F::A", "F::B", "F::C"];
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        for _ in 0..3000 {
+            let ast = gen(&mut state, 4, &vars);
+            let s = render(&ast);
+            let parsed = parse(&s).unwrap_or_else(|e| panic!("parse failed for `{s}`: {e}"));
+            for mask in 0u32..(1 << vars.len()) {
+                let on = assign(&vars, mask);
+                assert_eq!(
+                    parsed.eval(&on),
+                    ast.eval(&on),
+                    "eval mismatch for `{s}` @ mask {mask:03b}"
+                );
+            }
+            let (mut a, mut p) = (ast.operands(), parsed.operands());
+            a.sort();
+            a.dedup();
+            p.sort();
+            p.dedup();
+            assert_eq!(a, p, "operands mismatch for `{s}`");
+        }
+    }
+
+    #[test]
+    fn precedence_matches_explicit_parens() {
+        // not > and > or. Each bare form must be equivalent to its fully-parenthesized
+        // reference across every assignment.
+        let vars = ["F::A", "F::B", "F::C"];
+        let cases = [
+            ("F::A or F::B and F::C", "F::A or (F::B and F::C)"),
+            ("F::A and F::B or F::C", "(F::A and F::B) or F::C"),
+            ("not F::A and F::B", "(not F::A) and F::B"),
+            ("not F::A or F::B", "(not F::A) or F::B"),
+            ("not not F::A", "F::A"),
+            ("F::A and F::B and F::C", "(F::A and F::B) and F::C"),
+            ("F::A or F::B or F::C", "(F::A or F::B) or F::C"),
+        ];
+        for (bare, paren) in cases {
+            let b = parse(bare).unwrap();
+            let p = parse(paren).unwrap();
+            for mask in 0u32..(1 << vars.len()) {
+                let on = assign(&vars, mask);
+                assert_eq!(b.eval(&on), p.eval(&on), "`{bare}` vs `{paren}` @ {mask:03b}");
+            }
+        }
+    }
+
+    #[test]
+    fn operator_substring_identifiers() {
+        // and/or/not as substrings of a qname must NOT be tokenized as operators.
+        let e = parse("F::Android and F::Normal or not F::Sensor").unwrap();
+        assert_eq!(e.operands(), vec!["F::Android", "F::Normal", "F::Sensor"]);
+        assert_eq!(parse("F::Sandbox").unwrap(), FeatureExpr::Feat("F::Sandbox".into()));
+        // operators require a separator: "notF::A" is a single identifier.
+        assert_eq!(parse("notF::A").unwrap(), FeatureExpr::Feat("notF::A".into()));
+        assert_eq!(parse("F::orange").unwrap(), FeatureExpr::Feat("F::orange".into()));
+    }
+
+    #[test]
+    fn whitespace_nesting_and_double_negation() {
+        assert!(parse("  F::A   and(  F::B )")
+            .unwrap()
+            .eval(&|q: &str| ["F::A", "F::B"].contains(&q)));
+        assert!(parse("(((F::A)))").unwrap().eval(&|q: &str| q == "F::A"));
+        // double negation is identity; triple negation is a single negation.
+        assert!(parse("not not F::A").unwrap().eval(&|q: &str| q == "F::A"));
+        assert!(parse("not not not F::A").unwrap().eval(&|_q: &str| false));
+    }
 }
