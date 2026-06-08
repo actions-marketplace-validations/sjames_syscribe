@@ -45,6 +45,30 @@ fn param_names(fd: &RawElement) -> Vec<String> {
         .collect()
 }
 
+/// Parameter names for human display, each annotated with its `bindingTime:` when
+/// present (e.g. `motorKV [load]`). JSON output keeps the plain `param_names`.
+fn param_labels(fd: &RawElement) -> Vec<String> {
+    let Some(params) = &fd.frontmatter.parameters else {
+        return Vec::new();
+    };
+    params
+        .iter()
+        .filter_map(|p| {
+            let m = p.as_mapping()?;
+            let name = m
+                .get(serde_yaml::Value::String("name".into()))
+                .and_then(|v| v.as_str())?;
+            let bt = m
+                .get(serde_yaml::Value::String("bindingTime".into()))
+                .and_then(|v| v.as_str());
+            Some(match bt {
+                Some(bt) => format!("{} [{}]", name, bt),
+                None => name.to_string(),
+            })
+        })
+        .collect()
+}
+
 fn requires_of(fd: &RawElement) -> Vec<String> {
     match &fd.frontmatter.requires {
         None => Vec::new(),
@@ -142,7 +166,7 @@ pub fn cmd_features(elements: &[RawElement], json: bool) {
         if !exc.is_empty() {
             println!("{}    excludes: {}", indent, exc.join(", "));
         }
-        let params = param_names(fd);
+        let params = param_labels(fd);
         if !params.is_empty() {
             println!("{}    parameters: {}", indent, params.join(", "));
         }
@@ -217,8 +241,9 @@ pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
     if !exc.is_empty() {
         println!("- excludes: {}", exc.join(", "));
     }
-    if !params.is_empty() {
-        println!("- parameters: {}", params.join(", "));
+    let param_lbls = param_labels(fd);
+    if !param_lbls.is_empty() {
+        println!("- parameters: {}", param_lbls.join(", "));
     }
     println!();
     println!("## Gates");

@@ -2710,6 +2710,9 @@ pub fn parameter_binding_findings(elements: &[RawElement]) -> Vec<Finding> {
         enum_values: Option<Vec<String>>,
         is_required: bool,
         has_default: bool,
+        /// Binding-time rank (compile=0, load=1, runtime=2); `None` when `bindingTime:`
+        /// is absent (unspecified — the parameter opts out of binding-time checks).
+        binding_time: Option<u8>,
     }
     let parse_range = |s: &str| -> Option<(f64, f64)> {
         // Accept both "min..max" and inclusive "min..=max".
@@ -2739,9 +2742,22 @@ pub fn parameter_binding_findings(elements: &[RawElement]) -> Vec<Finding> {
                     .map(|v| yaml_strings(v).into_iter().map(|s| s.to_string()).collect::<Vec<_>>());
                 let is_required = get("isRequired").and_then(|v| v.as_bool()).unwrap_or(false);
                 let has_default = get("default").is_some() || get("value").is_some();
+                // bindingTime: PLE triad (compile<load<runtime); E230 on an unknown value.
+                let binding_time = match get("bindingTime").and_then(|v| v.as_str()) {
+                    None => None,
+                    Some("compile") => Some(0),
+                    Some("load") => Some(1),
+                    Some("runtime") => Some(2),
+                    Some(other) => {
+                        findings.push(error("E230", &fd.file_path, &format!(
+                            "parameter '{}.{}' has bindingTime '{}' which is not one of compile/load/runtime",
+                            fd.qualified_name, name, other)));
+                        None
+                    }
+                };
                 params.insert(
                     name.to_string(),
-                    ParamMeta { is_fixed, range, enum_values, is_required, has_default },
+                    ParamMeta { is_fixed, range, enum_values, is_required, has_default, binding_time },
                 );
             }
         }
@@ -2800,6 +2816,10 @@ pub fn parameter_binding_findings(elements: &[RawElement]) -> Vec<Finding> {
                         }
                     }
                 }
+                if meta.binding_time == Some(2) {
+                    findings.push(warning("W027", file, &format!(
+                        "parameterBindings binds '{}' which has bindingTime: runtime (resolved by the running system, not at configuration time)", path)));
+                }
             }
         }
 
@@ -2808,7 +2828,9 @@ pub fn parameter_binding_findings(elements: &[RawElement]) -> Vec<Finding> {
                 continue;
             }
             for (pname, meta) in params {
-                if meta.is_required && !meta.is_fixed && !meta.has_default {
+                // A runtime parameter is legitimately unbound by a Configuration —
+                // the running system supplies its value (REQ-TRS-PARAM-004).
+                if meta.is_required && !meta.is_fixed && !meta.has_default && meta.binding_time != Some(2) {
                     let path = format!("{}.{}", feat, pname);
                     if !bound.contains(&path) {
                         findings.push(warning("W017", file, &format!(

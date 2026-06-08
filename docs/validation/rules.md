@@ -76,6 +76,7 @@
 | E206 | A bound parameter value is not in the parameter's `enumValues:` |
 | E209 | `appliesWhen:` is malformed, or an operand does not resolve to a FeatureDef. `appliesWhen:` accepts a bare QName, a list (AND), or a boolean expression (`and`/`or`/`not`/parentheses); every operand is checked. |
 | E222 | A `parameterBindings` key does not resolve to a declared `FeatureDef` parameter (bad path — including the legacy all-`::` member form `Features::Feature::param`, which must be the dotted `Features::Feature.param` — unknown feature, or undeclared parameter) |
+| E230 | A parameter declares a `bindingTime:` value other than `compile`/`load`/`runtime` (§9.7) |
 
 ## PLE warnings (W015–W017)
 
@@ -85,7 +86,8 @@ The variability dimension is **opt-in**: it is dormant — and these checks do n
 |---|---|
 | W015 | A requirement is **active** in a `Configuration` (its `appliesWhen:` holds for that configuration's selections) but no non-draft `TestCase` that runs in that `Configuration` verifies it. Draft requirements and draft tests are suppressed. Gate it in CI with `--deny W015`. |
 | W016 | A `Configuration` parsed **zero** feature selections while a feature model exists — e.g. it used a legacy/unrecognized `selections:` key instead of the `features:` map (§9.8). Without this warning the block is silently ignored and every cell in `matrix` comes back N/A. Not emitted when no `FeatureDef` is present. |
-| W017 | A selected feature declares a required parameter (`isRequired: true`, not fixed, no `default:`) that the `Configuration` does not bind. (§9.11 names this `W010`, which this tool already uses for test-result ingestion.) |
+| W017 | A selected feature declares a required parameter (`isRequired: true`, not fixed, no `default:`) that the `Configuration` does not bind. (§9.11 names this `W010`, which this tool already uses for test-result ingestion.) **Suppressed** for a parameter whose `bindingTime: runtime` — the running system supplies its value. |
+| W027 | A `Configuration` binds a parameter whose `bindingTime: runtime` (resolved by the running system, not at configuration time). Gate with `--deny W027`. |
 
 A `TestCase` *runs in* a `Configuration` iff its `appliesWhen:` is satisfied by that configuration's `features:` selections; a `TestCase` with no `appliesWhen:` runs in every configuration. The same relationship powers `syscribe matrix`.
 
@@ -100,6 +102,7 @@ These holistic feature-model rules are **not** run by `validate` — they are em
 | E220 | In some `Configuration`, a selected feature's `excludes:` target is also selected |
 | E207 | Circular `derivedFrom:` dependency among parameters of the same `FeatureDef` |
 | E202 | A value propagated via `bindTo:` falls outside the component parameter's narrowing `range:` |
+| E229 | A parameter's `bindingTime:` is earlier than that of a `derivedFrom`/`bindTo` source it depends on — an impossible ordering (checked only when both ends declare a `bindingTime:`) |
 | E213 | A `parameterConstraints` expression references an unresolved parameter path, **or** uses the legacy `::`-member form (`Features::F::param`) instead of the canonical dotted `Features::F.param` — the constraint is flagged, never silently dropped |
 | E221 | A `parameterConstraints` expression evaluates to **false** for a `Configuration` whose `appliesWhen:` holds (numeric comparison/arithmetic over dotted parameter references; default severity) |
 | W011 | An `optional` `FeatureDef` is selected in zero `Configuration` files (possible dead feature) |

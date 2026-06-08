@@ -3,7 +3,7 @@
 **Tool:** syscribe CLI validator  
 **Version:** unknown  
 **Standard:** ISO 26262:2018 Part 8 §11 (TCL2), IEC 61508:2010 Part 3 Annex D  
-**Date:** 2026-06-07  
+**Date:** 2026-06-08  
 **TRS:** `qual/Requirements/`  **Test cases:** `qual/TestCases/`
 
 ---
@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 102 |
-| Passed | 102 |
+| Total test cases | 113 |
+| Passed | 113 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -108,6 +108,73 @@
 
 ---
 
+### TC-TRS-DISC-001 — Verify the `features` command: feature-model overview with groupKind, parameters, and per-feature selection rollup; --json; dormancy.
+
+**Verifies:** REQ-TRS-DISC-001  
+**Result:** ✓ PASS (15 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| dormant on a model with no feature model | ✓ PASS |
+
+---
+
+### TC-TRS-DISC-002 — Verify the `feature <qname>` card: gated elements, selecting configurations, parameters; errors on unknown feature.
+
+**Verifies:** REQ-TRS-DISC-002  
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| unknown feature errors | ✓ PASS |
+
+---
+
+### TC-TRS-DISC-003 — Verify `matrix --features`: Feature × Configuration selection grid; default matrix regression.
+
+**Verifies:** REQ-TRS-DISC-003  
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| default matrix still shows Requirement × Configuration view | ✓ PASS |
+
+---
+
+### TC-TRS-DISC-004 — Verify `list <type> --feature <F>`: filters to elements gated on F; errors on unknown feature.
+
+**Verifies:** REQ-TRS-DISC-004  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| unknown feature errors | ✓ PASS |
+
+---
+
+### TC-TRS-DISC-005 — Verify `why-active <el> --config <C>`: active/inactive/always-active verdict; errors on missing/unresolved --config.
+
+**Verifies:** REQ-TRS-DISC-005  
+**Result:** ✓ PASS (9 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --config is required and must resolve | ✓ PASS |
+
+---
+
+### TC-TRS-DISC-006 — Verify orphan-feature warning W024 in feature-check: exactly one, names the orphan, not in base validate, gateable.
+
+**Verifies:** REQ-TRS-DISC-006  
+**Result:** ✓ PASS (7 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| base validate never emits W024 | ✓ PASS |
+| W024 is gateable with --deny | ✓ PASS |
+
+---
+
 ### TC-TRS-ELEM-001 — Verify that all element types defined in §2 are recognised and processed without E005.
 
 **Verifies:** REQ-TRS-ELEM-001  
@@ -172,6 +239,17 @@
 | Scenario | Result |
 |---|---|
 | clean feature model emits none of them | ✓ PASS |
+
+---
+
+### TC-TRS-FM-004 — Verify `mandatory:` membership field: a mandatory feature is core in deep analysis; legacy groupKind: mandatory still forced.
+
+**Verifies:** REQ-TRS-FM-004  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| legacy groupKind: mandatory child still treated as forced | ✓ PASS |
 
 ---
 
@@ -549,6 +627,44 @@
 |---|---|
 | parameter binding violations emit E203–E206, E222, W017 | ✓ PASS |
 | valid bindings emit no parameter findings | ✓ PASS |
+
+---
+
+### TC-TRS-PARAM-002 — Verify parameterConstraints evaluation: E221/W025, compound appliesWhen, dotted refs.
+
+**Verifies:** REQ-TRS-PARAM-002  
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| W025 is gateable via --deny | ✓ PASS |
+
+---
+
+### TC-TRS-PARAM-003 — Verify inclusive range syntax min..=max is enforced (E205).
+
+**Verifies:** REQ-TRS-PARAM-003  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| binding 99 against range 1..=8 is out of range | ✓ PASS |
+| feature-check enforces parameter range (E205) | ✓ PASS |
+
+---
+
+### TC-TRS-PARAM-004 — Verify FeatureDef parameter bindingTime rules E230, E229, W027, and W017 suppression.
+
+**Verifies:** REQ-TRS-PARAM-004  
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a parameter bound no earlier than its source produces no E229 | ✓ PASS |
+| binding a runtime parameter in a Configuration produces W027 | ✓ PASS |
+| a required unbound runtime parameter suppresses W017 | ✓ PASS |
+| a required unbound non-runtime parameter still produces W017 | ✓ PASS |
+| well-ordered binding times emit no binding-time findings | ✓ PASS |
 
 ---
 
@@ -1257,6 +1373,22 @@
 |---|---|
 | W015 is gateable with --deny | ✓ PASS |
 | dormant model emits no W015 | ✓ PASS |
+
+---
+
+### TC-TRS-VAR-006 — Verify transitive package appliesWhen: effective condition, E228 nesting/placement, W026, escapes.
+
+**Verifies:** REQ-TRS-VAR-006  
+**Result:** ✓ PASS (18 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| good model has no E228/W026 | ✓ PASS |
+| nested appliesWhen under a gated package is E228 | ✓ PASS |
+| appliesWhen on FeatureDef / Configuration / config package is E228 | ✓ PASS |
+| appliesWhen on the model root is E228 | ✓ PASS |
+| package gating an empty subtree is W026 | ✓ PASS |
+| external ref into gated subtree escapes; internal ref does not | ✓ PASS |
 
 ---
 

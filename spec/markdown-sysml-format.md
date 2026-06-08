@@ -3981,6 +3981,7 @@ Each entry in a `FeatureDef`'s `parameters:` list is a map with the following fi
 | `derivedFrom` | string | optional | absent | An opaque expression string (evaluated in the context of other parameters of the same feature) whose value is computed rather than bound. When present, the parameter is automatically `isFixed: true` and may not be bound in a `Configuration`. |
 | `bindTo` | string | optional | absent | For component-level `FeatureDef` only: qualified path `SystemFeatures::<Feature>::<paramName>` of a system-level parameter to which this parameter is **propagated**. When a system `Configuration` binds the system parameter, the resolved component parameter inherits the same value. The component parameter may still specify its own `range:` as a narrowing constraint; validation error `E202` if the propagated value falls outside the narrower range. |
 | `isArray` | bool | optional | `false` | If `true`, the parameter value is a YAML list of the declared `type`. Used for multi-valued parameters (e.g., a list of rotor positions in degrees). |
+| `bindingTime` | enum | optional | absent | **When** the parameter's value is resolved, from the product-line-engineering binding-time triad, ordered earliest→latest: `compile` (build / code generation) · `load` (deployment / installation / startup) · `runtime` (dynamically, while the system runs). See *Binding time* below. An unrecognised value is `E230`. |
 
 ### Parameter kinds summary
 
@@ -4010,6 +4011,30 @@ Rules:
 - A `Configuration` must not bind a parameter whose `isFixed: true`. Validation error `E204`.
 - A bound value must satisfy the parameter's `range:` constraint. Validation error `E205`.
 - A bound value must be a member of `enumValues:` (if declared). Validation error `E206`.
+
+### Binding time
+
+A parameter may declare an optional **`bindingTime:`** stating *when* in the product lifecycle its value is resolved — the standard product-line-engineering triad, **ordered** earliest → latest:
+
+| `bindingTime:` | Resolved at |
+|---|---|
+| `compile` | build / code generation |
+| `load` | deployment / installation / startup |
+| `runtime` | dynamically, while the system executes |
+
+`bindingTime:` is orthogonal to `isFixed:`/`value:` — those express a value *fixed in the model* (no variability), whereas `bindingTime:` records the lifecycle moment a value that genuinely varies is bound. It is optional; an **absent** `bindingTime:` is *unspecified* and opts the parameter out of every binding-time check below (existing models are unaffected). Rules:
+
+- An unrecognised `bindingTime:` value (not `compile`/`load`/`runtime`) is `E230` (`validate`).
+- A parameter computed from a source it depends on — a sibling named in its `derivedFrom:` expression, or its `bindTo:` target — must **not** bind earlier than that source: if both declare a `bindingTime:` and the dependent's is earlier, that is impossible and reported `E229` (`feature-check`).
+- A `Configuration` that binds a `bindingTime: runtime` parameter is warned `W027` (`validate`): a runtime value is supplied by the running system, not at configuration time. For the same reason, the `W017` "required parameter unbound" warning is **suppressed** for a `runtime` parameter left unbound by a `Configuration`.
+
+```yaml
+parameters:
+  - name: motorKV
+    type: ScalarValues::Real
+    range: "900..=1200"
+    bindingTime: load        # chosen at deployment, not baked in at build
+```
 
 ### Cross-feature parameter constraints
 
@@ -4426,6 +4451,8 @@ sourceFile: "src/flight/mixing_hex.rs"
 | `E220` | A `FeatureDef.excludes:` constraint is violated by the selected features in a `Configuration` |
 | `E221` | A cross-feature `parameterConstraints` expression evaluates to `false` for a `Configuration` whose `appliesWhen:` predicate holds (default severity). Emitted by `feature-check`. |
 | `E228` | Invalid `appliesWhen:` placement (§9.10): a declaration nested under a package that already declares `appliesWhen:`; or on a `FeatureDef`/`Configuration`, a package whose subtree contains one, or the model-root package. |
+| `E229` | A parameter's `bindingTime:` is **earlier** than that of a `derivedFrom`/`bindTo` source it depends on — an impossible ordering (§9.7). Checked only when both endpoints declare a `bindingTime:`. Emitted by `feature-check`. |
+| `E230` | A parameter declares a `bindingTime:` value that is not one of `compile`/`load`/`runtime` (§9.7). Emitted by `validate`. |
 
 ### Warnings
 
@@ -4442,13 +4469,14 @@ sourceFile: "src/flight/mixing_hex.rs"
 | `W024` | An **orphan** `FeatureDef` — referenced by no element's `appliesWhen:` and selected `true` by no `Configuration`, so it gates nothing and ships in nothing. Emitted by `feature-check` only; gate with `--deny W024`. |
 | `W025` | A `parameterConstraints` violation (as `E221`) where the constraint declares `severity: warning`. Emitted by `feature-check`; gate with `--deny W025`. |
 | `W026` | A `Package` declares `appliesWhen:` but its subtree contains no projectable element (it gates nothing). Gate with `--deny W026`. |
+| `W027` | A `Configuration` binds a parameter whose `bindingTime: runtime` — resolved by the running system, not at configuration time (§9.7). Gate with `--deny W027`. |
 
 > **Implementation note.** Rules split across commands/modes:
-> - **`validate`** (per-element, always on) enforces the single-level parameter binding rules `E203`–`E206`, the unresolved-path error `E222`, and `W017`.
-> - **`feature-check`** (explicit, holistic) enforces the feature-model-wide rules: `E212` (requires/excludes resolution), `E219`/`E220` (requires/excludes satisfaction), `E207` (circular `derivedFrom:`), `E202` (`bindTo:` propagation range), `E213` (unresolved **or `::`-member** `parameterConstraints` path), `E221`/`W025` (`parameterConstraints` expression evaluation), `W011`/`W012`/`W014`, and `W024` (orphan feature). It **also** re-runs the parameter-binding rules (`E203`–`E206`/`E222`/`W017`) so a product line checked holistically gets the same range/binding enforcement as `validate`.
+> - **`validate`** (per-element, always on) enforces the single-level parameter binding rules `E203`–`E206`, the unresolved-path error `E222`, `W017`, and the binding-time rules `E230` (invalid value) and `W027` (Configuration binds a `runtime` parameter; `W017` is suppressed for `runtime`).
+> - **`feature-check`** (explicit, holistic) enforces the feature-model-wide rules: `E212` (requires/excludes resolution), `E219`/`E220` (requires/excludes satisfaction), `E207` (circular `derivedFrom:`), `E202` (`bindTo:` propagation range), `E229` (binding-time ordering across `derivedFrom`/`bindTo`), `E213` (unresolved **or `::`-member** `parameterConstraints` path), `E221`/`W025` (`parameterConstraints` expression evaluation), `W011`/`W012`/`W014`, and `W024` (orphan feature). It **also** re-runs the parameter-binding rules (`E203`–`E206`/`E222`/`W017`) so a product line checked holistically gets the same range/binding enforcement as `validate`.
 > - **`feature-check --deep`** (SAT-backed, over a propositional encoding of the Boolean layer; deterministic; engine is batsat (pure-Rust CDCL) — see `ADR-FM-002`) adds whole-configuration-space analysis: `E223` void model, `E224` dead feature, `E225` invalid configuration (full group/cardinality semantics), `W018` false-optional, plus a reported set of *core* features and a conflict-set explanation for each unsatisfiability.
 >
-> Not yet implemented: group-cardinality *findings* on `feature-check` without `--deep` (`E216`/`E217`/`E218` — `--deep` enforces the group semantics via `E225`), two-level satisfies completeness (`E210`/`E211`), and general numeric/parameter (SMT) reasoning beyond the comparison/arithmetic grammar `E221` evaluates. `E222`–`E225` and `W017`/`W018`/`W024`/`W025` are implementation codes beyond the spec table.
+> Not yet implemented: group-cardinality *findings* on `feature-check` without `--deep` (`E216`/`E217`/`E218` — `--deep` enforces the group semantics via `E225`), two-level satisfies completeness (`E210`/`E211`), and general numeric/parameter (SMT) reasoning beyond the comparison/arithmetic grammar `E221` evaluates. `E222`–`E225`/`E229`/`E230` and `W017`/`W018`/`W024`/`W025`/`W027` are implementation codes beyond the spec table.
 
 ---
 

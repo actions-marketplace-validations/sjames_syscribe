@@ -9,7 +9,8 @@
 //! Parameter-integrity rules (REQ-TRS-FM-003): `E207` `derivedFrom:` cycles,
 //! `E202` `bindTo:` propagation range, `E213` unresolved `parameterConstraints`
 //! paths, `W014` constraint `appliesWhen:` features absent from every
-//! Configuration.
+//! Configuration. Binding-time ordering `E229` (REQ-TRS-PARAM-004): a parameter
+//! whose `bindingTime:` is earlier than a `derivedFrom`/`bindTo` source it depends on.
 
 use std::collections::{HashMap, HashSet};
 
@@ -54,6 +55,19 @@ struct Param {
     /// Fixed `value:` or `default:` as a number, used as the fallback value when a
     /// parameter reference is not bound by a `Configuration` (E221 evaluation).
     fallback: Option<f64>,
+    /// Binding-time rank (compile=0, load=1, runtime=2); `None` when `bindingTime:`
+    /// is absent or unrecognised (E230 is raised by the `validate` pass).
+    binding_time: Option<u8>,
+}
+
+/// Map the PLE binding-time triad to an ordered rank (earliest -> latest).
+fn binding_time_rank(s: &str) -> Option<u8> {
+    match s {
+        "compile" => Some(0),
+        "load" => Some(1),
+        "runtime" => Some(2),
+        _ => None,
+    }
 }
 
 fn parse_params(fd: &RawElement) -> Vec<Param> {
@@ -69,6 +83,7 @@ fn parse_params(fd: &RawElement) -> Vec<Param> {
                 derived_from: get("derivedFrom").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 bind_to: get("bindTo").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 fallback: get("value").and_then(num).or_else(|| get("default").and_then(num)),
+                binding_time: get("bindingTime").and_then(|v| v.as_str()).and_then(binding_time_rank),
             });
         }
     }
@@ -389,6 +404,50 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
         if has_cycle(&deps) {
             f.push(err("E207", &fd.file_path,
                 format!("circular derivedFrom dependency among parameters of FeatureDef '{}'", fd.qualified_name)));
+        }
+    }
+
+    // ── E229: binding-time ordering across derivedFrom / bindTo edges ─────────
+    // A parameter computed from a source it depends on cannot be bound *earlier*
+    // than that source. Checked only when both endpoints declare a `bindingTime:`
+    // (an absent binding time opts the edge out). REQ-TRS-PARAM-004.
+    let mut bt_rank: HashMap<String, u8> = HashMap::new();
+    for fd in &fdefs {
+        for p in parse_params(fd) {
+            if let Some(r) = p.binding_time {
+                bt_rank.insert(format!("{}.{}", fd.qualified_name, p.name), r);
+            }
+        }
+    }
+    for fd in &fdefs {
+        let params = parse_params(fd);
+        for p in &params {
+            let Some(pr) = p.binding_time else { continue };
+            // derivedFrom: depends on sibling parameters of the same FeatureDef.
+            if let Some(expr) = &p.derived_from {
+                for s in &params {
+                    if s.name == p.name {
+                        continue;
+                    }
+                    if let Some(sr) = s.binding_time {
+                        if token_present(expr, &s.name) && pr < sr {
+                            f.push(err("E229", &fd.file_path, format!(
+                                "parameter '{}.{}' (bindingTime rank {}) is derived from '{}' (rank {}), which binds later — it cannot be bound earlier than a value it depends on",
+                                fd.qualified_name, p.name, pr, s.name, sr)));
+                        }
+                    }
+                }
+            }
+            // bindTo: depends on the system parameter it is propagated from.
+            if let Some(target) = &p.bind_to {
+                if let Some(&tr) = bt_rank.get(target) {
+                    if pr < tr {
+                        f.push(err("E229", &fd.file_path, format!(
+                            "parameter '{}.{}' (bindingTime rank {}) is bound to '{}' (rank {}), which binds later — it cannot be bound earlier than a value it depends on",
+                            fd.qualified_name, p.name, pr, target, tr)));
+                    }
+                }
+            }
         }
     }
 

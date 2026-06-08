@@ -108,6 +108,15 @@ A **parameter reference** is always the dotted form `Features::Path::Feature.par
 
 Binding rules (run by `validate`): bind a parameter of an unselected feature (`E203`), bind a fixed parameter (`E204`), out of `range:` (`E205`), not in `enumValues:` (`E206`), unresolved/legacy-`::` path (`E222`); a required, unbound parameter warns (`W017`).
 
+**Binding time.** A parameter may declare an optional `bindingTime:` — *when* its value is resolved, from the PLE triad ordered earliest→latest: `compile` (build / codegen) · `load` (deployment / startup) · `runtime` (live). It is orthogonal to `isFixed:`/`value:` (a value fixed in the model, i.e. no variability). Absent = unspecified (opts out of the checks below).
+
+```yaml
+parameters:
+  - { name: motorKV, type: ScalarValues::Real, range: "900..=1200", bindingTime: load }
+```
+
+Rules: an unrecognised value is `E230` (`validate`); a parameter that binds **earlier** than a `derivedFrom`/`bindTo` source it depends on is `E229` (`feature-check`, checked only when both ends declare a `bindingTime:`); binding a `runtime` parameter in a `Configuration` warns `W027` (`validate`), and `W017` is suppressed for an unbound `runtime` parameter.
+
 **Cross-feature constraints.** A package `_index.md` may declare `parameterConstraints:` — numeric couplings evaluated by `feature-check` against every applicable `Configuration`:
 
 ```yaml
@@ -148,6 +157,7 @@ syscribe -m model/ feature-check
 | `W011` / `W012` | optional feature selected in no / every `Configuration` |
 | `E207` | circular `derivedFrom:` among a feature's parameters |
 | `E202` | a `bindTo:`-propagated value is outside the component parameter's `range:` |
+| `E229` | a parameter's `bindingTime:` is earlier than a `derivedFrom`/`bindTo` source it depends on |
 | `E213` / `W014` | `parameterConstraints` unresolved path / `appliesWhen` feature used in no config |
 | `E221` / `W025` | `parameterConstraints` expression evaluates false for an applicable `Configuration` (`W025` when `severity: warning`) |
 | `W024` | **orphan feature** — referenced by no `appliesWhen:` and selected by no `Configuration` (gates nothing, ships in nothing); gate with `--deny W024` |
