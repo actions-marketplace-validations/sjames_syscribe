@@ -5130,6 +5130,8 @@ A `sourceFile:` value is interpreted by its form, so each element can choose how
 
 The repository root is taken from `repo_root` in `<model_root>/.syscribe.toml` (resolved against the model root when relative), or auto-detected as the nearest ancestor directory containing `.git`.
 
+> **`.syscribe.toml` also marks the model root.** When a command is given no `-m`/`--model` flag and no `SYSCRIBE_MODEL` environment variable, the tool walks upward from the current working directory and uses the nearest ancestor that contains a `.syscribe.toml` as the model root (falling back to the literal `model` directory if none is found). An empty `.syscribe.toml` is a valid root marker. This is a tooling locator only — it does not affect qualified-name resolution or the implicit root namespace.
+
 Local forms are subject to `W004` (existence) and `W009` (function resolution). Remote URIs are treated as external: `W004` is not emitted and `W009` is skipped, since the file cannot be read during validation — **unless** a download hook is enabled (see below).
 
 ##### Remote download hook

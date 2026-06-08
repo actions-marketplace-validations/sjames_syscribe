@@ -1,0 +1,2 @@
+# Marks this directory as the model root for auto-discovery (REQ-TRS-CLI-004).
+# An empty .syscribe.toml is a valid root marker.

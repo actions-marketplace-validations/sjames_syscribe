@@ -1,0 +1,2 @@
+# Empty subdirectory with no .syscribe.toml in any ancestor — used to verify the
+# fallback-to-default path (no spurious auto-discovery).

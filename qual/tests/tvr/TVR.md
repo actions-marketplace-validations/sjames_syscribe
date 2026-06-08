@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 115 |
-| Passed | 115 |
+| Total test cases | 116 |
+| Passed | 116 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -51,6 +51,17 @@
 | Scenario | Result |
 |---|---|
 | --agent-instructions prints prompt and exits 0 | ✓ PASS |
+
+---
+
+### TC-TRS-CLI-004 — Verify model-root auto-discovery via walk-up to .syscribe.toml, flag override, and fallback.
+
+**Verifies:** REQ-TRS-CLI-004  
+**Result:** ✓ PASS (6 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| no marker and no model falls back to default and reports the miss | ✓ PASS |
 
 ---
 

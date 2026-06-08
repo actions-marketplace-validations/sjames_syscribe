@@ -54,6 +54,22 @@ fn count_gherkin_scenarios(doc: &str) -> usize {
         .count()
 }
 
+/// Auto-discover the model root (REQ-TRS-CLI-004): walk upward from the current
+/// working directory and return the nearest ancestor that contains a
+/// `.syscribe.toml` file. Tooling locator only — it never affects model
+/// semantics. `None` when no ancestor carries the marker (callers fall through
+/// to the `model` default).
+fn discover_model_root() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    let mut dir: &std::path::Path = cwd.as_path();
+    loop {
+        if dir.join(".syscribe.toml").is_file() {
+            return Some(dir.to_string_lossy().into_owned());
+        }
+        dir = dir.parent()?;
+    }
+}
+
 /// Extract the top-level package name from `file_path`, given a model root prefix.
 fn top_level_package(file_path: &str, model_root: &str) -> String {
     // Strip the model root prefix (with trailing slash) and split on '/'
@@ -162,9 +178,11 @@ fn main() {
         }
     }
 
-    // Priority: --model flag > SYSCRIBE_MODEL env var > "model" default.
+    // Priority (REQ-TRS-CLI-004): --model flag > SYSCRIBE_MODEL env > walk-up to
+    // the nearest ancestor `.syscribe.toml` > the literal "model" default.
     let model_root_arg = model_flag
         .or_else(|| std::env::var("SYSCRIBE_MODEL").ok())
+        .or_else(discover_model_root)
         .unwrap_or_else(|| "model".to_string());
 
     let subcommand_args: &[String] = &remaining;

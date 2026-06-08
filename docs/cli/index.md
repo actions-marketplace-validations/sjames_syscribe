@@ -4,20 +4,27 @@ The `syscribe` binary is a command-line tool for validating, browsing, and query
 
 ## Pointing at a model
 
-Every command needs to know where the model root is. Three ways to specify it, in priority order:
+Every command needs to know where the model root is. Four ways, in priority order:
 
 ```bash
-# Flag (short or long)
+# 1. Flag (short or long)
 syscribe -m model_auto/ validate
 syscribe --model model_auto/ validate
 
-# Environment variable — useful in scripts and CI
+# 2. Environment variable — useful in scripts and CI
 export SYSCRIBE_MODEL=model_auto/
 syscribe validate
 
-# Default — if none of the above, looks for model/ in the current directory
+# 3. Auto-discovery — with no flag/env, walk up from the current directory to the
+#    nearest ancestor containing a .syscribe.toml, and use that as the model root.
+#    Run any command from anywhere inside the model tree:
+cd model_auto/System/Software && syscribe validate
+
+# 4. Default — if none of the above, looks for model/ in the current directory
 syscribe validate
 ```
+
+**`.syscribe.toml` as the root marker.** Auto-discovery reuses the existing config file ([repo_root / matchers / remote hook](../../spec/markdown-sysml-format.md)); an **empty** `.syscribe.toml` at the model root is a valid "mark this as the root" file. The marker is a locator only — it never changes qualified-name resolution. For CI, prefer the explicit `-m` for reproducibility.
 
 ---
 

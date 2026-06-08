@@ -2752,6 +2752,7 @@ pub fn print_help() {
     println!("Model root (priority order):");
     println!("  -m / --model <path>            Explicit flag");
     println!("  SYSCRIBE_MODEL=<path>          Environment variable");
+    println!("  .syscribe.toml                 Auto-discovered by walking up from the current dir");
     println!("  model/                         Default fallback");
     println!();
     println!("Commands:");
