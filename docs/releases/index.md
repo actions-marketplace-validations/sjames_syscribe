@@ -2,6 +2,22 @@
 
 `RELEASES`
 
+## 0.9.0 — 2026-06-08
+
+### Feature-parameter binding time (REQ-TRS-PARAM-004)
+
+- A `FeatureDef` parameter may declare an optional **`bindingTime:`** — *when* its value is resolved, from the product-line-engineering triad ordered earliest→latest: `compile` (build / codegen) · `load` (deployment / startup) · `runtime` (live). Orthogonal to `isFixed:`/`value:` (a value fixed in the model); an absent binding time is unspecified and opts out of the checks.
+- **`E230`** — an unrecognised `bindingTime:` value (`validate`). **`E229`** — a parameter computed from a `derivedFrom`/`bindTo` source it depends on cannot bind *earlier* than that source (`feature-check`; checked only when both ends declare a binding time). **`W027`** — a `Configuration` that binds a `runtime` parameter (resolved by the running system, not at configuration time); for the same reason `W017` is suppressed for an unbound `runtime` parameter. The `feature`/`features` cards show `param [bindingTime]`.
+
+### External references on all elements (REQ-TRS-EXTREF-001/002)
+
+- New optional **common** field **`extRef`** (string or list) on **every** element type — marks an element as the representation of an artifact in another tool (a requirement in DOORS Next, an element in a SysML tool, a ticket). Opaque values (a URI or a `tool:id` token); syntax unconstrained; never a model cross-reference target.
+- New **`extref <ref> [--json]`** command looks up the element(s) carrying a reference (exact match, returns all matches, exits non-zero on a miss). **`W028`** warns when the same `extRef` is declared by two or more elements. `show` surfaces the field and `spec fields` lists it.
+
+### Tests
+
+- Requirement-first: `REQ-TRS-PARAM-004` + `REQ-TRS-EXTREF-001/002` with `TC-TRS-PARAM-004` and `TC-TRS-EXTREF-001/002` and fixtures. Tool-qualification suite 113 → **115** test cases, all passing.
+
 ## 0.8.1 — 2026-06-08
 
 ### Fixes (GH #14 re-open)
