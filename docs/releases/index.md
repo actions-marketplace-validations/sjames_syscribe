@@ -2,6 +2,16 @@
 
 `RELEASES`
 
+## 0.12.0 — 2026-06-09
+
+### Configuration lens on the analysis & audit commands
+
+- **`audit` now honours `--config` (GH #35).** The dashboard was always computed over the 150% superset, so a requirement gated out of a variant still tripped the verdict. `audit --config <CONF|features>` now projects the entire dashboard — verdict, `W306`, orphan sets and coverage — onto the elements **active** in that Configuration, exactly like `validate --config`. New **`audit --all-configs`** audits every stored `Configuration`'s variant and exits non-zero if any fails (the product-line CI gate).
+- **`audit --config` and `validate --config` now agree (GH #36).** A `TestCase` that survives the projection but whose `verifies:` target was projected out was mis-counted as a dangling *error-severity* finding. The verdict now uses the projection-aware `validate_projected` path, and dangling detection considers only the active `TestCase`s while resolving their references against the **full** model — so the two commands report the same error count for a variant.
+- **The `--config` lens extends to the other read-only safety/security commands.** `metrics`, `cyber-risk`, `co-analysis`, `verification-depth` and `safety-case` each accept `--config <C>` and compute their report over the projected active subset (dormant when no feature model; unresolvable `--config` exits `1`).
+
+Requirement-first: `REQ-TRS-OUT-013` (audit lens + #36 agreement) and new `REQ-TRS-PROJ-006` (lens on the analysis commands), with `TC-TRS-OUT-013` / `TC-TRS-PROJ-006` harnesses and fixtures. Suite at **135** test cases, all passing.
+
 ## 0.11.1 — 2026-06-09
 
 ### Fixes
