@@ -1,7 +1,7 @@
 # metrics — quantitative HW safety metrics (SPFM/LFM/PMHF)
 
 ## SYNOPSIS
-    syscribe -m <root> metrics [--json]
+    syscribe -m <root> metrics [--config <C>] [--json]
 
 ## DESCRIPTION
 Computes ISO 26262-5 hardware architectural metrics per SafetyGoal over the
@@ -11,11 +11,14 @@ ASIL/SIL target. Opt-in: a goal with no diagnosticCoverage data shows n/a.
 First-order FMEDA approximation — verify independently before use in a safety case.
 
 ## OPTIONS
-    --json   Emit {id, asil, sil, spfm, lfm, pmhf, pass} array.
+    --config <C>   Project onto a Configuration (id/qname or 'Features::A,…') —
+                   metrics are computed only over goals active in that variant.
+    --json         Emit {id, asil, sil, spfm, lfm, pmhf, pass} array.
 
 ## EXAMPLES
     syscribe -m model/ metrics
     syscribe -m model_sil/ metrics --json
+    syscribe -m model_sil/ metrics --config CONF-LM3S-QEMU-001   # variant-scoped
 
 ## NOTES
 Inputs: FaultTreeEvent.failureRate (λ/h), diagnosticCoverage, latentDiagnostic-

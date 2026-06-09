@@ -79,6 +79,25 @@ fn discover_model_root() -> Option<String> {
     }
 }
 
+/// Resolve the `--config` lens for a read-only analysis command (GH #35): returns
+/// the element set projected onto the configuration (only elements active per
+/// `appliesWhen`), or the full set when `--config` is absent or there is no
+/// feature model. Exits 1 on an unresolvable argument.
+fn projected_elements(elems: &[RawElement], config: Option<&str>) -> Vec<RawElement> {
+    use syscribe_model::projection::{project, resolve_selection, SelectionOutcome};
+    match config {
+        None => elems.to_vec(),
+        Some(c) => match resolve_selection(elems, c) {
+            SelectionOutcome::Dormant => elems.to_vec(),
+            SelectionOutcome::Resolved(sel) => project(elems, &sel),
+            SelectionOutcome::Error(m) => {
+                eprintln!("Error: {m}");
+                std::process::exit(1);
+            }
+        },
+    }
+}
+
 /// Extract the top-level package name from `file_path`, given a model root prefix.
 fn top_level_package(file_path: &str, model_root: &str) -> String {
     // Strip the model root prefix (with trailing slash) and split on '/'
@@ -407,8 +426,31 @@ fn main() {
                 } else {
                     None
                 };
-                let code =
-                    audit::cmd_audit(&elems, &vcfg, model_root, profile.as_ref(), json);
+                // Configuration lens (GH #35): project the dashboard onto a
+                // variant, exactly as `validate --config` does.
+                let all_configs = rest.iter().any(|a| a == "--all-configs");
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let code = if all_configs {
+                    audit::cmd_audit_all_configs(&elems, &vcfg, profile.as_ref(), json)
+                } else if let Some(c) = config {
+                    // Pass the FULL model plus the resolved selection so the
+                    // verdict / dangling-TestCase checks can see projected-out
+                    // elements (GH #35/#36); cmd_audit derives the active view.
+                    match syscribe_model::projection::resolve_selection(&elems, c) {
+                        syscribe_model::projection::SelectionOutcome::Dormant => {
+                            audit::cmd_audit(&elems, &vcfg, model_root, profile.as_ref(), None, json)
+                        }
+                        syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
+                            audit::cmd_audit(&elems, &vcfg, model_root, profile.as_ref(), Some(&sel), json)
+                        }
+                        syscribe_model::projection::SelectionOutcome::Error(m) => {
+                            eprintln!("Error: {m}");
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    audit::cmd_audit(&elems, &vcfg, model_root, profile.as_ref(), None, json)
+                };
                 if code != 0 {
                     std::process::exit(code);
                 }
@@ -560,27 +602,49 @@ fn main() {
             "co-analysis" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                coanalysis::cmd_coanalysis(&elems, json);
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = projected_elements(&elems, config);
+                coanalysis::cmd_coanalysis(&view, json);
             }
             "metrics" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                metrics_cmd::cmd_metrics(&elems, json);
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = projected_elements(&elems, config);
+                metrics_cmd::cmd_metrics(&view, json);
             }
             "cyber-risk" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                cyberrisk::cmd_cyber_risk(&elems, json);
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = projected_elements(&elems, config);
+                cyberrisk::cmd_cyber_risk(&view, json);
             }
             "safety-case" => {
                 // GSN safety-argument tree (issue #20). Read-only; reuses Resolver
                 // and the issue-#21 results sidecar for TestCase verdicts.
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                // optional positional <SG-id> = first non-flag arg.
-                let goal = rest.iter().find(|a| !a.starts_with("--")).map(|s| s.as_str()).unwrap_or("");
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                // optional positional <SG-id> = first non-flag arg that is not a flag value.
+                let mut goal = "";
+                let mut gi = 0;
+                while gi < rest.len() {
+                    if rest[gi] == "--config" {
+                        gi += 2;
+                        continue;
+                    }
+                    if rest[gi].starts_with("--") {
+                        gi += 1;
+                        continue;
+                    }
+                    goal = rest[gi].as_str();
+                    break;
+                }
                 let results = ResultsData::load_sidecar(model_root);
-                safety_case::cmd_safety_case(&elems, &resolver, goal, results.as_ref(), json);
+                let view = projected_elements(&elems, config);
+                let view_resolver = Resolver::new(&view);
+                safety_case::cmd_safety_case(&view, &view_resolver, goal, results.as_ref(), json);
             }
             "feature-check" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
@@ -709,9 +773,12 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--min-levels")
                     .and_then(|w| w[1].parse::<usize>().ok());
-                let result = validator::validate_with_config(&elems, &vcfg);
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = projected_elements(&elems, config);
+                let view_resolver = Resolver::new(&view);
+                let result = validator::validate_with_config(&view, &vcfg);
                 let ok = vdepth::cmd_verification_depth(
-                    &elems, &resolver, &result, sil, status, min_levels, json,
+                    &view, &view_resolver, &result, sil, status, min_levels, json,
                 );
                 if !ok {
                     std::process::exit(2);

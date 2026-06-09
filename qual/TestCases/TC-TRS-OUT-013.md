@@ -36,4 +36,22 @@ Feature: Safety-readiness audit dashboard
     When audit --json is invoked
     Then the output is valid JSON
     And it contains the keys statusSplit, coverage and verdict
+
+  Scenario: --config projects the verdict onto a variant (GH #35)
+    Given a model with a SIL-4 requirement gated by appliesWhen to an unselected feature
+    When audit is invoked whole-model
+    Then it FAILs (the gated requirement trips W306) and exits 2
+    When audit --config <the config that excludes the feature> is invoked
+    Then it PASSes (the gated requirement is projected out) and exits 0
+
+  Scenario: --all-configs audits every configuration
+    When audit --all-configs is invoked on the variant model
+    Then a per-configuration verdict is printed and the overall exit reflects the worst case
+
+  Scenario: audit --config agrees with validate --config (GH #36)
+    Given a variant model with a TestCase that verifies a requirement projected out of the config
+    When validate --config <the config> is invoked
+    Then it is clean (exit 0)
+    When audit --config <the config> is invoked
+    Then danglingTestCases.count is 0 and the verdict is PASS (no phantom Error finding)
 ```

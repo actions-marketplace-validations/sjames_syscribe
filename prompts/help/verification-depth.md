@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
     syscribe -m <root> verification-depth
-        [--sil <v>] [--status <s>] [--min-levels N] [--json]
+        [--sil <v>] [--status <s>] [--min-levels N] [--config <C>] [--json]
 
 ## DESCRIPTION
 For each requirement, reports the distinct verification levels (testLevels of its
@@ -14,11 +14,14 @@ verification is a core SIL-4 expectation.
     --sil <v>        Restrict to requirements at silLevel/asilLevel v.
     --status <s>     Restrict to requirements whose status: equals s.
     --min-levels N   Gate: exit non-zero if any reported requirement has < N levels.
+    --config <C>     Project onto a Configuration (id/qname or 'Features::A,…') —
+                     only requirements active in that variant are reported.
     --json           Emit {id, silLevel, asilLevel, levels, count, flag} array.
 
 ## EXAMPLES
     syscribe -m model/ verification-depth --sil 4
     syscribe -m model/ verification-depth --sil 4 --min-levels 2   # CI gate
+    syscribe -m model/ verification-depth --config CONF-UAV-DELIVERY-001   # variant-scoped
 
 ## EXIT CODES
     0  all reported requirements meet --min-levels (or no gate)

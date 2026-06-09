@@ -2,6 +2,7 @@
 
 ## SYNOPSIS
     syscribe -m <root> audit [--json] [--profile <name>]
+        [--config <C> | --all-configs]
 
 ## DESCRIPTION
 Rolls up a top-level readiness picture: requirement status split (overall and
@@ -11,6 +12,11 @@ no-trace requirements), and a single PASS/FAIL verdict.
 
 ## OPTIONS
     --profile <name>  Use a .syscribe.toml [profiles.<name>] policy as the bar.
+    --config <C>      Project the whole dashboard onto a Configuration (id/qname
+                      or 'Features::A,Features::B') — verdict, W306 and coverage
+                      computed only over elements active in that variant.
+    --all-configs     Audit every stored Configuration's variant; exit non-zero
+                      if any fails (product-line CI gate).
     --json            Emit the whole rollup as one JSON document.
 
 ## DESCRIPTION (policy)
@@ -20,10 +26,12 @@ mechanism) is present, or — with --profile — any finding the profile promote
 ## EXAMPLES
     syscribe -m model/ audit
     syscribe -m model/ audit --profile safety
+    syscribe -m model/ audit --config CONF-LM3S-QEMU-001   # variant-scoped readiness
+    syscribe -m model/ audit --all-configs                 # gate every variant
     syscribe -m model/ audit --json
 
 ## EXIT CODES
-    0  PASS    2  FAIL (verdict)    1  undefined --profile
+    0  PASS    2  FAIL (verdict, or any variant under --all-configs)    1  undefined --profile / bad --config
 
 ## SEE ALSO
     validate, matrix, verification-depth, metrics

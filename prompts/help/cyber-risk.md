@@ -1,7 +1,7 @@
 # cyber-risk — ISO/SAE 21434 risk determination
 
 ## SYNOPSIS
-    syscribe -m <root> cyber-risk [--json]
+    syscribe -m <root> cyber-risk [--config <C>] [--json]
 
 ## DESCRIPTION
 Lists each ThreatScenario with its computed risk: severity (max damageSeverity
@@ -10,11 +10,14 @@ riskTreatment, whether it is addressed by a CybersecurityGoal, and a flag
 (untreated when it would trip W031).
 
 ## OPTIONS
-    --json   Emit {id, severity, feasibility, risk, treatment, addressed, flag} array.
+    --config <C>   Project onto a Configuration (id/qname or 'Features::A,…') —
+                   only ThreatScenarios active in that variant are listed.
+    --json         Emit {id, severity, feasibility, risk, treatment, addressed, flag} array.
 
 ## EXAMPLES
     syscribe -m model/ cyber-risk
     syscribe -m model/ cyber-risk --json
+    syscribe -m model/ cyber-risk --config CONF-CONNECTED-001   # variant-scoped
 
 ## NOTES
 An untreated high/critical threat raises W031, and a CybersecurityGoal with a

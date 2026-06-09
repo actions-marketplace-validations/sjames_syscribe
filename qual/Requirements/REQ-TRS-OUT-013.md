@@ -9,13 +9,39 @@ verificationMethod: test
 ---
 
 The tool **shall** provide a read-only `audit` subcommand
-(`syscribe -m <root> audit [--json] [--profile <name>]`) that aggregates existing
-model data into a single safety-readiness dashboard plus a configurable PASS/FAIL
-verdict. The command **shall reuse** existing validation, coverage and profile
-logic and **shall not** reimplement validation or coverage.
+(`syscribe -m <root> audit [--json] [--profile <name>] [--config <C>] [--all-configs]`)
+that aggregates existing model data into a single safety-readiness dashboard plus a
+configurable PASS/FAIL verdict. The command **shall reuse** existing validation,
+coverage and profile logic and **shall not** reimplement validation or coverage.
 
 This requirement refines the structured-output and exit-code contract of
-REQ-TRS-OUT-006 and reuses the named severity profiles of REQ-TRS-OUT-012.
+REQ-TRS-OUT-006, reuses the named severity profiles of REQ-TRS-OUT-012, and honours
+the configuration-projection lens of REQ-TRS-PROJ-001/002.
+
+## Configuration projection (the `--config` lens)
+
+`audit` **shall** honour the same configuration lens as `validate --config`
+(GH #35): given `--config <CONF|features>`, the **entire** dashboard — the verdict
+(W306 etc.), the orphan sets, and the coverage section — **shall** be computed only
+over the elements **active** in that configuration (per `appliesWhen`, via
+`projection::project`). A requirement that is inactive in the selected variant
+**shall not** contribute to W306 or the orphan counts. With no `--config`, behaviour
+is unchanged (whole-model view). An unresolvable `--config` argument is a usage error
+(exit `1`); a `--config` with no feature model present falls back to the whole-model
+audit.
+
+`audit --all-configs` **shall** audit every stored `Configuration`'s projected
+variant and print a per-configuration PASS/FAIL summary, exiting non-zero if **any**
+variant fails (the product-line CI gate, mirroring `validate --all-configs`).
+
+The projected verdict **shall** be computed via the **projection-aware** validation
+path (`projection::validate_projected`), exactly as `validate --config` does, so that
+`audit --config <C>` and `validate --config <C>` **agree on the error count** for the
+same variant (GH #36). In particular a `TestCase` that survives the projection but
+whose `verifies:` target was projected **out** of the variant **shall not** be
+mis-counted as a dangling `TestCase` nor surface a phantom Error finding: dangling
+detection considers only the **active** `TestCase`s but resolves their references
+against the **full** model.
 
 ## Dashboard sections
 
@@ -89,3 +115,10 @@ reuses REQ-TRS-OUT-012.
   `coverage`, `orphans` and `verdict`, and is valid JSON.
 - The per-configuration coverage section reuses the `matrix` coverage
   computation, and the existing `matrix` tests continue to pass unchanged.
+- A model with a high-integrity requirement that is `appliesWhen`-gated out of a
+  configuration audits **FAIL** whole-model but **PASS** under `audit --config <that
+  config>` (the requirement is projected out); `audit --all-configs` reports each
+  Configuration's verdict and exits non-zero if any fails.
+- For a variant where a `TestCase` verifies a requirement that is projected out,
+  `audit --config <C>` reports `danglingTestCases.count == 0` and a `verdict.pass`
+  consistent with `validate --config <C>` being clean (GH #36 — no phantom finding).

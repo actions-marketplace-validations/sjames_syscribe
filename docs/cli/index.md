@@ -538,7 +538,11 @@ $ syscribe -m model/ safety-case SG-DEMO-001
 $ syscribe -m model/ audit
 $ syscribe -m model/ audit --json              # the whole rollup as one structured document
 $ syscribe -m model/ audit --profile safety    # add a named [profiles.<name>] gate to the verdict
+$ syscribe -m model/ audit --config CONF-X     # variant-scoped: project onto one Configuration
+$ syscribe -m model/ audit --all-configs       # gate every Configuration's variant (CI)
 ```
+
+**Variant scoping (`--config` / `--all-configs`).** Certification is scoped to a *variant*. `audit --config <CONF|features>` projects the entire dashboard — verdict, W306, orphans, coverage — onto the elements **active** in that configuration (per `appliesWhen`), exactly like `validate --config`; a requirement gated out of the variant no longer trips the verdict. `audit --all-configs` audits every stored `Configuration` and exits non-zero if any fails. (The same `--config` lens is available on `metrics`, `cyber-risk`, `co-analysis`, `verification-depth`, and `safety-case`.)
 
 The report (mirrored in `--json`) has five sections:
 

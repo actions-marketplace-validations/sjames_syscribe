@@ -106,35 +106,132 @@ impl StatusCounts {
 }
 
 /// The audit command. Returns the process exit code (0 PASS · 2 FAIL).
+/// The readiness verdict over `elements`: `(pass, reasons)`. FAIL when any
+/// error-severity finding, any `W306`, or any profile-promoted finding is present.
+/// Shared by `cmd_audit` and `cmd_audit_all_configs` so the policy is defined once.
+///
+/// When `sel` is `Some`, findings are computed via the **projection-aware**
+/// validator (`projection::validate_projected`) — exactly as `validate --config`
+/// does — so cross-reference-resolution codes (E102–E106) for references into the
+/// projected-out part are suppressed, and `audit --config` agrees with
+/// `validate --config` on error-severity findings (GH #36).
+pub fn audit_verdict(
+    elements: &[RawElement],
+    config: &ValidateConfig,
+    profile: Option<&Profile>,
+    sel: Option<&syscribe_model::projection::Selection>,
+) -> (bool, Vec<String>) {
+    let findings: Vec<validator::Finding> = match sel {
+        Some(s) => syscribe_model::projection::validate_projected(elements, config, s),
+        None => validator::validate_with_config(elements, config).findings,
+    };
+    let errors = findings.iter().filter(|f| f.severity == Severity::Error).count();
+    let w306 = findings.iter().filter(|f| f.code == "W306").count();
+    let candidates: Vec<&validator::Finding> =
+        findings.iter().filter(|f| f.severity != Severity::Error).collect();
+    let promoted = match profile {
+        Some(p) => crate::query::profile_promoted(p, elements, &candidates),
+        None => Vec::new(),
+    };
+    let mut reasons: Vec<String> = Vec::new();
+    if errors > 0 {
+        reasons.push(format!("{errors} error-severity finding(s)"));
+    }
+    if w306 > 0 {
+        reasons.push(format!("{w306} W306 finding(s) (unsatisfied safety mechanism)"));
+    }
+    if !promoted.is_empty() {
+        let codes: std::collections::BTreeSet<&str> = promoted.iter().map(|f| f.code).collect();
+        reasons.push(format!(
+            "{} profile-promoted finding(s) [{}]",
+            promoted.len(),
+            codes.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    (reasons.is_empty(), reasons)
+}
+
+/// `audit --all-configs`: audit each stored `Configuration`'s projected variant;
+/// exit non-zero if any variant fails its readiness verdict (CI gate).
+pub fn cmd_audit_all_configs(
+    elements: &[RawElement],
+    config: &ValidateConfig,
+    profile: Option<&Profile>,
+    json: bool,
+) -> i32 {
+    use syscribe_model::projection::{resolve_selection, SelectionOutcome};
+    let configs: Vec<&RawElement> =
+        elements.iter().filter(|e| is_type(e, ElementType::Configuration)).collect();
+    if configs.is_empty() {
+        if json {
+            println!("{}", json!({ "configurations": [], "pass": true }));
+        } else {
+            println!("audit --all-configs: no Configuration elements in the model.");
+        }
+        return 0;
+    }
+    // (id, pass, reasons) per configuration — projection-aware verdict (GH #35/#36).
+    let mut rows: Vec<(String, bool, Vec<String>)> = Vec::new();
+    for c in &configs {
+        let cid = disp_id(c);
+        let sel = match resolve_selection(elements, &cid) {
+            SelectionOutcome::Resolved(s) => Some(s),
+            _ => None,
+        };
+        let (pass, reasons) = audit_verdict(elements, config, profile, sel.as_ref());
+        rows.push((cid, pass, reasons));
+    }
+    let any_fail = rows.iter().any(|(_, pass, _)| !pass);
+
+    if json {
+        let items: Vec<_> = rows
+            .iter()
+            .map(|(cid, pass, reasons)| json!({ "id": cid, "pass": pass, "reasons": reasons }))
+            .collect();
+        println!("{}", json!({ "configurations": items, "pass": !any_fail }));
+    } else {
+        println!("# Audit — all configurations ({})", rows.len());
+        println!();
+        for (cid, pass, reasons) in &rows {
+            if *pass {
+                println!("  PASS  {cid}");
+            } else {
+                println!("  FAIL  {cid} — {}", reasons.join("; "));
+            }
+        }
+        println!();
+        println!("Overall: {}", if any_fail { "**FAIL**" } else { "**PASS**" });
+    }
+    if any_fail {
+        2
+    } else {
+        0
+    }
+}
+
 pub fn cmd_audit(
     elements: &[RawElement],
     config: &ValidateConfig,
     model_root: &std::path::Path,
     profile: Option<&Profile>,
+    sel: Option<&syscribe_model::projection::Selection>,
     json: bool,
 ) -> i32 {
-    let resolver = Resolver::new(elements);
+    // The dashboard sections are computed over the **active** element set (the
+    // variant when `--config` is given); the verdict and the dangling-TestCase
+    // resolution use the projection-aware path / the full model so a reference
+    // into the projected-out part is not mistaken for a defect (GH #35/#36).
+    let projected: Option<Vec<RawElement>> = sel.map(|s| syscribe_model::projection::project(elements, s));
+    let view: &[RawElement] = projected.as_deref().unwrap_or(elements);
+    let resolver = Resolver::new(view);
+    let full_resolver = Resolver::new(elements);
 
-    // ---- Validation reuse -------------------------------------------------
-    let result = validator::validate_with_config(elements, config);
-    let errors: Vec<&validator::Finding> =
-        result.findings.iter().filter(|f| f.severity == Severity::Error).collect();
-    let w306: Vec<&validator::Finding> =
-        result.findings.iter().filter(|f| f.code == "W306").collect();
-    // Profile-promoted findings (issue #18 logic), considering only warnings/infos.
-    let candidates: Vec<&validator::Finding> = result
-        .findings
-        .iter()
-        .filter(|f| f.severity != Severity::Error)
-        .collect();
-    let promoted: Vec<&validator::Finding> = match profile {
-        Some(p) => crate::query::profile_promoted(p, elements, &candidates),
-        None => Vec::new(),
-    };
+    // ---- Readiness verdict (shared policy, projection-aware) --------------
+    let (pass, reasons) = audit_verdict(elements, config, profile, sel);
 
     // ---- Section 1: requirement status split ------------------------------
     let reqs: Vec<&RawElement> =
-        elements.iter().filter(|e| is_type(e, ElementType::Requirement)).collect();
+        view.iter().filter(|e| is_type(e, ElementType::Requirement)).collect();
     let mut overall_status = StatusCounts::default();
     let mut per_pkg_status: BTreeMap<String, StatusCounts> = BTreeMap::new();
     for r in &reqs {
@@ -164,12 +261,12 @@ pub fn cmd_audit(
     }
 
     // ---- Section 3: coverage (reused matrix computation) ------------------
-    let coverage = Coverage::rollup(elements, config.results.as_ref(), false);
+    let coverage = Coverage::rollup(view, config.results.as_ref(), false);
 
     // ---- Section 4: orphans ----------------------------------------------
     // Satisfaction map: any element's satisfies: target (by qname or id).
     let mut satisfied: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for e in elements {
+    for e in view {
         if let Some(sat) = &e.frontmatter.satisfies {
             for s in sat {
                 satisfied.insert(s.clone());
@@ -177,7 +274,7 @@ pub fn cmd_audit(
         }
     }
     // Active (non-draft) TestCases and their verifies targets.
-    let active_tcs: Vec<(&RawElement, Vec<String>)> = elements
+    let active_tcs: Vec<(&RawElement, Vec<String>)> = view
         .iter()
         .filter(|e| is_type(e, ElementType::TestCase))
         .filter(|e| e.frontmatter.status.as_deref() != Some("draft"))
@@ -205,19 +302,22 @@ pub fn cmd_audit(
             unsatisfied.push(disp_id(r));
         }
         let has_parent = r.frontmatter.derived_from.as_ref().is_some_and(|d| !d.is_empty());
-        let has_children = !derived_children_of(r, &reqs, &resolver, elements).is_empty();
+        let has_children = !derived_children_of(r, &reqs, &resolver, view).is_empty();
         if !has_parent && !has_children {
             untraced.push(disp_id(r));
         }
     }
 
     // Dangling TestCases: empty verifies, or none of its targets resolve.
+    // Only the active (in-variant) TestCases are considered, but references are
+    // resolved against the FULL model so a TestCase that verifies a requirement
+    // projected out of this variant is not mis-counted as dangling (GH #36).
     let mut dangling_tcs: Vec<String> = Vec::new();
-    for tc in elements.iter().filter(|e| is_type(e, ElementType::TestCase)) {
+    for tc in view.iter().filter(|e| is_type(e, ElementType::TestCase)) {
         let ver = tc.frontmatter.verifies.clone().unwrap_or_default();
         let resolves = ver
             .iter()
-            .any(|v| resolver.resolve_ref(elements, v).is_some());
+            .any(|v| full_resolver.resolve_ref(elements, v).is_some());
         if ver.is_empty() || !resolves {
             dangling_tcs.push(disp_id(tc));
         }
@@ -227,24 +327,7 @@ pub fn cmd_audit(
     untraced.sort();
     dangling_tcs.sort();
 
-    // ---- Section 5: verdict ----------------------------------------------
-    let mut reasons: Vec<String> = Vec::new();
-    if !errors.is_empty() {
-        reasons.push(format!("{} error-severity finding(s)", errors.len()));
-    }
-    if !w306.is_empty() {
-        reasons.push(format!("{} W306 finding(s) (unsatisfied safety mechanism)", w306.len()));
-    }
-    if !promoted.is_empty() {
-        let codes: std::collections::BTreeSet<&str> = promoted.iter().map(|f| f.code).collect();
-        let codes: Vec<&str> = codes.into_iter().collect();
-        reasons.push(format!(
-            "{} profile-promoted finding(s) [{}]",
-            promoted.len(),
-            codes.join(", ")
-        ));
-    }
-    let pass = reasons.is_empty();
+    // ---- Section 5: verdict (computed above via audit_verdict) ------------
     let exit_code = if pass { 0 } else { 2 };
 
     // ---- Output ----------------------------------------------------------

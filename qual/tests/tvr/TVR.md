@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 134 |
-| Passed | 134 |
+| Total test cases | 135 |
+| Passed | 135 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -722,7 +722,7 @@
 ### TC-TRS-OUT-013 — Verify the safety-readiness audit dashboard, its sections, JSON output and PASS/FAIL exit codes.
 
 **Verifies:** REQ-TRS-OUT-013  
-**Result:** ✓ PASS (10 passed, 0 failed)
+**Result:** ✓ PASS (17 passed, 0 failed)
 
 ---
 
@@ -934,6 +934,17 @@
 | Scenario | Result |
 |---|---|
 | variant diff lists the symmetric difference | ✓ PASS |
+
+---
+
+### TC-TRS-PROJ-006 — Verify the --config projection lens on metrics, cyber-risk, co-analysis, verification-depth and safety-case.
+
+**Verifies:** REQ-TRS-PROJ-006  
+**Result:** ✓ PASS (12 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| verification-depth projects out a gated SIL-3 requirement | ✓ PASS |
 
 ---
 

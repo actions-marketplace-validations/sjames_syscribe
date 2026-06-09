@@ -1,7 +1,7 @@
 # co-analysis — safety ↔ security co-engineering view
 
 ## SYNOPSIS
-    syscribe -m <root> co-analysis [--json]
+    syscribe -m <root> co-analysis [--config <C>] [--json]
 
 ## DESCRIPTION
 Shows the cross-domain overlap (ISO 26262 ⇄ ISO/SAE 21434): for each SafetyGoal /
@@ -10,11 +10,14 @@ ThreatScenario → damageScenarios → DamageScenario → hazardRef → goal —
 "gaps" section of safety-tagged DamageScenarios with no hazardRef (W030).
 
 ## OPTIONS
-    --json   Emit {goals:[…], unlinkedSafetyDamage:[…]}.
+    --config <C>   Project onto a Configuration (id/qname or 'Features::A,…') —
+                   only goals and threats active in that variant are shown.
+    --json         Emit {goals:[…], unlinkedSafetyDamage:[…]}.
 
 ## EXAMPLES
     syscribe -m model/ co-analysis
     syscribe -m model/ co-analysis --json
+    syscribe -m model/ co-analysis --config CONF-CONNECTED-001   # variant-scoped
 
 ## SEE ALSO
     cyber-risk, safety-case, validate (W030), spec safety
