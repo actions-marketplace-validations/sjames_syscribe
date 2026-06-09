@@ -28,6 +28,20 @@ syscribe validate
 
 ---
 
+## Getting help
+
+Every command has a detailed man page (synopsis, options, examples, exit codes, see-also), reachable two ways — neither needs a model directory:
+
+```bash
+syscribe help              # index of every command with a one-line summary
+syscribe help <command>    # the command's full page, e.g. `syscribe help audit`
+syscribe <command> --help  # the same page, e.g. `syscribe validate --help` (also -h)
+```
+
+`syscribe spec [<section>]` browses the embedded **format** reference (types, fields, validation rules, …); `syscribe --agent-instructions` prints the LLM authoring prompt.
+
+---
+
 ## Validation
 
 ### Full report

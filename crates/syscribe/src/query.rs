@@ -3202,4 +3202,6 @@ pub fn print_help() {
     println!("  syscribe -m model/ who-verifies REQ-UAV-SAFE-001");
     println!("  syscribe -m model/ refs Interfaces::TelemetryPortDef");
     println!("  SYSCRIBE_MODEL=model/ syscribe validate");
+    println!();
+    println!("Detailed help: `syscribe help <command>` or `syscribe <command> --help` (e.g. `syscribe help audit`).");
 }

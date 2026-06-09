@@ -7,6 +7,7 @@ mod connectivity;
 mod diagram;
 mod discover;
 mod export;
+mod help;
 mod ingest;
 mod matrix;
 mod metrics_cmd;
@@ -155,6 +156,22 @@ fn main() {
 
     if args.iter().any(|a| a == "--agent-instructions") {
         print!("{}", AGENT_INSTRUCTIONS);
+        return;
+    }
+
+    // Detailed help (REQ-TRS-CLI-005), handled before model resolution so it
+    // works without a model directory.
+    //   syscribe help [<command>]
+    //   syscribe <command> --help | -h   (also `spec --help`, etc.)
+    if args.iter().skip(1).any(|a| a == "--help" || a == "-h") {
+        match args.iter().skip(1).find(|a| help::is_command(a)) {
+            Some(cmd) => print!("{}", help::page(cmd).unwrap_or("")),
+            None => query::print_help(), // bare `--help` → command index
+        }
+        return;
+    }
+    if args.get(1).map(|a| a == "help").unwrap_or(false) {
+        help::cmd_help(args.get(2).map(|s| s.as_str()));
         return;
     }
 

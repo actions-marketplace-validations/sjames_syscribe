@@ -3,7 +3,7 @@
 **Tool:** syscribe CLI validator  
 **Version:** unknown  
 **Standard:** ISO 26262:2018 Part 8 §11 (TCL2), IEC 61508:2010 Part 3 Annex D  
-**Date:** 2026-06-08  
+**Date:** 2026-06-09  
 **TRS:** `qual/Requirements/`  **Test cases:** `qual/TestCases/`
 
 ---
@@ -12,8 +12,8 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 133 |
-| Passed | 133 |
+| Total test cases | 134 |
+| Passed | 134 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
@@ -62,6 +62,17 @@
 | Scenario | Result |
 |---|---|
 | no marker and no model falls back to default and reports the miss | ✓ PASS |
+
+---
+
+### TC-TRS-CLI-005 — Verify detailed per-command help: help <cmd>, <cmd> --help, the index, and unknown handling.
+
+**Verifies:** REQ-TRS-CLI-005  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| help <unknown> exits non-zero | ✓ PASS |
 
 ---
 
