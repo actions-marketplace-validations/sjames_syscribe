@@ -173,7 +173,7 @@ A `Package` may declare `appliesWhen:` to gate its whole subtree; an element's *
 | W303 | `breakdownAdr:` references a `proposed` ADR but Requirement is `approved` or higher |
 | W304 | `isDeploymentPackage: true` combined with `domain: hardware` |
 | W305 | Parent Requirement (has `derivedFrom` children) at `approved`, `implemented`, or `verified` has no active TestCase at `testLevel: L3`, `L4`, or `L5` — leaf-level tests on derived requirements are not sufficient to verify emergent composed behaviour |
-| W306 | **Unsatisfied safety mechanism** — a high-integrity Requirement (`silLevel >= 4` or `asilLevel: D`) that is **not** a fully integrated safety mechanism: `status: draft`, **or** no element satisfies it, **or** (with a feature model) active in no `Configuration`. The message names the triggering sub-condition(s). Gate with `--deny W306`. (Threshold/sub-condition tuning rides with severity profiles, #18.) |
+| W306 | **Unsatisfied safety mechanism** — a high-integrity Requirement (`silLevel >= 4` or `asilLevel: D`) that is **not** a fully integrated safety mechanism: `status: draft`, **or** (for a **leaf**) no element satisfies it, **or** (with a feature model) active in no `Configuration`. The "unsatisfied" sub-condition applies to leaves only — a **parent** (has `derivedChildren`) is satisfied transitively and can't be satisfied directly (`E312`), so it is never flagged unsatisfied. Message names the triggering sub-condition(s). Gate with `--deny W306`. (Threshold/sub-condition tuning rides with severity profiles, #18.) |
 
 ## §12 Traceability errors (E310–E315)
 

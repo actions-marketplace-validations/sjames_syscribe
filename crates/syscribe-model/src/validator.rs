@@ -2868,11 +2868,18 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 continue;
             }
 
+            // A parent requirement (one with derivedChildren) is satisfied
+            // transitively through its leaves — E312 forbids satisfying it
+            // directly — so the "no satisfier" sub-condition applies to leaf
+            // requirements only (GH #34; mirrors the W002 parent suppression).
+            let req_id = fm.id.as_deref().unwrap_or(&elem.qualified_name);
+            let is_parent = derived_children.get(req_id).map_or(false, |v| !v.is_empty());
+
             let mut reasons: Vec<&str> = Vec::new();
             if fm.status.as_deref() == Some("draft") {
                 reasons.push("status: draft");
             }
-            if !satisfied_reqs.contains_key(&elem.qualified_name) {
+            if !is_parent && !satisfied_reqs.contains_key(&elem.qualified_name) {
                 reasons.push("no element satisfies it");
             }
             // all-N/A: a feature model is active, configurations exist, and the
@@ -2889,7 +2896,6 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
 
             if !reasons.is_empty() {
-                let req_id = fm.id.as_deref().unwrap_or(&elem.qualified_name);
                 findings.push(warning(
                     "W306",
                     &elem.file_path,

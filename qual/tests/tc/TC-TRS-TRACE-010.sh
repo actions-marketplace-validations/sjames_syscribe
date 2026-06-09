@@ -18,6 +18,11 @@ tc_TRS_TRACE_010() {
     run_scenario "a fully-integrated high-integrity requirement produces no W306" "$B/ok"
     assert_no_code "W306"
 
+    # parent_ok (GH #34): a high-integrity PARENT whose leaf is satisfied must not
+    # be flagged — E312 forbids satisfying it directly, so it is satisfied transitively.
+    run_scenario "a satisfied-via-leaf parent requirement produces no W306" "$B/parent_ok"
+    assert_no_code "W306"
+
     # gateable
     SCENARIO_NAME="W306 is gateable with --deny"; printf "  ▶ %s\n" "$SCENARIO_NAME"
     "$SYSCRIBE" -m "$B/flagged" validate --deny W306 >/dev/null 2>&1 && ec=0 || ec=$?

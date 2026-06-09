@@ -28,6 +28,12 @@ Feature: unsatisfied safety-mechanism check
     When the tool validates the model
     Then no W306 finding is emitted for it
 
+  Scenario: a high-integrity parent whose leaves are all satisfied produces no W306
+    Given a silLevel 4 parent requirement whose leaf is satisfied by an element
+    And E312 forbids satisfying the parent directly
+    When the tool validates the model
+    Then no W306 finding is emitted for the parent
+
   Scenario: a requirement below the integrity threshold never produces W306
     Given a silLevel 2 draft, unsatisfied requirement
     When the tool validates the model

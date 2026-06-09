@@ -1317,11 +1317,12 @@
 ### TC-TRS-TRACE-010 — Verify the unsatisfied safety-mechanism check W306 (high-integrity + draft/unsatisfied/all-N-A).
 
 **Verifies:** REQ-TRS-TRACE-010  
-**Result:** ✓ PASS (5 passed, 0 failed)
+**Result:** ✓ PASS (6 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
 | W306 message names the sub-conditions | ✓ PASS |
+| a fully-integrated high-integrity requirement produces no W306 | ✓ PASS |
 | W306 is gateable with --deny | ✓ PASS |
 
 ---
