@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-OUT-005
 type: Requirement
-name: Zero Exit on Clean Model
-title: Tool shall exit with code 0 when no Error findings are present
+name: Tool shall exit with code 0 when no Error findings are present
 status: draft
 reqDomain: software
 verificationMethod: test

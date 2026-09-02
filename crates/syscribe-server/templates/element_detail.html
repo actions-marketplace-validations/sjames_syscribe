@@ -1,6 +1,11 @@
 <!-- View mode -->
 <div id="detail-view-mode">
-  <div class="detail-name">{{ name }}</div>
+  <div class="detail-name">
+    {{ name }}
+    {% if let Some(url) = source_url %}
+    <a class="detail-source-link" href="{{ url }}" target="_blank" rel="noopener" title="View source on host" aria-label="View source on host">&#x2197;</a>
+    {% endif %}
+  </div>
   <div class="detail-type">
     <span class="badge {{ badge_class }}">{{ element_type }}</span>
   </div>
@@ -12,6 +17,16 @@
   <div class="detail-doc">{{ doc_html|safe }}</div>
   {% else %}
   <p class="detail-empty">No documentation.</p>
+  {% endif %}
+  {% if !custom_fields.is_empty() %}
+  <div class="detail-custom-fields">
+    <div class="detail-section-label">Custom Fields</div>
+    <table class="custom-fields-table">
+      {% for kv in custom_fields %}
+      <tr><th>{{ kv.0 }}</th><td>{{ kv.1 }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
   {% endif %}
   <div class="detail-actions">
     <button class="btn-edit" onclick="showEditForm()">Edit</button>
@@ -28,6 +43,11 @@
     <label>Documentation</label>
     <textarea id="edit-doc" rows="7">{{ doc_raw }}</textarea>
   </div>
+  <div class="edit-field">
+    <label>Other Fields (YAML)</label>
+    <textarea id="edit-extra" rows="8" spellcheck="false">{{ extra_yaml }}</textarea>
+  </div>
+  <div id="edit-error" class="edit-error" style="display:none"></div>
   <div class="edit-actions">
     <button class="btn-primary" onclick="saveElement()">Save</button>
     <button class="btn-cancel" onclick="hideEditForm()">Cancel</button>

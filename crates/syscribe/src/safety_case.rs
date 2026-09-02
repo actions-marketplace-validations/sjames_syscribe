@@ -49,11 +49,16 @@ fn disp_id(elem: &RawElement) -> &str {
 }
 
 fn disp_title(elem: &RawElement) -> &str {
+    elem.frontmatter.name.as_deref().unwrap_or("")
+}
+
+/// ` [decomposition: <kind>]` suffix when a requirement declares `decompositionKind` (§22.3).
+fn decomp_suffix(elem: &RawElement) -> String {
     elem.frontmatter
-        .title
+        .decomposition_kind
         .as_deref()
-        .or(elem.frontmatter.name.as_deref())
-        .unwrap_or("")
+        .map(|k| format!(" [decomposition: {}]", k))
+        .unwrap_or_default()
 }
 
 /// Verdict suffix for a TestCase leaf (`[pass]` / `[fail]` / `[unknown]`).
@@ -69,12 +74,16 @@ fn verdict_suffix(tc: &RawElement, results: Option<&ResultsData>) -> &'static st
 
 /// Render the safety-case view. `goal_filter` is an optional SG id/qname; `json`
 /// switches between the GSN-style text tree and the JSON document.
+/// `no_implicit` suppresses the implicit SafetyGoal→Requirement→TestCase fold-in for all goals.
+/// `sidecar_loaded` indicates whether a results sidecar was ingested (suppresses the [unknown] footnote).
 pub fn cmd_safety_case(
     elements: &[RawElement],
     resolver: &Resolver,
     goal_filter: &str,
     results: Option<&ResultsData>,
     json: bool,
+    no_implicit: bool,
+    sidecar_loaded: bool,
 ) {
     // Collect the top SafetyGoals (all of them, or only the named one).
     let goals: Vec<&RawElement> = elements
@@ -98,9 +107,9 @@ pub fn cmd_safety_case(
     }
 
     if json {
-        render_json(elements, resolver, &goals, results);
+        render_json(elements, resolver, &goals, results, no_implicit, sidecar_loaded);
     } else {
-        render_text(elements, resolver, &goals, results);
+        render_text(elements, resolver, &goals, results, no_implicit, sidecar_loaded);
     }
 }
 
@@ -181,21 +190,25 @@ fn render_text(
     resolver: &Resolver,
     goals: &[&RawElement],
     results: Option<&ResultsData>,
+    no_implicit: bool,
+    sidecar_loaded: bool,
 ) {
+    let mut any_unknown = false;
+
     for goal in goals {
         let gid = disp_id(goal);
         println!("[SafetyGoal] {} — {}", gid, disp_title(goal));
 
-        // children = explicit supporting arguments + implicit derived requirements
-        // + assumptions-of-use on the goal.
         let args = supporting_arguments(elements, gid, &goal.qualified_name);
-        let dreqs = derived_requirements(elements, gid);
+        // Suppress implicit fold-in when --no-implicit OR goal has explicit Arguments.
+        let suppress_implicit = no_implicit || !args.is_empty();
+        let dreqs = if suppress_implicit {
+            vec![]
+        } else {
+            derived_requirements(elements, gid)
+        };
         let assumps = assumptions_for(elements, gid, &goal.qualified_name);
 
-        // Avoid printing a requirement twice when it is both an Argument's evidence
-        // and a derivedFromSafetyGoal child: dedupe implicit requirements that are
-        // already reachable as evidence is out of scope; we simply print both
-        // sections — the explicit argument tree, then the implicit fold-in.
         let total = args.len() + dreqs.len() + assumps.len();
         let mut idx = 0usize;
         let mut guard: HashSet<String> = HashSet::new();
@@ -203,23 +216,24 @@ fn render_text(
         for arg in &args {
             idx += 1;
             let last = idx == total;
-            print_argument(elements, resolver, arg, "", last, results, &mut guard);
+            print_argument(elements, resolver, arg, "", last, results, &mut guard, &mut any_unknown);
         }
         for req in &dreqs {
             idx += 1;
             let last = idx == total;
             let conn = if last { "└──" } else { "├──" };
-            println!("{} [evidence:Requirement] {} — {}", conn, disp_id(req), disp_title(req));
-            // verifying TestCases under the implicit requirement
+            println!("{} [evidence:Requirement] {} — {}{}", conn, disp_id(req), disp_title(req), decomp_suffix(req));
             let child_indent = if last { "    " } else { "│   " };
             let tcs = verifying_testcases(elements, disp_id(req));
             let tcn = tcs.len();
             for (i, tc) in tcs.iter().enumerate() {
                 let tlast = i + 1 == tcn;
                 let tconn = if tlast { "└──" } else { "├──" };
+                let vs = verdict_suffix(tc, results);
+                if vs == " [unknown]" { any_unknown = true; }
                 println!(
                     "{}{} [evidence:TestCase] {} — {}{}",
-                    child_indent, tconn, disp_id(tc), disp_title(tc), verdict_suffix(tc, results)
+                    child_indent, tconn, disp_id(tc), disp_title(tc), vs
                 );
             }
         }
@@ -231,9 +245,14 @@ fn render_text(
         }
         println!();
     }
+
+    if any_unknown && !sidecar_loaded {
+        println!("(verdicts unknown — run `syscribe ingest-results` to populate)");
+    }
 }
 
 /// Recursively print an Argument node and its evidence children.
+#[allow(clippy::too_many_arguments)]
 fn print_argument(
     elements: &[RawElement],
     resolver: &Resolver,
@@ -242,12 +261,12 @@ fn print_argument(
     last: bool,
     results: Option<&ResultsData>,
     guard: &mut HashSet<String>,
+    any_unknown: &mut bool,
 ) {
     let conn = if last { "└──" } else { "├──" };
     let kind = arg.frontmatter.argument_type.as_deref().unwrap_or("claim");
     println!("{}{} [{}] {} — {}", indent, conn, kind, disp_id(arg), disp_title(arg));
 
-    // Recursion guard against cyclic supports/evidence.
     let aid = disp_id(arg).to_string();
     if !guard.insert(aid) {
         return;
@@ -255,14 +274,13 @@ fn print_argument(
 
     let child_indent = format!("{}{}", indent, if last { "    " } else { "│   " });
 
-    // Evidence children, plus assumptions that applyTo this argument.
     let ev: Vec<&str> = arg
         .frontmatter
         .evidence
         .as_deref()
         .unwrap_or(&[])
         .iter()
-        .map(|s| s.as_str())
+        .filter_map(|s| s.as_str())
         .collect();
     let assumps = assumptions_for(elements, disp_id(arg), &arg.qualified_name);
     let total = ev.len() + assumps.len();
@@ -278,17 +296,19 @@ fn print_argument(
             }
             Some(target) => match classify(target) {
                 NodeKind::Argument => {
-                    print_argument(elements, resolver, target, &child_indent, elast, results, guard);
+                    print_argument(elements, resolver, target, &child_indent, elast, results, guard, any_unknown);
                 }
                 NodeKind::Requirement => {
                     let c = if elast { "└──" } else { "├──" };
-                    println!("{}{} [evidence:Requirement] {} — {}", child_indent, c, disp_id(target), disp_title(target));
+                    println!("{}{} [evidence:Requirement] {} — {}{}", child_indent, c, disp_id(target), disp_title(target), decomp_suffix(target));
                 }
                 NodeKind::TestCase => {
                     let c = if elast { "└──" } else { "├──" };
+                    let vs = verdict_suffix(target, results);
+                    if vs == " [unknown]" { *any_unknown = true; }
                     println!(
                         "{}{} [evidence:TestCase] {} — {}{}",
-                        child_indent, c, disp_id(target), disp_title(target), verdict_suffix(target, results)
+                        child_indent, c, disp_id(target), disp_title(target), vs
                     );
                 }
                 NodeKind::Assumption => {
@@ -317,33 +337,50 @@ fn render_json(
     resolver: &Resolver,
     goals: &[&RawElement],
     results: Option<&ResultsData>,
+    no_implicit: bool,
+    sidecar_loaded: bool,
 ) {
+    let mut any_unknown = false;
+
     let goals_json: Vec<serde_json::Value> = goals
         .iter()
         .map(|goal| {
             let gid = disp_id(goal);
             let args = supporting_arguments(elements, gid, &goal.qualified_name);
+            let suppress_implicit = no_implicit || !args.is_empty();
             let mut guard: HashSet<String> = HashSet::new();
             let args_json: Vec<serde_json::Value> = args
                 .iter()
-                .map(|a| argument_json(elements, resolver, a, results, &mut guard))
+                .map(|a| argument_json(elements, resolver, a, results, &mut guard, &mut any_unknown))
                 .collect();
 
             // Implicit fold-in: derived requirements with their verifying tests.
-            let reqs_json: Vec<serde_json::Value> = derived_requirements(elements, gid)
-                .iter()
-                .map(|req| {
-                    let tcs: Vec<serde_json::Value> = verifying_testcases(elements, disp_id(req))
-                        .iter()
-                        .map(|tc| testcase_json(tc, results))
-                        .collect();
-                    serde_json::json!({
-                        "id": disp_id(req),
-                        "title": disp_title(req),
-                        "testCases": tcs,
+            let reqs_json: Vec<serde_json::Value> = if suppress_implicit {
+                vec![]
+            } else {
+                derived_requirements(elements, gid)
+                    .iter()
+                    .map(|req| {
+                        let tcs: Vec<serde_json::Value> = verifying_testcases(elements, disp_id(req))
+                            .iter()
+                            .map(|tc| {
+                                let v = testcase_json(tc, results);
+                                if v["verdict"] == "unknown" { any_unknown = true; }
+                                v
+                            })
+                            .collect();
+                        let mut r = serde_json::json!({
+                            "id": disp_id(req),
+                            "title": disp_title(req),
+                            "testCases": tcs,
+                        });
+                        if let Some(k) = req.frontmatter.decomposition_kind.as_deref() {
+                            r["decompositionKind"] = serde_json::json!(k);
+                        }
+                        r
                     })
-                })
-                .collect();
+                    .collect()
+            };
 
             let assumps_json: Vec<serde_json::Value> = assumptions_for(elements, gid, &goal.qualified_name)
                 .iter()
@@ -360,7 +397,10 @@ fn render_json(
         })
         .collect();
 
-    let doc = serde_json::json!({ "goals": goals_json });
+    let mut doc = serde_json::json!({ "goals": goals_json });
+    if any_unknown && !sidecar_loaded {
+        doc.as_object_mut().unwrap().insert("verdictsUnknown".into(), serde_json::json!(true));
+    }
     println!("{}", serde_json::to_string_pretty(&doc).unwrap());
 }
 
@@ -370,6 +410,7 @@ fn argument_json(
     arg: &RawElement,
     results: Option<&ResultsData>,
     guard: &mut HashSet<String>,
+    any_unknown: &mut bool,
 ) -> serde_json::Value {
     let kind = arg.frontmatter.argument_type.clone().unwrap_or_else(|| "claim".into());
     let aid = disp_id(arg).to_string();
@@ -385,17 +426,25 @@ fn argument_json(
     let mut tcs: Vec<serde_json::Value> = Vec::new();
     let mut others: Vec<serde_json::Value> = Vec::new();
 
-    for r in arg.frontmatter.evidence.as_deref().unwrap_or(&[]) {
+    for r in arg.frontmatter.evidence.as_deref().unwrap_or(&[]).iter().filter_map(|v| v.as_str()) {
         match resolver.resolve_ref(elements, r) {
             None => others.push(serde_json::json!({ "ref": r, "resolved": false })),
             Some(target) => match classify(target) {
                 NodeKind::Argument => {
-                    sub_args.push(argument_json(elements, resolver, target, results, guard))
+                    sub_args.push(argument_json(elements, resolver, target, results, guard, any_unknown))
                 }
                 NodeKind::Requirement => {
-                    reqs.push(serde_json::json!({ "id": disp_id(target), "title": disp_title(target) }))
+                    let mut r = serde_json::json!({ "id": disp_id(target), "title": disp_title(target) });
+                    if let Some(k) = target.frontmatter.decomposition_kind.as_deref() {
+                        r["decompositionKind"] = serde_json::json!(k);
+                    }
+                    reqs.push(r)
                 }
-                NodeKind::TestCase => tcs.push(testcase_json(target, results)),
+                NodeKind::TestCase => {
+                    let v = testcase_json(target, results);
+                    if v["verdict"] == "unknown" { *any_unknown = true; }
+                    tcs.push(v);
+                }
                 NodeKind::Assumption => {
                     others.push(serde_json::json!({ "id": disp_id(target), "kind": "AssumptionOfUse" }))
                 }

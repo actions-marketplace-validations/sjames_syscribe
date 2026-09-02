@@ -9,7 +9,7 @@
 //! [`ValidateConfig::default()`], preserving the historical behaviour for the
 //! web server and other callers that do not need on-disk resolution.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -55,7 +55,272 @@ pub struct ValidateConfig {
     /// `validate --fetch-remote` is passed, so validation never runs configured
     /// commands implicitly.
     pub remote_hook: Option<RemoteHook>,
+
+    /// Maximum number of digits allowed in a stable-ID numeric suffix (REQ-TRS-ID-005,
+    /// GH #41). `None` means the default of 8. The minimum is fixed at 3. Read from
+    /// `[ids] max_digits` in `<model_root>/.syscribe.toml`; use [`Self::id_digit_max`].
+    pub id_max_digits: Option<usize>,
+
+    /// REQ-TRS-MG-* — run the gated MagicGrid validation pass (actors, mg_cell,
+    /// MoE, logical/physical layering). Off by default; set from a resolved
+    /// `[profiles.<name>] magicgrid = true` profile by the CLI. The base-format
+    /// `refines`/`E316`/`W307` checks run regardless of this flag.
+    pub magicgrid: bool,
+
+    /// REQ-TRS-LINK-001 — hosted-source link configuration from the `[links]`
+    /// table of `<model_root>/.syscribe.toml`. `None` means the feature is inert
+    /// (no element resolves to a URL; diagrams/reports are exactly as before).
+    pub links: Option<LinkConfig>,
+
+    /// REQ-TRS-SCRIPT-001 — resolved Rhai extension-scripts directory. Read from
+    /// `[scripts] path` in `<model_root>/.syscribe.toml` (default `.syscribe/scripts/`),
+    /// resolved against the model root. Always `Some` when there is a model root
+    /// (the directory may or may not exist on disk — an absent dir is not an error;
+    /// the model simply has no extensions). Scripts are tooling, never model content.
+    pub scripts_dir: Option<PathBuf>,
+
+    /// REQ-TRS-TYPE-021 (§14) — peer repositories loaded for multi-repo
+    /// composition, from the `[repos]` table of `<model_root>/.syscribe.toml`.
+    /// Empty (the default) means single-repo: the `E510`–`E515`/`W510` block and
+    /// all cross-repo resolution are inert, so single-repo models are unaffected.
+    pub repos: Vec<LoadedRepo>,
+
+    /// REQ-TRS-ID-007 — additional stable-ID prefixes accepted per element type,
+    /// from the `[ids.prefixes]` table of `<model_root>/.syscribe.toml`. Keyed by
+    /// element-type name (`type:`), each value a list of extra prefixes added to the
+    /// built-in (which always stays valid). Empty (the default) means built-in
+    /// prefixes only. The validator reports unknown keys / malformed prefixes as
+    /// `W046`; [`Self::with_model_root`] also installs the well-formed entries into
+    /// the resolver so every `is_*_id` check recognises them.
+    pub id_extra_prefixes: HashMap<String, Vec<String>>,
+
+    /// `ADR-SYS-PLUGIN-002` — the `[plugins.<alias>]` table of
+    /// `<model_root>/.syscribe.toml`, keyed by alias. Empty (the default)
+    /// means no stdio-subprocess plugins are configured; a `foreignFormat:`
+    /// package with no matching entry here is `E551`. The walker hook
+    /// (`crate::plugins::apply_foreign_plugins`) reads `.syscribe.toml`
+    /// directly and doesn't need this field — it exists so CLI commands that
+    /// already hold a `&ValidateConfig` (e.g. `plugins run`) don't have to
+    /// re-parse the TOML themselves.
+    pub plugins: std::collections::BTreeMap<String, crate::plugins::config::PluginEntry>,
+
+    /// REQ-TRS-PLANITEM-008 — declared users for `PlanningItem.assignedTo:`,
+    /// from the `[users]` table of `<model_root>/.syscribe.toml`: `<username> =
+    /// "<display name>"`. Raw and unfiltered, exactly like
+    /// [`Self::id_extra_prefixes`] — the validator reports a key that isn't a
+    /// well-formed username (`crate::resolver::is_valid_username`) as `W309`
+    /// and excludes it from the effective roster used by `E722`/`E723`. Empty
+    /// (the default) means the feature is dormant: `assignedTo:` is accepted
+    /// but never checked against a roster — same opt-in posture as
+    /// `[repos]`/`[ids.prefixes]`/every other config-gated table.
+    pub users: HashMap<String, String>,
 }
+
+/// One entry in the `[repos]` table of `.syscribe.toml` (§14.2, REQ-TRS-TYPE-021).
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepoEntry {
+    /// File-system path to the repo root, relative to this model's `.syscribe.toml`.
+    pub path: String,
+    /// Path within the repo where the Syscribe model root lives (default `model/`).
+    #[serde(default = "default_repo_model_root")]
+    pub root: String,
+    /// Git ref (tag, branch, or SHA) to pin via `repos sync`; absent ⇒ "use disk".
+    #[serde(default, rename = "ref")]
+    pub git_ref: Option<String>,
+}
+
+fn default_repo_model_root() -> String {
+    "model/".to_string()
+}
+
+/// REQ-TRS-TYPE-022 (§14) — a peer repo's on-disk state relative to its
+/// configured `ref:`. Computed once at load time via `git rev-parse`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefState {
+    /// No `ref:` configured for this repo (composition is not pinned — `W510`).
+    NoRef,
+    /// The peer path is absent on disk.
+    Missing,
+    /// git is unavailable, the repo is not a git work tree, or the configured
+    /// `ref:` could not be resolved — drift cannot be determined.
+    Unknown,
+    /// The peer work tree's `HEAD` matches the configured `ref:`.
+    InSync,
+    /// The peer work tree's `HEAD` differs from the configured `ref:` (`W511`).
+    Drift,
+}
+
+/// A peer repository loaded for cross-repo composition (§14, REQ-TRS-TYPE-021).
+/// Carries the configured entry plus the resolved peer model root and the index
+/// needed by validation: the peer's element qnames and exported stable IDs.
+#[derive(Debug, Clone)]
+pub struct LoadedRepo {
+    /// The `[repos]` table key — the repo alias used in `repoImports[].repo`.
+    pub alias: String,
+    /// The raw configuration (`path` / `root` / `ref`).
+    pub config: RepoEntry,
+    /// Resolved `<.syscribe.toml dir>/<path>/<root>` — the peer model root.
+    pub model_root: PathBuf,
+    /// Whether `model_root` exists on disk.
+    pub exists: bool,
+    /// Following this repo's import chain leads back to the local model (`E510`).
+    pub circular: bool,
+    /// On-disk state vs the configured `ref:` (REQ-TRS-TYPE-022, `W511`).
+    pub ref_state: RefState,
+    /// The peer work tree's resolved `HEAD` sha, when known (for the `W511` message).
+    pub head_sha: Option<String>,
+    /// The commit the configured `ref:` resolves to in the peer repo, when known
+    /// (REQ-TRS-TYPE-023, used for the `W512` gitlink comparison).
+    pub ref_commit: Option<String>,
+    /// The git submodule gitlink commit the parent repo records for this repo's
+    /// `path`, when `path` is a submodule (REQ-TRS-TYPE-023, `W512`). `None` when
+    /// `path` is not a submodule of the composing model's repo.
+    pub gitlink_sha: Option<String>,
+    /// Qualified names of every element in the peer model.
+    pub qnames: HashSet<String>,
+    /// Stable IDs (`REQ-*`, `TC-*`, …) exported by the peer model.
+    pub stable_ids: HashSet<String>,
+}
+
+/// View of `.syscribe.toml` carrying only the `[repos]` table.
+#[derive(Debug, Default, Deserialize)]
+struct ReposRootToml {
+    #[serde(default)]
+    repos: std::collections::BTreeMap<String, RepoEntry>,
+}
+
+/// REQ-TRS-LINK-001 — resolved `[links]` configuration. Carries the hosted-URL
+/// template/base and the `ref` substitution. Constructed only when at least one
+/// of `base_url`/`url_template` is set, so its presence means the feature is on.
+#[derive(Debug, Clone)]
+pub struct LinkConfig {
+    /// `base_url` — the 90% case. A file's URL is `base_url`/`<path>`.
+    base_url: Option<String>,
+    /// `url_template` — escape hatch with `{path}`/`{qname}`/`{id}`/`{ref}`.
+    url_template: Option<String>,
+    /// `ref` — substituted for `{ref}` in the template (empty when unset).
+    git_ref: String,
+}
+
+/// The `[links]` table of `.syscribe.toml` (REQ-TRS-LINK-001). Unknown keys are
+/// ignored so this parses alongside `[profiles]`/`[matchers]`/`[remote]`.
+#[derive(Debug, Default, Deserialize)]
+struct LinksToml {
+    #[serde(default, alias = "baseUrl")]
+    base_url: Option<String>,
+    #[serde(default, alias = "urlTemplate")]
+    url_template: Option<String>,
+    #[serde(default, rename = "ref")]
+    git_ref: Option<String>,
+}
+
+/// View of `.syscribe.toml` carrying only the `[links]` table.
+#[derive(Debug, Default, Deserialize)]
+struct LinksRootToml {
+    #[serde(default)]
+    links: LinksToml,
+}
+
+/// Resolved `[baselines]` output-location config (REQ-TRS-BL-010). Absent keys keep
+/// the built-in defaults (`Baselines` under the model root, `baselines` under the git
+/// root), so models without the table are unaffected.
+#[derive(Debug, Clone, Default)]
+pub struct BaselineConfig {
+    /// Directory for the `Baseline` element (relative to the model root, or absolute).
+    pub element_dir: Option<String>,
+    /// Directory for the JSON manifest (relative to the git root, or absolute).
+    pub manifest_dir: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct BaselinesToml {
+    #[serde(default, alias = "elementDir")]
+    element_dir: Option<String>,
+    #[serde(default, alias = "manifestDir")]
+    manifest_dir: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct BaselinesRootToml {
+    #[serde(default)]
+    baselines: BaselinesToml,
+}
+
+/// Load the `[baselines]` table from `<model_root>/.syscribe.toml` (REQ-TRS-BL-010).
+/// Returns defaults (both `None`) when the file is absent, unparseable, or has no table.
+pub fn load_baseline_config(model_root: &Path) -> BaselineConfig {
+    let cfg = std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|text| toml::from_str::<BaselinesRootToml>(&text).ok())
+        .map(|r| r.baselines)
+        .unwrap_or_default();
+    BaselineConfig { element_dir: cfg.element_dir, manifest_dir: cfg.manifest_dir }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UsersRootToml {
+    #[serde(default)]
+    users: HashMap<String, String>,
+}
+
+/// Load the `[users]` table (`<username> = "<display name>"`) from
+/// `<model_root>/.syscribe.toml` (REQ-TRS-PLANITEM-008). Returns an empty map
+/// when the file is absent, unparseable, or has no `[users]` table — the
+/// feature stays dormant. Raw and unfiltered — the validator reports a
+/// malformed key as `W309` (mirroring `[ids.prefixes]`/`W046`'s split between
+/// "load raw here" and "validate + filter in `validator.rs`").
+fn load_users(model_root: &Path) -> HashMap<String, String> {
+    std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|text| toml::from_str::<UsersRootToml>(&text).ok())
+        .map(|r| r.users)
+        .unwrap_or_default()
+}
+
+impl LinkConfig {
+    /// Resolve `model_relative_path` (always forward-slashed, relative to the
+    /// model root) to a hosted URL, applying the REQ-TRS-LINK-001 rules. `qname`
+    /// and `id` feed the `{qname}`/`{id}` template placeholders (`id` may be empty).
+    pub fn resolve(&self, model_relative_path: &str, qname: &str, id: &str) -> String {
+        let encoded_path = encode_path(model_relative_path);
+        if let Some(tpl) = &self.url_template {
+            tpl.replace("{path}", &encoded_path)
+                .replace("{qname}", qname)
+                .replace("{id}", id)
+                .replace("{ref}", &self.git_ref)
+        } else if let Some(base) = &self.base_url {
+            format!("{}/{}", base.trim_end_matches('/'), encoded_path)
+        } else {
+            // Unreachable: a LinkConfig is only built when one of these is set.
+            encoded_path
+        }
+    }
+}
+
+/// Percent-encode each path segment (a space → `%20`) while preserving the `/`
+/// separators (REQ-TRS-LINK-001).
+fn encode_path(path: &str) -> String {
+    path.split('/').map(encode_segment).collect::<Vec<_>>().join("/")
+}
+
+/// Percent-encode a single path segment. Keeps the unreserved set
+/// (`A–Z a–z 0–9 - _ . ~`) verbatim and `%`-encodes everything else.
+fn encode_segment(seg: &str) -> String {
+    let mut out = String::with_capacity(seg.len());
+    for b in seg.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// Default stable-ID suffix digit cap and fixed minimum (REQ-TRS-ID-005).
+pub const ID_SUFFIX_DEFAULT_MAX: usize = 8;
+pub const ID_SUFFIX_MIN: usize = 3;
 
 /// Minimal view of `.syscribe.toml` for the path settings (matchers are loaded
 /// separately by [`MatcherConfig`]). Unknown keys/tables are ignored.
@@ -63,6 +328,103 @@ pub struct ValidateConfig {
 struct PathsToml {
     #[serde(default, alias = "repoRoot")]
     repo_root: Option<String>,
+    #[serde(default)]
+    ids: IdsToml,
+    #[serde(default)]
+    scripts: ScriptsToml,
+    #[serde(default)]
+    #[allow(dead_code)]
+    plantuml: PlantumlToml,
+}
+
+/// The `[ids]` table of `.syscribe.toml`.
+#[derive(Debug, Default, Deserialize)]
+struct IdsToml {
+    #[serde(default, alias = "maxDigits")]
+    max_digits: Option<usize>,
+    /// REQ-TRS-ID-007 — `[ids.prefixes]`: additional stable-ID prefixes per element
+    /// type, keyed by type name (`Requirement`, `TestCase`, …).
+    #[serde(default)]
+    prefixes: HashMap<String, Vec<String>>,
+}
+
+/// The `[scripts]` table of `.syscribe.toml` (REQ-TRS-SCRIPT-001). `path` is the
+/// extension-scripts directory, resolved relative to the model root; the default
+/// when unset is `.syscribe/scripts/`.
+#[derive(Debug, Default, Deserialize)]
+struct ScriptsToml {
+    #[serde(default)]
+    path: Option<String>,
+}
+
+/// The `[plantuml]` table of `.syscribe.toml` (REQ-TRS-PUML-040).
+#[derive(Debug, Default, Deserialize)]
+struct PlantumlToml {
+    #[serde(default)]
+    theme: Option<String>,
+    #[serde(default)]
+    style_file: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    jar: Option<String>,
+}
+
+/// Resolved styling config for PlantUML generation (REQ-TRS-PUML-040).
+#[derive(Debug, Default, Clone)]
+pub struct PlantumlConfig {
+    /// Emit `!theme <name>` (ignored when `style_file` is also set).
+    pub theme: Option<String>,
+    /// Emit `!include <absolute-path>` (takes precedence over `theme`).
+    pub style_file: Option<PathBuf>,
+    /// Base URL for clickable element links (REQ-TRS-PUML-043).
+    /// `None` means use the default (`http://localhost:3000`).
+    /// `Some("")` suppresses links entirely.
+    pub base_url: Option<String>,
+    /// Path to a PlantUML `.jar` file for `plantuml render` (REQ-TRS-PUML-051).
+    pub jar: Option<PathBuf>,
+}
+
+/// Load `[plantuml]` config from `<model_root>/.syscribe.toml`.
+/// Returns `PlantumlConfig::default()` when the section is absent or the file
+/// is missing/unparseable (REQ-TRS-PUML-040).
+pub fn load_plantuml_config(model_root: &Path) -> PlantumlConfig {
+    #[derive(Debug, Default, Deserialize)]
+    struct Root {
+        #[serde(default)]
+        plantuml: PlantumlToml,
+    }
+    let Ok(text) = std::fs::read_to_string(model_root.join(".syscribe.toml")) else {
+        return PlantumlConfig::default();
+    };
+    let Ok(root) = toml::from_str::<Root>(&text) else {
+        return PlantumlConfig::default();
+    };
+    let p = root.plantuml;
+    // Resolve the model root to an absolute path so that relative style_file /
+    // jar references embedded in generated .puml files work regardless of the
+    // caller's working directory.
+    let abs_root = model_root
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default().join(model_root));
+
+    // Resolve + canonicalize a path relative to the model root (collapse `..`).
+    // `canonicalize` requires the file to exist; fall back to the unnormalized path.
+    let resolve_abs = |s: String| -> PathBuf {
+        let p = PathBuf::from(&s);
+        let joined = if p.is_absolute() { p } else { abs_root.join(p) };
+        joined.canonicalize().unwrap_or(joined)
+    };
+
+    PlantumlConfig {
+        theme: p.theme,
+        style_file: p.style_file.map(resolve_abs),
+        base_url: p.base_url,
+        jar: p.jar.map(|s| {
+            let path = PathBuf::from(&s);
+            if path.is_absolute() { path } else { abs_root.join(path) }
+        }),
+    }
 }
 
 /// A named validation severity profile (issue #18 / REQ-TRS-OUT-012).
@@ -86,6 +448,10 @@ pub struct Profile {
     /// Scope by `tags:` membership (the element's tags contain this value).
     #[serde(default)]
     pub tag: Option<String>,
+    /// REQ-TRS-MG-* — when `true`, `validate --profile <name>` runs the gated
+    /// MagicGrid validation pass (sets [`ValidateConfig::magicgrid`]).
+    #[serde(default)]
+    pub magicgrid: bool,
 }
 
 impl Profile {
@@ -126,6 +492,17 @@ impl ValidateConfig {
         let (matchers, _warn) = MatcherConfig::load_from_model_root(&root);
         let results = ResultsData::load_sidecar(&root);
         let repo_root = resolve_repo_root(&root);
+        let id_max_digits = resolve_id_max_digits(&root);
+        let id_extra_prefixes = resolve_id_prefixes(&root);
+        // REQ-TRS-ID-007 — install the well-formed additional prefixes into the
+        // resolver so every `is_*_id` / `is_stable_id` check recognises them. An empty
+        // map clears any previously installed set, keeping built-in-only behaviour.
+        crate::resolver::set_extra_id_prefixes_by_type(&id_extra_prefixes);
+        let links = load_links(&root);
+        let scripts_dir = Some(resolve_scripts_dir(&root));
+        let repos = load_repos(&root);
+        let plugins = crate::plugins::config::load_plugins(&root);
+        let users = load_users(&root);
         Self {
             model_root: Some(root),
             repo_root,
@@ -133,7 +510,96 @@ impl ValidateConfig {
             results,
             // Remote fetching is opt-in (CLI `--fetch-remote`); never enabled here.
             remote_hook: None,
+            id_max_digits,
+            magicgrid: false,
+            links,
+            scripts_dir,
+            repos,
+            plugins,
+            id_extra_prefixes,
+            users,
         }
+    }
+
+    /// REQ-TRS-TYPE-021 — true when any peer repo is configured (`[repos]`).
+    /// The cross-repo validation block and resolution are inert when this is false.
+    pub fn has_repos(&self) -> bool {
+        !self.repos.is_empty()
+    }
+
+    /// REQ-TRS-TYPE-021 (§14.4) — true when `reference` resolves to an element
+    /// exported by any loaded peer repo, by global stable ID or by qualified name
+    /// (exact, or as the trailing `::`-segment of a peer qname). Used to recognise
+    /// valid cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:`
+    /// references so they are neither flagged locally nor reported as `E512`.
+    pub fn peer_resolves(&self, reference: &str) -> bool {
+        let r = reference.trim();
+        if r.is_empty() {
+            return false;
+        }
+        let suffix = format!("::{r}");
+        self.repos.iter().any(|repo| {
+            repo.stable_ids.contains(r)
+                || repo.qnames.contains(r)
+                || repo.qnames.iter().any(|q| q.ends_with(&suffix))
+        })
+    }
+
+    /// REQ-TRS-LINK-001 — resolve a file-backed element's hosted source URL.
+    ///
+    /// `file_path` is the element's on-disk path as recorded on the `RawElement`
+    /// (`-m`-relative, e.g. `UAV/Avionics/FlightController.md`). Returns `None`
+    /// when `[links]` is not configured, when the path is not under the model
+    /// root, or when there is no model root. A package resolves to its
+    /// `_index.md` only because that is the file recorded for it; YAML-key
+    /// attributes have no file and never reach this method.
+    pub fn hosted_url(&self, file_path: &str) -> Option<String> {
+        self.hosted_url_for(file_path, "", "")
+    }
+
+    /// Like [`Self::hosted_url`] but supplies `{qname}`/`{id}` for the template.
+    pub fn hosted_url_for(&self, file_path: &str, qname: &str, id: &str) -> Option<String> {
+        let links = self.links.as_ref()?;
+        let rel = self.model_relative(file_path)?;
+        Some(links.resolve(&rel, qname, id))
+    }
+
+    /// Express `file_path` relative to the model root, forward-slashed. The path
+    /// may already be relative (the common `RawElement::file_path` form) or
+    /// absolute under the model root.
+    fn model_relative(&self, file_path: &str) -> Option<String> {
+        let p = Path::new(file_path);
+        let root = self.model_root.as_ref()?;
+        // The recorded `file_path` is `<model_root-as-passed>/<rel>` (walker uses
+        // `path.display()`), so the model root is its prefix verbatim. Fall back
+        // to stripping just the root's final component for hand-built paths.
+        let rel: PathBuf = if let Ok(stripped) = p.strip_prefix(root) {
+            stripped.to_path_buf()
+        } else if let Some(name) = root.file_name() {
+            p.strip_prefix(name).map(|s| s.to_path_buf()).unwrap_or_else(|_| p.to_path_buf())
+        } else {
+            p.to_path_buf()
+        };
+        // Forward-slash, dropping any `.` components.
+        let parts: Vec<String> = rel
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect();
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("/"))
+        }
+    }
+
+    /// The effective stable-ID suffix digit cap: the configured `[ids] max_digits`
+    /// (clamped to the fixed minimum of 3), or the default of 8 when unset
+    /// (REQ-TRS-ID-005).
+    pub fn id_digit_max(&self) -> usize {
+        self.id_max_digits.unwrap_or(ID_SUFFIX_DEFAULT_MAX).max(ID_SUFFIX_MIN)
     }
 
     /// Resolve a `sourceFile:` value to a local path for checking/reading.
@@ -231,8 +697,265 @@ fn resolve_repo_root(model_root: &Path) -> Option<PathBuf> {
     detect_git_root(model_root)
 }
 
+/// Resolve the Rhai extension-scripts directory (REQ-TRS-SCRIPT-001). Reads
+/// `[scripts] path` from `<model_root>/.syscribe.toml`; the default when unset
+/// (or the file is absent/unparseable) is `.syscribe/scripts/`. A relative path
+/// is resolved against the model root; an absolute path is used verbatim.
+fn resolve_scripts_dir(model_root: &Path) -> PathBuf {
+    let configured = std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|text| toml::from_str::<PathsToml>(&text).ok())
+        .and_then(|cfg| cfg.scripts.path);
+    let rel = configured.unwrap_or_else(|| ".syscribe/scripts".to_string());
+    let p = PathBuf::from(rel);
+    if p.is_absolute() {
+        p
+    } else {
+        model_root.join(p)
+    }
+}
+
+/// Read `[ids] max_digits` from `<model_root>/.syscribe.toml` (REQ-TRS-ID-005).
+/// `None` when unset; the caller applies the default of 8 and the minimum of 3.
+fn resolve_id_max_digits(model_root: &Path) -> Option<usize> {
+    let text = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok()?;
+    toml::from_str::<PathsToml>(&text).ok()?.ids.max_digits
+}
+
+/// Read `[ids.prefixes]` from `<model_root>/.syscribe.toml` (REQ-TRS-ID-007). Returns
+/// the raw type-name → extra-prefix map (empty when unset or unparseable); the
+/// validator reports malformed entries as `W046` and the resolver compiles the
+/// well-formed ones.
+fn resolve_id_prefixes(model_root: &Path) -> HashMap<String, Vec<String>> {
+    std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|text| toml::from_str::<PathsToml>(&text).ok())
+        .map(|cfg| cfg.ids.prefixes)
+        .unwrap_or_default()
+}
+
+/// Load the `[links]` table from `<model_root>/.syscribe.toml` (REQ-TRS-LINK-001).
+/// Returns `Some` only when at least one of `base_url`/`url_template` is set;
+/// `None` (the feature inert) otherwise, including when the file is absent.
+fn load_links(model_root: &Path) -> Option<LinkConfig> {
+    let text = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok()?;
+    let links = toml::from_str::<LinksRootToml>(&text).ok()?.links;
+    if links.base_url.is_none() && links.url_template.is_none() {
+        return None;
+    }
+    Some(LinkConfig {
+        base_url: links.base_url,
+        url_template: links.url_template,
+        git_ref: links.git_ref.unwrap_or_default(),
+    })
+}
+
+/// Load the `[repos]` table from `<model_root>/.syscribe.toml` (§14, REQ-TRS-TYPE-021).
+///
+/// For each declared repo, resolve `<model_root>/<path>/<root>` to the peer model
+/// root, record whether it exists, walk it to index the peer's element qnames and
+/// exported stable IDs (so cross-repo references and `E514`/`E515` can be checked),
+/// and detect whether following its import chain leads back to this model (`E510`).
+/// Returns an empty vector when the file is absent, unparseable, or has no `[repos]`.
+fn load_repos(model_root: &Path) -> Vec<LoadedRepo> {
+    let text = match std::fs::read_to_string(model_root.join(".syscribe.toml")) {
+        Ok(t) => t,
+        Err(_) => return Vec::new(),
+    };
+    let cfg = match toml::from_str::<ReposRootToml>(&text) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let start = canon(model_root);
+    cfg.repos
+        .into_iter()
+        .map(|(alias, entry)| {
+            let peer_base = resolve_repo_base(model_root, &entry);
+            let peer_root = join_repo_root(&peer_base, &entry);
+            let exists = peer_root.exists();
+            let (qnames, stable_ids) = if exists {
+                index_repo(&peer_root)
+            } else {
+                (HashSet::new(), HashSet::new())
+            };
+            // E510: does this peer's import chain reach back to the local model?
+            let mut seen = HashSet::new();
+            let circular = exists && chain_reaches(&peer_root, &start, &mut seen);
+            // W511: is the peer work tree at its configured ref?
+            let (ref_state, head_sha, ref_commit) = compute_ref_state(&peer_root, &entry, exists);
+            // W512: does the parent's submodule gitlink for `path` match the ref?
+            let gitlink_sha = compute_gitlink(model_root, &peer_base);
+            LoadedRepo {
+                alias,
+                config: entry,
+                model_root: peer_root,
+                exists,
+                circular,
+                ref_state,
+                head_sha,
+                ref_commit,
+                gitlink_sha,
+                qnames,
+                stable_ids,
+            }
+        })
+        .collect()
+}
+
+/// Resolve a repo entry's peer model root: `<model_root>/<path>/<root>`, with an
+/// absolute `path` used verbatim. `root` defaults to `model/`.
+fn resolve_repo_model_root(model_root: &Path, entry: &RepoEntry) -> PathBuf {
+    join_repo_root(&resolve_repo_base(model_root, entry), entry)
+}
+
+/// The peer **repo root** (`path`) — `<model_root>/<path>`, absolute used verbatim.
+/// This is the git work-tree root (the submodule directory), not the model subdir.
+fn resolve_repo_base(model_root: &Path, entry: &RepoEntry) -> PathBuf {
+    let base = PathBuf::from(&entry.path);
+    if base.is_absolute() {
+        base
+    } else {
+        model_root.join(base)
+    }
+}
+
+/// Join the model `root` subdir onto a peer repo base (default `model/`).
+fn join_repo_root(base: &Path, entry: &RepoEntry) -> PathBuf {
+    let root = entry.root.trim_start_matches("./");
+    if root.is_empty() {
+        base.to_path_buf()
+    } else {
+        base.join(root)
+    }
+}
+
+/// Walk a peer model root, returning its element qnames and exported stable IDs.
+fn index_repo(peer_root: &Path) -> (HashSet<String>, HashSet<String>) {
+    let mut qnames = HashSet::new();
+    let mut stable_ids = HashSet::new();
+    if let Ok(elems) = crate::walker::walk_model(peer_root) {
+        for e in &elems {
+            qnames.insert(e.qualified_name.clone());
+            if let Some(id) = e.frontmatter.id.as_deref() {
+                if crate::resolver::is_stable_id(id) {
+                    stable_ids.insert(id.to_string());
+                }
+            }
+        }
+    }
+    (qnames, stable_ids)
+}
+
+/// Detect whether the `[repos]` import chain rooted at peer model `dir` reaches
+/// `target` (the local model root) — the `E510` circular-import condition.
+/// Follows each repo's own `[repos]` transitively over canonicalised model roots.
+fn chain_reaches(dir: &Path, target: &Path, seen: &mut HashSet<PathBuf>) -> bool {
+    let text = match std::fs::read_to_string(dir.join(".syscribe.toml")) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let cfg = match toml::from_str::<ReposRootToml>(&text) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    for entry in cfg.repos.values() {
+        let child = canon(&resolve_repo_model_root(dir, entry));
+        if child == *target {
+            return true;
+        }
+        if seen.insert(child.clone()) && chain_reaches(&child, target, seen) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Canonicalise a path, falling back to the path itself when it does not exist.
+fn canon(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// REQ-TRS-TYPE-022 — determine a peer repo's state vs its configured `ref:` by
+/// comparing the work tree's `HEAD` commit with the commit the `ref:` resolves to.
+/// Returns `(state, head_sha, ref_commit)` — the latter feeds the `W512` gitlink
+/// check. Any uncertainty (no git, not a work tree, ref not found) yields
+/// [`RefState::Unknown`] so drift is never falsely reported.
+fn compute_ref_state(
+    model_root: &Path,
+    entry: &RepoEntry,
+    exists: bool,
+) -> (RefState, Option<String>, Option<String>) {
+    let Some(want) = entry.git_ref.as_deref() else {
+        return (RefState::NoRef, None, None);
+    };
+    if !exists {
+        return (RefState::Missing, None, None);
+    }
+    let head = git_rev_parse(model_root, "HEAD");
+    let want_commit = git_rev_parse(model_root, &format!("{want}^{{commit}}"));
+    let state = match (&head, &want_commit) {
+        (Some(h), Some(w)) if h == w => RefState::InSync,
+        (Some(_), Some(_)) => RefState::Drift,
+        _ => RefState::Unknown,
+    };
+    let head_sha = if matches!(state, RefState::InSync | RefState::Drift) {
+        head
+    } else {
+        None
+    };
+    (state, head_sha, want_commit)
+}
+
+/// REQ-TRS-TYPE-023 — the git submodule gitlink commit the **parent** repository
+/// (the one containing the composing model) records for `peer_base`, or `None`
+/// when `peer_base` is not a submodule of that repo / cannot be determined.
+fn compute_gitlink(model_root: &Path, peer_base: &Path) -> Option<String> {
+    // The parent repo work tree containing the composing model.
+    let toplevel = git_output(model_root, &["rev-parse", "--show-toplevel"])?;
+    let top_canon = std::fs::canonicalize(toplevel.trim()).ok()?;
+    let peer_canon = std::fs::canonicalize(peer_base).ok()?;
+    // The submodule path is `peer_base` relative to the parent work tree.
+    let sub = peer_canon.strip_prefix(&top_canon).ok()?;
+    let sub = sub.to_string_lossy().replace('\\', "/");
+    if sub.is_empty() {
+        return None;
+    }
+    // `git ls-tree HEAD <sub>` ⇒ "160000 commit <sha>\t<path>" for a submodule.
+    let line = git_output(&top_canon, &["ls-tree", "HEAD", &sub])?;
+    let mut parts = line.split_whitespace();
+    let mode = parts.next()?;
+    let _ty = parts.next()?;
+    let sha = parts.next()?;
+    (mode == "160000").then(|| sha.to_string())
+}
+
+/// Resolve a git revision to its object id in `dir`, or `None` when git is
+/// unavailable, `dir` is not a work tree, or the revision does not resolve.
+fn git_rev_parse(dir: &Path, rev: &str) -> Option<String> {
+    git_output(dir, &["rev-parse", "--verify", "--quiet", rev])
+}
+
+/// Run `git -C <dir> <args>` and return trimmed stdout on success, else `None`.
+pub fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
 /// Walk up from `start` looking for a `.git` entry; return the directory holding it.
-fn detect_git_root(start: &Path) -> Option<PathBuf> {
+pub fn detect_git_root(start: &Path) -> Option<PathBuf> {
     let mut dir = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     loop {
         if dir.join(".git").exists() {
@@ -300,6 +1023,70 @@ mod tests {
         );
     }
 
+    fn links_cfg(base: Option<&str>, tpl: Option<&str>, git_ref: &str) -> ValidateConfig {
+        ValidateConfig {
+            model_root: Some(PathBuf::from("model")),
+            links: Some(LinkConfig {
+                base_url: base.map(|s| s.to_string()),
+                url_template: tpl.map(|s| s.to_string()),
+                git_ref: git_ref.to_string(),
+            }),
+            ..ValidateConfig::default()
+        }
+    }
+
+    #[test]
+    fn base_url_appends_relative_path() {
+        let c = links_cfg(Some("https://h/x/blob/main/model"), None, "");
+        assert_eq!(
+            c.hosted_url("model/UAV/Avionics/FlightController.md").as_deref(),
+            Some("https://h/x/blob/main/model/UAV/Avionics/FlightController.md")
+        );
+    }
+
+    #[test]
+    fn base_url_trims_one_trailing_slash() {
+        let c = links_cfg(Some("https://h/x/blob/main/model/"), None, "");
+        assert_eq!(
+            c.hosted_url("model/A.md").as_deref(),
+            Some("https://h/x/blob/main/model/A.md")
+        );
+    }
+
+    #[test]
+    fn template_substitutes_placeholders_and_encodes_path() {
+        let c = links_cfg(
+            None,
+            Some("https://h/x/blob/{ref}/model/{path}?q={qname}&i={id}"),
+            "main",
+        );
+        let url = c
+            .hosted_url_for("model/UAV/Flight Controller.md", "UAV::FC", "REQ-1")
+            .unwrap();
+        assert_eq!(
+            url,
+            "https://h/x/blob/main/model/UAV/Flight%20Controller.md?q=UAV::FC&i=REQ-1"
+        );
+    }
+
+    #[test]
+    fn no_links_config_yields_no_url() {
+        let c = ValidateConfig {
+            model_root: Some(PathBuf::from("model")),
+            ..ValidateConfig::default()
+        };
+        assert_eq!(c.hosted_url("model/A.md"), None);
+    }
+
+    #[test]
+    fn slash_separators_preserved_segments_encoded() {
+        let c = links_cfg(Some("https://h"), None, "");
+        assert_eq!(
+            c.hosted_url("model/Sub Dir/My File.md").as_deref(),
+            Some("https://h/Sub%20Dir/My%20File.md")
+        );
+    }
+
     #[test]
     fn file_uri_is_local() {
         assert_eq!(
@@ -310,5 +1097,47 @@ mod tests {
             cfg().classify_source("file://localhost/abs/src/lib.rs"),
             SourceLocation::Local(PathBuf::from("/abs/src/lib.rs"))
         );
+    }
+
+    // REQ-TRS-SCRIPT-001 — `[scripts] path` resolution against the model root.
+    #[test]
+    fn scripts_dir_default_when_unset() {
+        let dir = tempdir();
+        std::fs::write(dir.join(".syscribe.toml"), "").unwrap();
+        assert_eq!(resolve_scripts_dir(&dir), dir.join(".syscribe/scripts"));
+        // Absent file behaves the same.
+        let empty = tempdir();
+        assert_eq!(resolve_scripts_dir(&empty), empty.join(".syscribe/scripts"));
+    }
+
+    #[test]
+    fn scripts_dir_relative_configured() {
+        let dir = tempdir();
+        std::fs::write(dir.join(".syscribe.toml"), "[scripts]\npath = \"ext/rhai\"\n").unwrap();
+        assert_eq!(resolve_scripts_dir(&dir), dir.join("ext/rhai"));
+    }
+
+    #[test]
+    fn scripts_dir_absolute_configured() {
+        let dir = tempdir();
+        std::fs::write(
+            dir.join(".syscribe.toml"),
+            "[scripts]\npath = \"/opt/syscribe/scripts\"\n",
+        )
+        .unwrap();
+        assert_eq!(resolve_scripts_dir(&dir), PathBuf::from("/opt/syscribe/scripts"));
+    }
+
+    /// A unique throwaway directory under the OS temp dir.
+    fn tempdir() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let p = std::env::temp_dir().join(format!(
+            "syscribe-cfg-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        p
     }
 }

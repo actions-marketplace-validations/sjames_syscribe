@@ -1,8 +1,7 @@
 ---
 type: ADR
 id: ADR-SYS-SAFE-001
-name: SafetyDecompositionADR
-title: "Decompose UAV safety requirement into fault detection and safe landing sub-requirements"
+name: "Decompose UAV safety requirement into fault detection and safe landing sub-requirements"
 status: accepted
 tags:
   - safety

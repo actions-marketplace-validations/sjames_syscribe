@@ -1,7 +1,7 @@
 ---
 type: TestCase
 id: TC-UAV-SAFE-001
-title: "Autonomous landing descent rate ≤ 3 m/s on battery-critical trigger"
+name: "Autonomous landing descent rate ≤ 3 m/s on battery-critical trigger"
 status: active
 testLevel: L5
 verifies:
@@ -10,6 +10,8 @@ tags:
   - safety
   - contingency
   - landing
+traceBaselines:
+  REQ-UAV-SAFE-001: "blake3:1ddab032f461ca70042ed2933e1a02455f0862d533301cdaa01c537f721cb6e9"
 ---
 
 Hardware-in-the-loop test. A simulated battery-critical alert is injected at 30 m AGL while the UAV is in autonomous hover. Descent rate is measured via barometric altimeter log at 10 Hz.

@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-PARAM-001
 type: Requirement
-name: FeatureDef Parameter Binding Validation
-title: Tool shall validate Configuration parameterBindings against FeatureDef parameter declarations
+name: Tool shall validate Configuration parameterBindings against FeatureDef parameter declarations
 status: draft
 reqDomain: software
 verificationMethod: test

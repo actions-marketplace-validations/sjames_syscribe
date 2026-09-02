@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-VAR-006
 type: Requirement
-name: Transitive Package appliesWhen
-title: Tool shall apply a Package's appliesWhen transitively to its whole subtree, with one declaration per path
+name: Tool shall apply a Package's appliesWhen transitively to its whole subtree, with one declaration per path
 status: draft
 reqDomain: software
 verificationMethod: test

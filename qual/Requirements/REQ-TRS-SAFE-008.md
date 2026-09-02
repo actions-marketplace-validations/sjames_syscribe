@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-SAFE-008
 type: Requirement
-name: GSN argument layer (Argument, AssumptionOfUse) and safety-case view
-title: Tool shall represent the GSN safety-argument layer (Argument, AssumptionOfUse) and render a safety-case (GSN) view
+name: Tool shall represent the GSN safety-argument layer (Argument, AssumptionOfUse) and render a safety-case (GSN) view
 status: draft
 reqDomain: software
 verificationMethod: test
@@ -21,7 +20,7 @@ The tool **shall** close the remaining gap of GitHub issue #20: the structured
 ## Part 1 — `Argument` type (GSN node)
 
 The tool **shall** recognise a new native element `type: Argument` carrying a stable
-opaque id matching `^ARG(-[A-Z0-9]{2,12})+-[0-9]{3}$` (`ARG-*`). The id is a valid
+opaque id matching `^ARG(-[A-Z0-9]{2,12})+-[0-9]{3,8}$` (`ARG-*`). The id is a valid
 cross-reference target and is added to `is_stable_id` (regex `arg_re`, predicate
 `is_arg_id`). Fields:
 
@@ -47,7 +46,7 @@ cross-reference target and is added to `is_stable_id` (regex `arg_re`, predicate
 
 The tool **shall** recognise a new native element `type: AssumptionOfUse` (a
 safety-related application condition / SRAC) with a stable opaque id matching
-`^AOU(-[A-Z0-9]{2,12})+-[0-9]{3}$` (`AOU-*`). The id is added to `is_stable_id`
+`^AOU(-[A-Z0-9]{2,12})+-[0-9]{3,8}$` (`AOU-*`). The id is added to `is_stable_id`
 (regex `aou_re`, predicate `is_aou_id`). Fields:
 
 - `id:` / `title:` / `status:` (existing common fields).

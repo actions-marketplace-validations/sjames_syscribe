@@ -4,6 +4,8 @@ name: FlightStatesMachineD
 diagramKind: StateMachine
 svgMode: companion
 svgFile: ./FlightStatesMachineD.svg
+pumlMode: companion
+pumlFile: ./FlightStatesMachineD.puml
 subject: Behavior::FlightStates
 shapes:
   s-initial: {ref: "Behavior::FlightStates", kind: initial}
@@ -27,6 +29,6 @@ edges:
   e-recover: {source: s-fault, target: s-disarmed, kind: transition}
 ---
 
-<img src="./FlightStatesMachineD.svg" alt="Flight States Machine Diagram" width="100%"/>
+![FlightStatesMachineD](./FlightStatesMachineD.svg)
 
 State machine diagram for the UAV flight states lifecycle, showing normal operational transitions from disarmed through takeoff, flight, and landing, as well as fault transitions from any active state and recovery back to disarmed.

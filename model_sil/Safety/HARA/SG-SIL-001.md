@@ -1,9 +1,8 @@
 ---
 id: SG-SIL-001
 type: SafetyGoal
-name: Prevent conflicting routes
 status: approved
-title: Prevent conflicting train routes from being set simultaneously
+name: Prevent conflicting train routes from being set simultaneously
 silLevel: 4
 safeState: All signals to most-restrictive aspect (red); all set routes cancelled
 ftti: 50ms

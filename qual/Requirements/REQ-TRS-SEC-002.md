@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-SEC-002
 type: Requirement
-name: Cybersecurity Risk Determination + Untreated-Threat Gate (risk model, E845, W031, W032, cyber-risk)
-title: Tool shall compute ISO/SAE 21434 risk per ThreatScenario, gate untreated high risk, and check CAL consistency
+name: Tool shall compute ISO/SAE 21434 risk per ThreatScenario, gate untreated high risk, and check CAL consistency
 status: draft
 reqDomain: software
 verificationMethod: test

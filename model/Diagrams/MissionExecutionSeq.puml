@@ -1,0 +1,23 @@
+@startuml MissionExecutionSeq
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+
+actor "GroundControlStation" as ll_gcs [[https://github.com/sjames/syscribe/blob/main/model/GroundStation/GroundControlStation.md]]
+participant "FlightController" as ll_fc [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/FlightController.md]]
+participant "PropulsionSystem" as ll_prop [[https://github.com/sjames/syscribe/blob/main/model/UAV/Propulsion/PropulsionSystem.md]]
+participant "GPSReceiver" as ll_gps [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/GPSReceiver.md]]
+
+ll_gcs -> ll_fc : MissionExecution
+ll_fc -> ll_prop : setThrottle
+ll_prop -> ll_fc : waitForAltitude
+ll_fc -> ll_gps : WaypointNavAction
+ll_gps --> ll_fc : navigateWaypoints
+ll_fc -> ll_gcs : abortMission
+ll_fc -> ll_gps : navigateWaypoints
+ll_gps --> ll_fc : awaitArrival
+ll_fc -> ll_prop : commandDescent
+ll_prop -> ll_fc : waitForGround
+ll_fc -> ll_prop : disarm
+ll_prop --> ll_fc : LandingAction
+ll_fc --> ll_gcs : MissionExecution
+
+@enduml

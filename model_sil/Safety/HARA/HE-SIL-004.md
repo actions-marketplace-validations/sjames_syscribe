@@ -1,9 +1,8 @@
 ---
 id: HE-SIL-004
 type: HazardousEvent
-name: Train signal cleared while level crossing barriers not confirmed down
 status: approved
-title: Train signal cleared while level crossing barriers not down — road/rail collision
+name: Train signal cleared while level crossing barriers not down — road/rail collision
 consequence: Cc
 freqExposure: Fb
 avoidance: Pa

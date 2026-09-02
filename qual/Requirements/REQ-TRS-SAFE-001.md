@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-SAFE-001
 type: Requirement
-name: HazardousEvent Validation Rules
-title: Tool shall enforce all HazardousEvent validation rules E800-E804, E833-E836, and W800
+name: Tool shall enforce all HazardousEvent validation rules E800-E804, E833-E836, and W800
 status: draft
 reqDomain: software
 verificationMethod: test

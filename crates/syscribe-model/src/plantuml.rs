@@ -1,0 +1,594 @@
+use std::collections::{HashMap, HashSet};
+
+use crate::config::PlantumlConfig;
+use crate::element::RawElement;
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+fn lookup_name(qref: &str, elements: &[RawElement]) -> String {
+    elements
+        .iter()
+        .find(|e| e.qualified_name == qref)
+        .and_then(|e| e.frontmatter.name.clone())
+        .unwrap_or_else(|| short_name(qref))
+}
+
+fn short_name(qname: &str) -> String {
+    qname.rsplit("::").next().unwrap_or(qname).to_string()
+}
+
+/// Replace hyphens with underscores so the string is a valid PlantUML identifier.
+fn sanitize_id(s: &str) -> String {
+    s.replace('-', "_")
+}
+
+fn edge_label(key: &str, eref: Option<&str>) -> String {
+    eref.map(short_name)
+        .unwrap_or_else(|| key.strip_prefix("e-").unwrap_or(key).to_string())
+}
+
+// ── YAML parsing ──────────────────────────────────────────────────────────────
+
+struct Shape {
+    key: String,
+    qref: String,
+    kind: String,
+    parent: Option<String>,
+    label: Option<String>,
+}
+
+struct Edge {
+    key: String,
+    qref: Option<String>,
+    source: String,
+    target: String,
+    kind: String,
+    label: Option<String>,
+}
+
+fn parse_shapes(val: &serde_yaml::Value) -> Vec<Shape> {
+    let mut out = Vec::new();
+    let Some(map) = val.as_mapping() else { return out };
+    for (k, v) in map {
+        let key = k.as_str().unwrap_or("").to_string();
+        let qref = v.get("ref").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        // Normalise to lowercase so renderers use simple equality checks regardless
+        // of whether the diagram uses "block"/"port" or "Part"/"Port" etc.
+        let kind = v.get("kind").and_then(|x| x.as_str()).unwrap_or("").to_lowercase();
+        let parent = v.get("parent").and_then(|x| x.as_str()).map(str::to_string);
+        let label = v.get("label").and_then(|x| x.as_str()).map(str::to_string);
+        out.push(Shape { key, qref, kind, parent, label });
+    }
+    out
+}
+
+fn parse_edges(val: &serde_yaml::Value) -> Vec<Edge> {
+    let mut out = Vec::new();
+    let Some(map) = val.as_mapping() else { return out };
+    for (k, v) in map {
+        let key = k.as_str().unwrap_or("").to_string();
+        let qref = v.get("ref").and_then(|x| x.as_str()).map(str::to_string);
+        let source = v.get("source").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let kind = v.get("kind").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let label = v.get("label").and_then(|x| x.as_str()).map(str::to_string);
+        out.push(Edge { key, qref, source, target, kind, label });
+    }
+    out
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Generate a PlantUML `.puml` source string from a `Diagram` element.
+/// Returns `None` when the `diagramKind` has no PlantUML mapping (e.g. `Mermaid`).
+pub fn render_plantuml(
+    element: &RawElement,
+    elements: &[RawElement],
+    cfg: Option<&PlantumlConfig>,
+) -> Option<String> {
+    let kind = element.frontmatter.diagram_kind.as_deref()?;
+
+    // Display label used inside the diagram (may contain spaces/punctuation).
+    let name = element
+        .frontmatter
+        .name
+        .as_deref()
+        .unwrap_or_else(|| element.qualified_name.rsplit("::").next().unwrap_or(&element.qualified_name));
+
+    // @startuml identifier / PlantUML output filename stem — must not contain
+    // spaces so PlantUML names the .svg predictably.  Derive from the file stem.
+    let file_stem: String = std::path::Path::new(&element.file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(name)
+        .replace(' ', "_");
+
+    match kind {
+        "BDD" => Some(render_bdd(element, elements, name, &file_stem, cfg)),
+        "IBD" => Some(render_ibd(element, elements, name, &file_stem, cfg)),
+        "StateMachine" => Some(render_state_machine(element, elements, name, &file_stem, cfg)),
+        "Sequence" => Some(render_sequence(element, elements, name, &file_stem, cfg)),
+        "Requirement" => Some(render_requirement(element, elements, name, &file_stem, cfg)),
+        _ => None,
+    }
+}
+
+/// Return `[[<base_url>/<qref_as_path>.md]]` when `base_url` is configured, else `""`.
+/// Absent or empty `base_url` suppresses links (REQ-TRS-PUML-055).
+/// `qref_as_path` replaces every `::` with `/` so the URL resolves to the
+/// element's file on GitHub or any static hosting.
+fn element_url(qref: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let base = match cfg {
+        None => return String::new(),
+        Some(c) => match c.base_url.as_deref() {
+            None | Some("") => return String::new(),
+            Some(b) => b,
+        },
+    };
+    let path = qref.replace("::", "/");
+    format!("[[{}/{}.md]]", base, path)
+}
+
+/// Emit the style preamble: `!include`, `!theme`, or built-in SysML skinparams.
+fn style_preamble(cfg: Option<&PlantumlConfig>, _diagram_kind: &str) -> String {
+    if let Some(c) = cfg {
+        if let Some(ref sf) = c.style_file {
+            return format!("!include {}\n", sf.display());
+        }
+        if let Some(ref theme) = c.theme {
+            return format!("!theme {}\n", theme);
+        }
+    }
+    // Built-in SysML professional defaults — kept in sync with .plantuml/sysml.iuml
+    SYSML_SKINPARAM.to_string()
+}
+
+static SYSML_SKINPARAM: &str = r#"
+skinparam defaultFontName "Helvetica Neue, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 11
+skinparam backgroundColor WHITE
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam ArrowColor #1F497D
+skinparam ArrowThickness 1.5
+skinparam ArrowFontSize 10
+skinparam ArrowFontColor #2C3E50
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #F9A825
+  FontSize 10
+  BorderThickness 1
+}
+skinparam class {
+  BackgroundColor #D4E6F1
+  BorderColor #1A4A7A
+  BorderThickness 1.5
+  HeaderBackgroundColor #1A4A7A
+  FontColor #FFFFFF
+  FontSize 11
+  FontStyle bold
+  AttributeFontColor #1C2833
+  AttributeFontSize 10
+  ArrowColor #1F497D
+  ArrowThickness 1.5
+  StereotypeFontColor #A8C8E8
+  StereotypeFontSize 9
+  BackgroundColor<<requirement>> #FDEDEC
+  BorderColor<<requirement>> #C0392B
+  HeaderBackgroundColor<<requirement>> #C0392B
+  FontColor<<requirement>> #FFFFFF
+  StereotypeFontColor<<requirement>> #F5B7B1
+  BackgroundColor<<requirement def>> #FDEDEC
+  BorderColor<<requirement def>> #C0392B
+  HeaderBackgroundColor<<requirement def>> #922B21
+  FontColor<<requirement def>> #FFFFFF
+  BackgroundColor<<test case>> #E9F7EF
+  BorderColor<<test case>> #1E8449
+  HeaderBackgroundColor<<test case>> #1E8449
+  FontColor<<test case>> #FFFFFF
+  StereotypeFontColor<<test case>> #A9DFBF
+  BackgroundColor<<test case def>> #E9F7EF
+  BorderColor<<test case def>> #196F3D
+  HeaderBackgroundColor<<test case def>> #196F3D
+  FontColor<<test case def>> #FFFFFF
+  BackgroundColor<<part>> #D4E6F1
+  BorderColor<<part>> #1A4A7A
+  HeaderBackgroundColor<<part>> #1A4A7A
+  FontColor<<part>> #FFFFFF
+  StereotypeFontColor<<part>> #A8C8E8
+  BackgroundColor<<part def>> #D4E6F1
+  BorderColor<<part def>> #154360
+  HeaderBackgroundColor<<part def>> #154360
+  FontColor<<part def>> #FFFFFF
+  BackgroundColor<<action>> #FEF9E7
+  BorderColor<<action>> #B7950B
+  HeaderBackgroundColor<<action>> #B7950B
+  FontColor<<action>> #FFFFFF
+  BackgroundColor<<action def>> #FEF9E7
+  BorderColor<<action def>> #9A7D0A
+  HeaderBackgroundColor<<action def>> #9A7D0A
+  FontColor<<action def>> #FFFFFF
+  BackgroundColor<<interface>> #E8F8F5
+  BorderColor<<interface>> #148F77
+  HeaderBackgroundColor<<interface>> #0E6655
+  FontColor<<interface>> #FFFFFF
+  BackgroundColor<<interface def>> #E8F8F5
+  BorderColor<<interface def>> #0E6655
+  HeaderBackgroundColor<<interface def>> #0B5345
+  FontColor<<interface def>> #FFFFFF
+  BackgroundColor<<allocation>> #F4ECF7
+  BorderColor<<allocation>> #7D3C98
+  HeaderBackgroundColor<<allocation>> #7D3C98
+  FontColor<<allocation>> #FFFFFF
+}
+skinparam component {
+  BackgroundColor #D4E6F1
+  BorderColor #1A4A7A
+  BorderThickness 1.5
+  FontColor #1C2833
+  FontSize 11
+  FontStyle bold
+  ArrowColor #1F497D
+  ArrowThickness 1.5
+  StereotypeFontColor #4A7A9B
+  StereotypeFontSize 9
+}
+skinparam rectangle {
+  BackgroundColor #AED6F1
+  BorderColor #1A4A7A
+  BorderThickness 2
+  FontColor #1A4A7A
+  FontSize 12
+  FontStyle bold
+}
+skinparam state {
+  BackgroundColor #E8D5F5
+  BorderColor #5B2C8E
+  BorderThickness 1.5
+  FontColor #2C1654
+  FontSize 11
+  FontStyle bold
+  ArrowColor #5B2C8E
+  ArrowThickness 1.5
+  StartColor #2C1654
+  EndColor #2C1654
+}
+skinparam participant {
+  BackgroundColor #D4E6F1
+  BorderColor #1A4A7A
+  BorderThickness 1.5
+  FontColor #1C2833
+  FontSize 11
+  FontStyle bold
+}
+skinparam actor {
+  BackgroundColor #D4E6F1
+  BorderColor #1A4A7A
+}
+skinparam sequence {
+  ArrowColor #1F497D
+  ArrowThickness 1.5
+  LifeLineBorderColor #1A4A7A
+  LifeLineBorderThickness 1
+  LifeLineBackgroundColor #EBF5FB
+  MessageAlignment left
+  DividerBackgroundColor #AED6F1
+  DividerBorderColor #1A4A7A
+  GroupBackgroundColor #EBF5FB
+  GroupBorderColor #1A4A7A
+}
+"#;
+
+// ── BDD ───────────────────────────────────────────────────────────────────────
+
+fn render_bdd(element: &RawElement, elements: &[RawElement], _name: &str, id: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let shapes = element.frontmatter.shapes.as_ref().map(parse_shapes).unwrap_or_default();
+    let edges = element.frontmatter.edges.as_ref().map(parse_edges).unwrap_or_default();
+
+    let mut out = String::new();
+    out.push_str(&format!("@startuml {}\n", id));
+    out.push_str(&style_preamble(cfg, "BDD"));
+    out.push_str("hide empty members\n\n");
+
+    for s in &shapes {
+        let display = lookup_name(&s.qref, elements);
+        let stereo = match s.kind.as_str() {
+            "partdef" => "part def",
+            "part" | "block" => "part",
+            other => other,
+        };
+        let url = element_url(&s.qref, cfg);
+        out.push_str(&format!("class \"{}\" as {} <<{}>> {}\n", display, sanitize_id(&s.key), stereo, url));
+    }
+
+    out.push('\n');
+
+    for e in &edges {
+        // For BDD edges the ref often points to the owning element rather than
+        // the member, so the edge key (e.g. "e-propulsion" → "propulsion") is
+        // the most reliable role label.
+        let label = e.key.strip_prefix("e-").unwrap_or(&e.key).to_string();
+        let connector = match e.kind.as_str() {
+            "composition" => "*--",
+            "usage" => "..>",
+            "generalization" | "specialization" | "inheritance" => "--|>",
+            _ => "-->",
+        };
+        out.push_str(&format!(
+            "{} {} {} : {}\n",
+            sanitize_id(&e.source),
+            connector,
+            sanitize_id(&e.target),
+            label
+        ));
+    }
+
+    out.push_str("\n@enduml\n");
+    out
+}
+
+// ── IBD ───────────────────────────────────────────────────────────────────────
+
+fn render_ibd_container(
+    key: &str,
+    shapes: &[Shape],
+    container_keys: &std::collections::HashSet<String>,
+    elements: &[RawElement],
+    cfg: Option<&PlantumlConfig>,
+    indent: usize,
+    out: &mut String,
+) {
+    let pad = "  ".repeat(indent);
+    let s = match shapes.iter().find(|s| s.key == key) {
+        Some(s) => s,
+        None => return,
+    };
+    let name = lookup_name(&s.qref, elements);
+    let url = element_url(&s.qref, cfg);
+    out.push_str(&format!("{}rectangle \"{}\" as {} {} {{\n", pad, name, sanitize_id(key), url));
+    for child in shapes {
+        if child.parent.as_deref() != Some(key) || child.kind == "port" {
+            continue;
+        }
+        if container_keys.contains(&child.key) {
+            render_ibd_container(&child.key, shapes, container_keys, elements, cfg, indent + 1, out);
+        } else {
+            let cname = lookup_name(&child.qref, elements);
+            let curl = element_url(&child.qref, cfg);
+            out.push_str(&format!("{}  component \"{}\" as {} {}\n", pad, cname, sanitize_id(&child.key), curl));
+        }
+    }
+    out.push_str(&format!("{}}}\n", pad));
+}
+
+fn render_ibd(element: &RawElement, elements: &[RawElement], _name: &str, id: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let shapes = element.frontmatter.shapes.as_ref().map(parse_shapes).unwrap_or_default();
+    let edges = element.frontmatter.edges.as_ref().map(parse_edges).unwrap_or_default();
+
+    // Map shape key → parent key (for ports resolving to their parent block)
+    let parent_map: HashMap<&str, &str> = shapes
+        .iter()
+        .filter_map(|s| s.parent.as_deref().map(|p| (s.key.as_str(), p)))
+        .collect();
+
+    // Resolve a shape key through its parent chain to the nearest block/boundary.
+    // If the port has no explicit `parent:`, fall back to finding a block/part whose
+    // qref is a proper prefix of the port's qref (i.e. the port's owning element).
+    let resolve_to_block = |id: &str| -> String {
+        let shape = shapes.iter().find(|s| s.key == id);
+        let kind = shape.map(|s| s.kind.as_str()).unwrap_or("");
+        if kind == "port" {
+            if let Some(parent_key) = parent_map.get(id) {
+                return parent_key.to_string();
+            }
+            // Fallback: find a block whose qref is a prefix of this port's qref
+            if let Some(port_qref) = shape.map(|s| s.qref.as_str()) {
+                let prefix = match port_qref.rfind("::") {
+                    Some(i) => &port_qref[..i],
+                    None => "",
+                };
+                if !prefix.is_empty() {
+                    if let Some(owner) = shapes.iter().find(|s| {
+                        (s.kind == "block" || s.kind == "part") && s.qref == prefix
+                    }) {
+                        return owner.key.clone();
+                    }
+                }
+            }
+        }
+        id.to_string()
+    };
+
+    // Shapes whose key appears as `parent:` on another shape are containers.
+    // Detected structurally so explicit `kind: boundary` is not required.
+    let container_keys: std::collections::HashSet<String> = shapes
+        .iter()
+        .filter_map(|s| s.parent.clone())
+        .collect();
+
+    let mut out = String::new();
+    out.push_str(&format!("@startuml {}\n", id));
+    out.push_str(&style_preamble(cfg, "IBD"));
+    out.push('\n');
+
+    // Top-level containers: have children and no parent themselves.
+    for s in &shapes {
+        if s.kind == "port" || s.parent.is_some() || !container_keys.contains(&s.key) {
+            continue;
+        }
+        render_ibd_container(&s.key, &shapes, &container_keys, elements, cfg, 0, &mut out);
+    }
+
+    // Standalone components: no parent, no children, not a port.
+    for s in &shapes {
+        if s.kind != "port" && s.parent.is_none() && !container_keys.contains(&s.key) {
+            let cname = lookup_name(&s.qref, elements);
+            let url = element_url(&s.qref, cfg);
+            out.push_str(&format!("component \"{}\" as {} {}\n", cname, sanitize_id(&s.key), url));
+        }
+    }
+
+    out.push('\n');
+
+    // Edges: resolve ports → parent block, skip self-connections
+    for e in &edges {
+        let src = resolve_to_block(&e.source);
+        let tgt = resolve_to_block(&e.target);
+        if src == tgt {
+            continue;
+        }
+        let connector = match e.kind.as_str() {
+            "binding" => "..>",
+            _ => "-->",
+        };
+        out.push_str(&format!("{} {} {} : {}\n", sanitize_id(&src), connector, sanitize_id(&tgt), &e.kind));
+    }
+
+    out.push_str("\n@enduml\n");
+    out
+}
+
+// ── StateMachine ──────────────────────────────────────────────────────────────
+
+fn render_state_machine(element: &RawElement, elements: &[RawElement], _name: &str, id: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let shapes = element.frontmatter.shapes.as_ref().map(parse_shapes).unwrap_or_default();
+    let edges = element.frontmatter.edges.as_ref().map(parse_edges).unwrap_or_default();
+
+    let initial_keys: HashSet<&str> = shapes
+        .iter()
+        .filter(|s| s.kind == "initial")
+        .map(|s| s.key.as_str())
+        .collect();
+
+    let mut out = String::new();
+    out.push_str(&format!("@startuml {}\n", id));
+    out.push_str(&style_preamble(cfg, "StateMachine"));
+    out.push('\n');
+
+    for s in &shapes {
+        if s.kind == "state" {
+            // Prefer explicit label:; fall back to element name or qref short segment.
+            let sname = s.label.as_deref()
+                .map(str::to_string)
+                .unwrap_or_else(|| lookup_name(&s.qref, elements));
+            let url = element_url(&s.qref, cfg);
+            out.push_str(&format!("state \"{}\" as {} {}\n", sname, sanitize_id(&s.key), url));
+        }
+    }
+
+    out.push('\n');
+
+    for e in &edges {
+        // Prefer explicit label:; fall back to key stem.
+        let label: &str = e.label.as_deref()
+            .unwrap_or_else(|| e.key.strip_prefix("e-").unwrap_or(&e.key));
+        if initial_keys.contains(e.source.as_str()) {
+            if label.is_empty() {
+                out.push_str(&format!("[*] --> {}\n", sanitize_id(&e.target)));
+            } else {
+                out.push_str(&format!("[*] --> {} : {}\n", sanitize_id(&e.target), label));
+            }
+        } else {
+            out.push_str(&format!(
+                "{} --> {} : {}\n",
+                sanitize_id(&e.source),
+                sanitize_id(&e.target),
+                label
+            ));
+        }
+    }
+
+    out.push_str("\n@enduml\n");
+    out
+}
+
+// ── Sequence ──────────────────────────────────────────────────────────────────
+
+fn render_sequence(element: &RawElement, elements: &[RawElement], _name: &str, id: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let shapes = element.frontmatter.shapes.as_ref().map(parse_shapes).unwrap_or_default();
+    let edges = element.frontmatter.edges.as_ref().map(parse_edges).unwrap_or_default();
+
+    let mut out = String::new();
+    out.push_str(&format!("@startuml {}\n", id));
+    out.push_str(&style_preamble(cfg, "Sequence"));
+    out.push('\n');
+
+    for s in &shapes {
+        let pname = lookup_name(&s.qref, elements);
+        let url = element_url(&s.qref, cfg);
+        match s.kind.as_str() {
+            "actor" => out.push_str(&format!("actor \"{}\" as {} {}\n", pname, sanitize_id(&s.key), url)),
+            "lifeline" => out.push_str(&format!("participant \"{}\" as {} {}\n", pname, sanitize_id(&s.key), url)),
+            _ => {} // activation, fragment — skipped (REQ-TRS-PUML-023)
+        }
+    }
+
+    out.push('\n');
+
+    for e in &edges {
+        let label = e.label.as_deref()
+            .map(str::to_string)
+            .unwrap_or_else(|| edge_label(&e.key, e.qref.as_deref()));
+        let arrow = if e.kind == "return" { "-->" } else { "->" };
+        out.push_str(&format!(
+            "{} {} {} : {}\n",
+            sanitize_id(&e.source),
+            arrow,
+            sanitize_id(&e.target),
+            label
+        ));
+    }
+
+    out.push_str("\n@enduml\n");
+    out
+}
+
+// ── Requirement diagram ───────────────────────────────────────────────────────
+
+fn render_requirement(element: &RawElement, elements: &[RawElement], _name: &str, id: &str, cfg: Option<&PlantumlConfig>) -> String {
+    let shapes = element.frontmatter.shapes.as_ref().map(parse_shapes).unwrap_or_default();
+    let edges = element.frontmatter.edges.as_ref().map(parse_edges).unwrap_or_default();
+
+    let mut out = String::new();
+    out.push_str(&format!("@startuml {}\n", id));
+    out.push_str(&style_preamble(cfg, "Requirement"));
+    out.push_str("hide empty members\n\n");
+
+    for s in &shapes {
+        let sname = lookup_name(&s.qref, elements);
+        let stereo = match s.kind.as_str() {
+            "requirement" => "requirement",
+            "requirementdef" => "requirement def",
+            "testcase" => "test case",
+            "testcasedef" => "test case def",
+            "partdef" | "itemdef" => "part def",
+            "part" | "item" | "block" => "part",
+            "actiondef" => "action def",
+            "action" => "action",
+            other => other,
+        };
+        let url = element_url(&s.qref, cfg);
+        out.push_str(&format!("class \"{}\" as {} <<{}>> {}\n", sname, sanitize_id(&s.key), stereo, url));
+    }
+
+    out.push('\n');
+
+    for e in &edges {
+        let (connector, label) = match e.kind.as_str() {
+            "derivedFrom" => ("..>", "derivedFrom"),
+            "verifies" => ("..>", "verifies"),
+            "allocatedTo" => ("..>", "allocated to"),
+            other => ("-->", other),
+        };
+        out.push_str(&format!(
+            "{} {} {} : {}\n",
+            sanitize_id(&e.source),
+            connector,
+            sanitize_id(&e.target),
+            label
+        ));
+    }
+
+    out.push_str("\n@enduml\n");
+    out
+}

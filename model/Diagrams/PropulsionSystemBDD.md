@@ -4,17 +4,19 @@ name: PropulsionSystemBDD
 diagramKind: BDD
 svgMode: companion
 svgFile: ./PropulsionSystemBDD.svg
+pumlMode: companion
+pumlFile: ./PropulsionSystemBDD.puml
 subject: UAV::Propulsion
 shapes:
   s-propulsion:
     ref: UAV::Propulsion::PropulsionSystem
-    kind: block
+    kind: PartDef
   s-motor:
     ref: UAV::Propulsion::Motor
-    kind: block
+    kind: PartDef
   s-rotor:
     ref: UAV::Propulsion::RotorAssembly
-    kind: block
+    kind: PartDef
 edges:
   e-motor-comp:
     ref: UAV::Propulsion::RotorAssembly::motor
@@ -23,7 +25,7 @@ edges:
     kind: composition
 ---
 
-<img src="./PropulsionSystemBDD.svg" alt="Propulsion System Block Definition Diagram" width="100%"/>
+![PropulsionSystemBDD](./PropulsionSystemBDD.svg)
 
 Block Definition Diagram for the Propulsion subsystem. Shows the three classifier definitions — `PropulsionSystem` (abstract), `Motor`, and `RotorAssembly` — with their key features and the composition relationship expressing that each `RotorAssembly` owns exactly one `Motor`.
 

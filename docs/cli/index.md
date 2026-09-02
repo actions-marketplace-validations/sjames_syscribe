@@ -24,7 +24,7 @@ cd model_auto/System/Software && syscribe validate
 syscribe validate
 ```
 
-**`.syscribe.toml` as the root marker.** Auto-discovery reuses the existing config file ([repo_root / matchers / remote hook](../../spec/markdown-sysml-format.md)); an **empty** `.syscribe.toml` at the model root is a valid "mark this as the root" file. The marker is a locator only — it never changes qualified-name resolution. For CI, prefer the explicit `-m` for reproducibility.
+**`.syscribe.toml` as the root marker.** Auto-discovery reuses the existing config file ([repo_root / matchers / remote hook](../format/spec.md)); an **empty** `.syscribe.toml` at the model root is a valid "mark this as the root" file. The marker is a locator only — it never changes qualified-name resolution. For CI, prefer the explicit `-m` for reproducibility.
 
 ---
 
@@ -38,7 +38,11 @@ syscribe help <command>    # the command's full page, e.g. `syscribe help audit`
 syscribe <command> --help  # the same page, e.g. `syscribe validate --help` (also -h)
 ```
 
-`syscribe spec [<section>]` browses the embedded **format** reference (types, fields, validation rules, …); `syscribe --agent-instructions` prints the LLM authoring prompt.
+`syscribe spec [<section>]` browses the embedded **format** reference (types, fields, validation rules, …); `syscribe --agent-instructions` prints the LLM authoring prompt (`syscribe --agent-instructions magicgrid` prints a dedicated MagicGrid modeling prompt).
+
+`syscribe --version` (also `-V`, or `syscribe version`) prints the tool version as `syscribe <semver>` and exits 0 — no model directory required.
+
+**Command routing.** The top-level command line is parsed by a clap router whose subcommand registry is derived from the man-page list, so an **unknown command is rejected** with a clear error and a **non-zero** exit (`error: unrecognized subcommand '<name>'`), independent of whether a model directory is present. Each command's own flags are passed through to it unchanged.
 
 ---
 
@@ -46,7 +50,7 @@ syscribe <command> --help  # the same page, e.g. `syscribe validate --help` (als
 
 ### Full report
 
-Running with no subcommand prints the full 10-section Markdown validation report — element inventory, requirements matrix, traceability summary, and findings.
+Running with no subcommand — or the explicit `report` command — prints the full 10-section Markdown validation report: element inventory, requirements matrix, traceability summary, and findings.
 
 ```
 $ syscribe -m model_auto/
@@ -142,7 +146,84 @@ Semantics:
 - `--profile` composes additively with `--deny` / `--max-warnings` / `--warnings-as-errors`.
 - An **undefined** profile name (or a missing `.syscribe.toml`) prints an error to stderr and exits `1`.
 
-Multiple profiles may be defined; the `[matchers]` / `[remote]` tables and `repo_root` key continue to work alongside `[profiles.*]`.
+Multiple profiles may be defined; the `[matchers]` / `[remote]` / `[ids]` tables and `repo_root` key continue to work alongside `[profiles.*]`.
+
+### Stable-ID suffix width (`[ids]`)
+
+Every stable ID (REQ-*, TC-*, TP-*, ADR-*, …) ends in a numeric suffix of **3 to 8 digits** by default. Raise or lower the maximum (minimum is fixed at 3) with:
+
+```toml
+# .syscribe.toml
+[ids]
+max_digits = 8   # default 8; e.g. 12 to allow wider counters, 4 to tighten
+```
+
+A suffix longer than the cap is error `E023`; a suffix shorter than 3 is `E006`. A reference to an over-long ID still resolves (the defect surfaces on the ID-bearing element, not as a dangling reference).
+
+### Hosted source links (`[links]`)
+
+A `[links]` table maps each **file-backed** element to a **hosted source URL** (GitHub/GitLab/a static site), making generated diagrams and reports link back into the hosted model. The feature is **opt-in and advisory** — it never affects validation findings or exit codes, and is **inert** (output byte-for-byte as before) when `[links]` is absent.
+
+```toml
+# .syscribe.toml
+[links]
+base_url = "https://github.com/<org>/<repo>/blob/main/model"   # the 90% case
+# optional escape hatch for hosted HTML / custom refs / anchors:
+url_template = "https://github.com/<org>/<repo>/blob/{ref}/model/{path}"
+ref = "main"
+```
+
+- At least one of `base_url` / `url_template` enables the feature.
+- For an element whose path **relative to the model root** is `<path>` (forward-slashed): with `url_template`, the placeholders `{path}` / `{qname}` / `{id}` / `{ref}` are substituted; otherwise the URL is `base_url` (one trailing `/` trimmed) + `/` + `<path>`. Path **segments** are percent-encoded (a space → `%20`); `/` separators are preserved. A **package** resolves to its `_index.md`; an attribute that is only a YAML key in a parent resolves to no URL.
+
+When configured, the URL appears on each surface:
+
+- **SVG** diagrams wrap each element shape in `<a xlink:href href target="_blank" rel="noopener">`.
+- **Mermaid** diagrams append `click <nodeId> "<url>" _blank` directives.
+- The **Markdown** validation report and the JSON `export` (`url` field) render element references as hosted links.
+
+### Extension scripts (`[scripts]`)
+
+A `[scripts]` table configures the directory of user-authored **Rhai extension scripts** run by the `scripts` command family. Scripts are **tooling, not model content** — they are never parsed as model elements and are **not** run by the built-in `validate` pass (the qualification boundary stays crisp). An absent scripts directory is **not** an error.
+
+```toml
+# .syscribe.toml
+[scripts]
+path = ".syscribe/scripts"   # default; resolved relative to the model root
+```
+
+The directory is also the Rhai **module-import root**, so a script can reuse a shared library (`import "lib/helpers" as h;`). Scripts run in a sandboxed, resource-limited, deterministic engine (no filesystem/network/clock/random/env; `eval` disabled; runaway scripts aborted by an operation budget; the only side effect is stdout/stderr text). A script registers a **command** (`register_command`) or a **check** (`register_check`).
+
+| Command | Description |
+|---|---|
+| `scripts list [--json]` | Enumerate every registered command/check (name, kind, description, source file). |
+| `scripts run <command> [--json]` | Invoke a command and print its returned string. Unknown name → non-zero; a check name reports that it is a check. |
+| `scripts validate [--deny <codes>] [--max-warnings <n>] [--warnings-as-errors] [--json]` | Run every check; print findings as `<check>/<code>` with the source script. Exit 0 clean / 1 on an error-severity finding / 2 on a tripped gate. Independent of the built-in `validate`. |
+
+See `syscribe help scripts` for the full read-only model API.
+
+### Ingesting executed test results (`ingest-results`)
+
+`ingest-results` parses a test runner's output into the results sidecar (`<model_root>/.syscribe/results.json`), which lights up the **executed-evidence** views (`matrix`/`trace`/`testplan`/`safety-case` reflect *passed* vs merely *linked* coverage, and validation can enforce the **W010** "linked test never executed" check).
+
+```bash
+syscribe -m model/ ingest-results <file> [--format cargo-json|junit]
+```
+
+- **`<file>`** — the results file (required, first positional).
+- **`--format cargo-json|junit`** — the input format. When omitted it is **auto-detected** from the filename: a `.xml` suffix is parsed as JUnit, anything else as `cargo test --format json` output.
+
+Each parsed function maps to a `testFunctions[].function` so an active `TestCase` rolls up to a `Pass`/`Fail`/`Unknown` verdict. Once the sidecar exists, the coverage views fold it in automatically; pass `--linked-only` on a consuming command to ignore it for one run. `validate --results <file>` performs the same ingest for a single run *without* writing the sidecar.
+
+### Label field: `name` is the universal label (E025; E024 retired)
+
+**`name` is the single human-readable label on every element type** — id-identified and name-identified alike. There is no longer a per-identity-class split.
+
+- **Id-identified types** (`Requirement`, `TestCase`, `TestPlan`, `Configuration`, `ADR`, and the safety/security types — identity is a stable `id`) label via **`name`** (free prose — spaces/punctuation allowed; `W042` does not apply), which is **required** on them.
+- **Name-identified types** (all SysML structural types, `Package`, `Diagram`, `FeatureDef` — identity is the `name`/path) label via **`name`**, which is also the identity segment and must be a basic name (`W042`).
+- **`title` is removed.** Declaring `title:` on any element is error **`E025`** ("rename it to `name`"). Error **`E024`** (formerly: `name:` on an id-identified type) is **retired**.
+
+`FeatureDef` also carries a **mandatory** `FEAT-*` `id` (a feature with no `id` is `E201`); it labels via `name`. These errors exit `1`.
 
 ---
 
@@ -233,6 +314,38 @@ Safety monitoring software component (ASIL D). Supervises all safety-relevant
 inputs and function outputs...
 ```
 
+### Element-type inventory
+
+`types` lists every element `type:` present in the model with a count; `untyped` lists elements with no `type:` set (a quick way to catch frontmatter that failed to declare its kind).
+
+```bash
+syscribe -m model/ types       # e.g. PartDef 24, Requirement 14, TestCase 11, ...
+syscribe -m model/ untyped     # elements missing a type: field
+```
+
+### Export the whole graph
+
+`export` serialises the resolved model graph as one structured JSON document on stdout — the machine-readable form of the whole model, for downstream tooling.
+
+```bash
+syscribe -m model/ export             # single JSON document (default)
+syscribe -m model/ export --ndjson    # newline-delimited: one element per line
+syscribe -m model/ export --config CONF-X   # projected onto a configuration variant
+```
+
+`--ndjson` streams one element per line; the `--config` lens projects the export onto a single variant.
+
+### Static HTML site (`export-html`)
+
+`export-html` generates a self-contained, **offline** HTML website for the whole model — a navigable per-element site for publishing, sharing, or reviewing without the toolchain or a running server.
+
+```bash
+syscribe -m model/ export-html --out site/            # write the site to site/
+syscribe -m model/ export-html --out site/ --css my.css   # supply your own stylesheet
+```
+
+It writes `index.html`, per-element pages under `elements/` (frontmatter, rendered doc, resolved cross-reference links, embedded SVG/Mermaid diagrams), report pages (`validation`, `coverage`, `traceability`), and a client-side search index. `--css <file>` replaces the bundled default `style.css`; the output bundles all assets (no CDN) so it renders with no network. (For an interactive, live-reloading browser, see `syscribe-server`.)
+
 ---
 
 ## Safety ↔ security co-analysis
@@ -322,6 +435,140 @@ Edges are styled per kind: containment is dashed grey, typing/supertype is solid
 
 ---
 
+## N² interface matrix (`n2`)
+
+```bash
+syscribe -m model/ n2 [<qname>] [--depth <N>] [--format text|html|json] [--interfaces-only] [--allocations]
+```
+
+Generates an N² (N-squared) interface matrix (§16): the in-scope `PartDef`/`Part` elements sit on the diagonal, and the off-diagonal cell **(row R, col C)** lists the interfaces directed from R to C — each a named interface from the connecting `connections:`/`flowConnections:` entry's `typedBy:` (ConnectionDef/InterfaceDef) or its `name`. Derived read-only from the wiring you already authored.
+
+- No `<qname>` → every part in the model is on the axis; a `<qname>` → the composite's subpart types, expanded `--depth` levels (default 1).
+- `--format` `text` (ASCII grid) / `html` (self-contained `<table>`) / `json` (`{ scope, elements, matrix: { R: { C: [{kind, name}] } } }`).
+- `--allocations` adds `allocatedTo:` edges; `--interfaces-only` drops elements with no interfaces.
+
+```text
+N² Interface Matrix — UAV::Airframe (depth 1)
+
+                    AvionicsBay  PayloadBay  PowerSystem  PropulsionSystem
+AvionicsBay         ■            —           —            —
+PayloadBay          —            ■           —            —
+PowerSystem         PowerConn…   PowerConn…  ■            PowerConn…
+PropulsionSystem    —            —           —            ■
+```
+
+## IEC 62443 zones & conduits (`zones`, `conduits`)
+
+```bash
+syscribe -m model/ zones [--coverage] [--json]
+syscribe -m model/ conduits [--json]
+```
+
+Lists `Zone` elements (§13) with their `targetSL`/`achievedSL`, member count, and SL gap status, and `Conduit` elements with from/to zones, `achievedSL`, and whether the conduit boundary meets the higher connected zone's required SL. `zones --coverage` prints a Zone × SecurityControl cross-table (controls sourced from conduit `implementedBy:` and zone-member SecurityControls).
+
+## Multi-repository composition (`repos`)
+
+```bash
+syscribe -m model/ repos [list] [--json]      # configured repos: path, ref, on-disk + sync status
+syscribe -m model/ repos status [--json]      # whether each pinned repo is at its ref; exit 2 on drift
+syscribe -m model/ repos sync [--all | <alias>]   # git fetch + checkout <ref> for pinned repos
+```
+
+Inspects and synchronises the peer repositories declared in the model-root `.syscribe.toml` `[repos]` table (§14). Each entry has a `path` (required, relative to `.syscribe.toml`), `root` (default `model/`) and optional `ref`. A package `_index.md` mounts a peer sub-tree with `repoImports: [{repo, qname, as}]`. Cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:` references resolve against the local model first, then each loaded repo in declaration order — by global stable ID or qualified name. Validation rules `E510`–`E515`/`W510`–`W512` ([rules](../validation/rules.md#multi-repository-composition-e510e515-w510w512-14), [guide](../model-guide/multi-repo.md)) are active only when `[repos]` is configured.
+
+**Reproducibility gate.** When a repo has a `ref:`, validation compares the peer work tree's `HEAD` against it and emits `W511` on drift — gate CI on a pinned composition with `validate --deny W511`. `repos status` reports the same drift and exits `2`; `repos sync` brings the checkout back to the `ref:`. When `path` is a **git submodule**, `W512` additionally flags a `ref:` that disagrees with the parent's `.gitmodules` gitlink pin (`--deny W512`) — so `[repos]` and submodules stay consistent.
+
+## ReqIF export (`export-reqif`)
+
+```bash
+syscribe -m model/ export-reqif [--output <file>] [--scope <qname>] [--config <CONF>] [--include-tests] [--zip]
+```
+
+Exports native `Requirement` elements (and their packages) as a **ReqIF 1.2** XML document (§21) for import into DOORS Next / Jama / Polarion / PTC. Each requirement → a `SPEC-OBJECT` (id/name/status/sil/asil/domain attributes + an XHTML `DESC` from the body); packages → a nested `SPEC-HIERARCHY`; `derivedFrom:` → `DERIVED_FROM` relations; `--include-tests` adds `TEST_CASE` objects + `VERIFIED_BY`. `--output` writes `<file>.reqif` (`.reqifz` with `--zip`). Export-only.
+
+## SBOM generation (`sbom`)
+
+```bash
+syscribe -m model/ sbom [--format cyclonedx|spdx] [--config <CONF>] [--output <file>] [--include-tests] [--scope <qname>]
+```
+
+Generates a Software Bill of Materials (§18) from the `implementedBy:` links on `Part`/`PartDef` (and, with `--include-tests`, `TestCase.sourceFile:`). A value matching `<registry>:<package>@<version>` (registries `crates.io`/`npm`/`pypi`/`maven`/`nuget`/`github`) becomes a package component with a PURL (`pkg:cargo/tokio@1.38.0`); any other value is a local file component. Local components link back to the requirements the part satisfies (CycloneDX `externalReferences` / SPDX `GENERATED_FROM`). `--format cyclonedx` (default, CycloneDX 1.6) or `spdx` (SPDX 2.3); `--config` projects to a variant; `--output` writes a file.
+
+## Behavioral coverage (`behavioral-coverage`)
+
+```bash
+syscribe -m model/ behavioral-coverage [<qname>] [--depth N] [--format text|json] [--uncovered-only] [--include-planned]
+```
+
+Reports how completely the **active** `TestCase` elements exercise the behavioral elements (`ActionDef`/`Action`/`StateDef`/`State`) (§20). A behavioral element is covered when an active test reaches it by any of four paths: source overlap (`TC.sourceFile` under `B.implementedBy`), requirement chain (`verifies` → `satisfies` → element `typedBy`/`supertype` B), test function (a `testFunctions[].file` under `implementedBy`), or allocation (the satisfying element `allocatedTo` B). `--include-planned` adds draft/review/approved tests in a separate column; `--uncovered-only` filters; `text`/`json` output with a coverage percentage.
+
+## Change impact analysis (`impact`)
+
+```bash
+syscribe -m model/ impact <qname|id> [--direction downstream|upstream|both] [--depth N] [--format text|json|dot] [--kinds <csv>]
+```
+
+Traverses the traceability graph (§17) from an element and reports every reachable node, its hop distance, and the connecting edge kind — "if I change this, what else may need to change?". **Downstream** follows reverse links (`derivedChildren`, `verifiedBy`, `satisfiedBy`, `specializedBy`, `refinedBy`, `conditionalOn`, `allocatedFrom`, `safetyGoalChildren`); **upstream** follows forward links (`derivedFrom`, `verifies`, `satisfies`, `supertype`, `refines`, `allocatedTo`, `derivedFromSafetyGoal`). `--depth` limits hops, `--kinds` restricts edge kinds; `text` / `json` / `dot` output. Cycle-safe.
+
+## Lint external docs (`lint-docs`)
+
+```bash
+syscribe -m model/ lint-docs <path>... [--json]
+```
+
+Scans external `.md` and `.svg` files for references to model elements that no longer resolve: stable-ID tokens in prose (**W099**), qualified names inside ` ```mermaid ` blocks (**W100**), SVG `sysml:ref` manifests (**W101**), and local image/diagram embed paths (**W102** — remote URIs accepted). Qualified names in *prose* are deliberately not resolved (false-positive prone). Exits non-zero on any finding (CI-gateable, e.g. `--deny W100`).
+
+## Review records (`reviews`)
+
+```bash
+syscribe -m model/ reviews [<qname>] [--open-only] [--json]
+syscribe -m model/ reviews --coverage [--json]
+syscribe -m model/ review <RR-id> [--json]
+```
+
+Lists `ReviewRecord` elements (§19) and their coverage. A `ReviewRecord` is a baselined, thin traceability anchor for a formal review; the discussion lives in the tool named by `recordedAt:`. `reviews <qname>` filters to reviews covering that element; `--open-only` to reviews with open action items; `reviews --coverage` prints the native-Requirement review-coverage cross-table; `review <RR-id>` shows one record in full.
+
+## Trade studies (`trade-study`)
+
+```bash
+syscribe -m model/ trade-study [<TRD-id>] [--json]
+```
+
+When the model contains `TradeStudy` elements (§15), lists them or prints one study's full **normalised, weighted, ranked** scoring table (computed, never written). Without `TradeStudy` elements, the command falls back to the MagicGrid MoE-weighted trade study (`--profile magicgrid`, REQ-TRS-MG-007). `template TradeStudy` prints a skeleton.
+
+## FMEA & fault trees (`fmea`, `fault-tree`)
+
+```bash
+syscribe -m model/ fmea report [--fmea-sheet <id>] [--json]
+syscribe -m model/ fault-tree render <FaultTree-id>
+```
+
+`fmea report` rolls up the `FMEAEntry` rows (grouped by `FMEASheet`) — each entry's failure mode, severity/occurrence/detection ratings, computed **RPN**, and recommended actions. `--fmea-sheet <id>` restricts the report to a single sheet; `--json` emits the structured document. `fault-tree render <FaultTree-id>` prints one `FaultTree` as an indented gate/event tree (AND/OR gates, basic events with their `failureRate`/`diagnosticCoverage`); the same λ/DC data feeds the quantitative `metrics` rollup. Both are read-only. See the [safety-analysis guide](../model-guide/safety-analysis.md).
+
+## Diagrams (`render`, `diagram`, `plantuml`)
+
+The model carries native SVG/Mermaid diagram rendering plus a PlantUML companion-file generator.
+
+```bash
+syscribe -m model/ render <diagram_path>                         # one Diagram element → stdout
+syscribe -m model/ diagram <subcommand> [args...]                # SVG generation toolkit
+syscribe -m model/ plantuml [<qname>] [--output <file>|-] [--dry-run]   # generate .puml
+syscribe -m model/ plantuml render [--jar <path>] [--dry-run]    # render .puml → .svg
+```
+
+- **`render <diagram_path>`** renders a single `Diagram` element to stdout — Mermaid or SVG according to its `diagramKind`.
+- **`diagram`** is the SVG toolkit (each subcommand takes `--output <file>` / `-o`, default stdout):
+  - `diagram list [--type <T>] [--namespace <NS>]` — list candidate elements for diagram generation, filtered by comma-separated element types and/or a qualified-name prefix.
+  - `diagram render <qname> [--view full|ports|features|compact|name|requirement] [--include-ports <csv>] [--include-features <csv>] [--min-width <N>]` — render one element with a view preset.
+  - `diagram measure <qnames>` — print computed box dimensions for a comma-separated list of qnames.
+  - `diagram compose <layout.json|qname> [--kind bdd|ibd|arch] [--emit-placement]` — compose a multi-element SVG from a layout file or a `Diagram` element; `--emit-placement` emits the auto-generated placement JSON instead of SVG.
+  - `diagram layout <placement.json|-> [--compose] [--kind bdd|ibd|arch] [--svg <file>]` — resolve a placement file (or stdin via `-`) into a final layout; `--compose` pipes the result into compose and emits SVG to `--svg`.
+  - `diagram seq <qname>` — render a Sequence `Diagram` element to SVG.
+  - `diagram req <root> [--depth N] [--show-verify] [--show-satisfy]` — render a requirement-breakdown tree; `--show-verify` adds verifying TestCases, `--show-satisfy` adds satisfying architecture elements.
+- **`plantuml`** generates PlantUML `.puml` source from `Diagram` elements — batch (every `pumlMode: companion` diagram) or a single `<qname>`; `--output -` writes to stdout, `--dry-run` previews paths. **`plantuml render`** invokes PlantUML on the companion `.puml` files and writes `.svg` alongside, resolving the engine via `--jar` → `[plantuml] jar` in `.syscribe.toml` → `PLANTUML_JAR` → `plantuml` on `PATH`. See `syscribe help plantuml` and `syscribe help diagram`.
+
+---
+
 ## Searching
 
 ### Fuzzy search
@@ -345,7 +592,7 @@ $ syscribe -m model_auto/ find throttle
 
 ### Look up by external reference
 
-`extref <ref>` finds elements that represent an external artifact via the optional [`extRef`](../../spec/markdown-sysml-format.md) common field — a requirement in DOORS Next, an element in a SysML tool, a ticket. Matching is exact on the whole reference value; all matches are returned (a duplicate `extRef` warns `W028`). It exits non-zero when nothing matches.
+`extref <ref>` finds elements that represent an external artifact via the optional [`extRef`](../format/spec.md) common field — a requirement in DOORS Next, an element in a SysML tool, a ticket. Matching is exact on the whole reference value; all matches are returned (a duplicate `extRef` warns `W028`). It exits non-zero when nothing matches.
 
 ```
 $ syscribe -m model/ extref "DNG:4521"
@@ -425,6 +672,36 @@ appliesWhen: "not Features::Smp"
 
 A `TestCase` *runs in* a `Configuration` iff its `appliesWhen:` is satisfied by that configuration's `features:` selections (no `appliesWhen:` ⇒ runs everywhere). There is no `runsIn` field.
 
+### Single-file feature models — `type: FeatureModel`
+
+A `FeatureDef`-per-file layout doesn't scale well to a large feature tree. `template FeatureModel` prints a ready-to-fill skeleton for the additive, opt-in alternative: one file whose `featureTree:` is a **flat**, dot-named list, exploded into ordinary `FeatureDef` elements before validation — every other command (`validate`, `feature-check`, `matrix`, `configure`, `--config`) treats the result identically to a hand-authored multi-file tree.
+
+```
+$ syscribe -m model_auto/ template FeatureModel
+```
+
+```yaml
+type: FeatureModel
+name: Features
+featureTree:
+  - name: Platform
+    mandatory: true
+    groupKind: alternative
+  - name: Platform.CortexM        # dotted path, relative to this sheet → Features::Platform::CortexM
+    groupKind: optional
+crossTreeConstraints:             # requires:/excludes: as one reviewable section (inline still works too)
+  - feature: Wdt
+    requires: [Platform.CortexM]
+parameterConstraints:             # §9.7 cross-feature numeric constraints, now also directly on the sheet
+  - id: PC-EXAMPLE
+    expression: "Features::Wdt.timeoutMs <= 5000"
+    severity: error
+```
+
+`id:` is optional on a `featureTree:` entry (unlike a plain per-file `FeatureDef`, where `E201` still requires one): omitted, it's derived from the entry's own dotted `name:` — `Platform.CortexM` → `FEAT-PLATFORM-CORTEXM` — assigned exactly as if hand-typed, so a grammar-invalid or colliding derived id is the ordinary `E006`/`E101`, no new code. An explicit `id:` always wins over derivation.
+
+New findings specific to this form: `E231` (an entry has no `name:`, or its dotted path has an empty segment), `E232` (two entries resolve to the same qname), `E233` (a `crossTreeConstraints:` entry is malformed or its `feature:` doesn't resolve within the same sheet), `W048` (`featureTree:`/`crossTreeConstraints:` declared on anything other than `type: FeatureModel`, or `parameterConstraints:` misplaced likewise). See §9.6a of the format spec for the full reference.
+
 ### Coverage matrix
 
 `matrix` emits a Requirement × Configuration grid. Columns are the model's `Configuration` elements; cells are covered (`✓`), gap (`✗`), or N/A (`—`, requirement not active in that variant):
@@ -479,6 +756,26 @@ $ syscribe -m model/ configure <Configuration>      # from a partial selection: 
 
 `configure` treats a `Configuration`'s `features:` as a *partial* selection (set features fixed, absent open) and reports whether it can be completed plus which features are **forced** or still **free** — a feature configurator. (`--prove` emits the externally-checkable DIMACS CNF; a DRAT refutation proof is deferred — batsat does not expose one.)
 
+### Authoring a gate (`applies-when`)
+
+Show, set, replace, or remove an element's `appliesWhen:` gate from the CLI:
+
+```
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001                       # read: own + effective gate
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001 --json
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001 --set "FEAT-QUAD"
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001 --set "Features::Propulsion::Quad"
+$ syscribe -m model/ applies-when UAV::Payload::Camera --set "FEAT-SURVEY or FEAT-MAPPING"
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001 --clear
+$ syscribe -m model/ applies-when REQ-UAV-NAV-001 --set "FEAT-QUAD" --dry-run
+```
+
+With **no flag** the command is a read-only display: it prints the element's **own** gate and its **effective** condition — the own gate, or, when the element declares none, the gate **inherited** from its nearest ancestor package (transitive package conditioning), naming that package; an element gated nowhere is reported as always applying. This is the static condition; `why-active <element> --config <CONF>` evaluates it for one product.
+
+The element is resolved by qualified name or stable id; each operand of the expression resolves to a `FeatureDef` by its **`FEAT-*` id or its qualified name** (interchangeably). The edit is **refused without writing** if the expression is malformed or has an unresolved operand (`E209`), or the placement is forbidden (`E228` — a `FeatureDef`, a `Configuration`, the model-root package, a package whose subtree contains features, or a path that already declares `appliesWhen:`). Only the `appliesWhen:` key changes; the rest of the file is preserved byte-for-byte.
+
+After a successful `--set`, the **feature model is checked for bad configurations** (`feature-check --deep`: void model `E223`, dead features `E224`, invalid configurations `E225`); the command exits non-zero if any are found, so a gate is never applied on top of an unsound feature model. `--dry-run` previews and runs the same check without writing.
+
 ### Feature discoverability
 
 Four commands answer "what features exist, what does each gate, and why is this element in this product?"
@@ -509,6 +806,18 @@ $ syscribe -m model/ diff --config CONF-MPS2-WDT --config CONF-M0-BASE
 ```
 
 `validate --config` re-runs the full validation in the lens (coverage, traceability, safety) **and** flags **escaping references** — an active element pointing at one inactive in the variant: structural → `E226` (error), traceability → `W019` (warning). The complementary `feature-check --deep` rules prove this can't happen in *any* valid configuration (`E227`/`W020`), and report dead elements (`W021`) and family-wide coverage gaps (`W022`).
+
+### Materialising build flags (`build-config`)
+
+`build-config` emits a `Configuration`'s resolved feature selection as build-system inputs (e.g. a flags file the firmware build consumes), so the model's product definition drives the toolchain.
+
+```bash
+syscribe -m model/ build-config --config CONF-MPS2-WDT [--format <fmt>] [--prefix <p>] [--no-validate]
+syscribe -m model/ build-config --all-configs [--format json] [--prefix <p>] [--no-validate]
+```
+
+- **`--config <id>`** materialises one Configuration; **`--all-configs`** emits every stored Configuration.
+- **`--format <fmt>`** chooses the output format (default `json`); **`--prefix <p>`** names/prefixes the output; **`--no-validate`** skips the per-variant validation that otherwise runs first.
 
 ---
 
@@ -561,6 +870,36 @@ The report (mirrored in `--json`) has five sections:
 | `1` | The `--profile <name>` is undefined (or no `.syscribe.toml` exists). |
 
 The default policy always fails on errors and on `W306`. Passing `--profile <name>` loads `[profiles.<name>]` from `<model_root>/.syscribe.toml` and additionally fails the audit if any finding that profile promotes is present, using the same promotion semantics as `validate --profile`. The JSON document has the shape `{ statusSplit, integrityDistribution, coverage, orphans, verdict: { pass, reasons } }`.
+
+---
+
+## TestPlans (`testplan`)
+
+A `TestPlan` (`type: TestPlan`, stable `TP-*` id) is a curated, per-product verification artifact: it binds a set of TestCases (the **effective set** = explicit `testCases:` ∪ `selection:` matches) to zero or more `Configuration`s at one `scope`, and is optionally offered as evidence for the goals it `demonstrates:`. The read-only `testplan` command surfaces plans, their resolved membership, their coverage and a rolled-up verdict — it **reuses** the `matrix` coverage computation and the executed-results verdict fold, not a second engine.
+
+```
+$ syscribe -m model/ testplan                                 # list every TestPlan
+$ syscribe -m model/ testplan --json
+$ syscribe -m model/ testplan TP-DELIVERY-INTEGRATION-001     # detail for one plan
+$ syscribe -m model/ testplan TP-DELIVERY-INTEGRATION-001 --json
+```
+
+- **List** — one row per plan: id, title, scope, bound configurations, effective-TestCase count, coverage %, and verdict.
+- **Detail (`testplan TP-X`)** — the resolved member TestCases (each flagged `escaping` when active in **none** of the plan's configs), the **in-scope requirements**, a per-config coverage grid, and the roll-up verdict. An unknown id (or an id that is not a `TestPlan`) exits `1`.
+
+**In-scope requirements.** With `demonstrates:` set, the scope is the **goal-closure**: each demonstrated `Requirement` plus the transitive closure of its `derivedChildren`, and for a demonstrated `SafetyGoal`/`CybersecurityGoal`, the requirements that `derivedFromSafetyGoal:`/`derivedFromSecurityGoal:` it (and their closure). Without `demonstrates:`, the scope is the union of the `verifies:` targets of the effective TestCase set.
+
+**Verdict** ∈ `pass | fail | incomplete | empty`: `empty` when the effective set is empty; `fail` when any member's ingested verdict is `Fail`; `pass` when every member passes; otherwise `incomplete` (no/partial results). Load results with `ingest-results`.
+
+### `--plan TP-X` lens
+
+`matrix`, `verification-depth` and `audit` accept a `--plan TP-X` lens, symmetric to `--config`. On `matrix`/`verification-depth` it restricts the requirement rows to the plan's in-scope requirements and the TestCase universe to the plan's members. On `audit` it scopes the readiness verdict: validation runs over the **full** model (so no reference escaping the plan subset is mistaken for a defect) and only findings on the plan's in-scope elements count toward the verdict. It **composes** with `--config`, is dormant-safe, and exits `1` on an unknown plan id.
+
+```
+$ syscribe -m model/ matrix --plan TP-DELIVERY-INTEGRATION-001
+$ syscribe -m model/ audit --plan TP-DELIVERY-INTEGRATION-001 --config CONF-X
+$ syscribe -m model/ verification-depth --plan TP-DELIVERY-INTEGRATION-001 --sil 4
+```
 
 ---
 
@@ -753,7 +1092,7 @@ $ syscribe -m model_auto/ template Requirement
 ---
 type: Requirement
 id: REQ-PREFIX-001
-title: "The system shall ..."
+name: "The system shall ..."
 status: draft
 reqDomain: system
 verificationMethod: test
@@ -778,6 +1117,28 @@ Create a new requirement file in one step:
 syscribe -m model_auto/ template Requirement \
   > model_auto/Requirements/Safety/REQ-ENG-SAFE-006.md
 ```
+
+### Scaffold Gherkin scenarios
+
+`scaffold-gherkin <TC>` generates (or aligns) the `## Scenario` Gherkin blocks in a `TestCase` body from its `testFunctions:`, so each declared function has a matching scenario stub.
+
+```bash
+syscribe -m model/ scaffold-gherkin TC-ENG-SAFE-002          # print the aligned body to stdout
+syscribe -m model/ scaffold-gherkin TC-ENG-SAFE-002 --fix    # write the changes back to the file
+```
+
+Without `--fix` it is a read-only preview; with `--fix` it rewrites the file in place (frontmatter preserved). The argument resolves by qualified name or stable `TC-*` id.
+
+### Move / rename an element
+
+`move <source> <dest>` relocates an element or package to a new qualified name and **rewrites every cross-reference** that pointed at it.
+
+```bash
+syscribe -m model/ move System::Software::FuelControl System::Software::FuelGovernor
+syscribe -m model/ move System::Software::FuelControl System::Software::FuelGovernor --dry-run
+```
+
+The source resolves by qualified name or stable id; both positionals are required. `--dry-run` reports the file move plus every reference rewrite without touching disk.
 
 ---
 
@@ -877,60 +1238,37 @@ See the [LLM Workflow guide](../model-guide/llm-workflow.md) for the full eight-
 | `matrix --features` | Feature × Configuration grid | To see which feature ships in which product |
 | `list <type> --feature <F>` | Elements gated by feature `F` (via `appliesWhen:`) | To find what a feature controls |
 | `why-active <el> --config <C>` | Whether an element is active in a product, and why | To debug a projection |
-| `--agent-instructions` | Full generation prompt | System prompt for a model-authoring session |
+| `--agent-instructions [topic]` | Full generation prompt; `magicgrid` topic = a dedicated MagicGrid modeling prompt | System prompt for a model-authoring session |
 
-### Exposing syscribe as an MCP tool
+### The built-in MCP server (`syscribe mcp`)
 
-Any MCP server that can execute shell commands can expose syscribe as a set of tools. The simplest pattern is one tool per command group, using `SYSCRIBE_MODEL` to avoid passing the path on every call:
+syscribe ships a first-class **Model Context Protocol server** over stdio — no shell-wrapping required. An MCP client (Claude Code/Desktop, an editor, an agent runtime) spawns it as a subprocess:
 
-```json
-{
-  "tools": [
-    {
-      "name": "syscribe_validate",
-      "description": "Validate the Syscribe model and return a JSON array of findings. Empty array means valid.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "file": { "type": "string", "description": "Optional: scope validation to a single file path" }
-        }
-      }
-    },
-    {
-      "name": "syscribe_show",
-      "description": "Show all fields and documentation for a model element.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "qname": { "type": "string", "description": "Qualified name or stable ID (e.g. System::Software::SafetyMonitor or REQ-ENG-SAFE-001)" }
-        },
-        "required": ["qname"]
-      }
-    },
-    {
-      "name": "syscribe_trace",
-      "description": "Full traceability slice for a requirement: parents, ADR, safety goal, satisfiers, test cases.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "id": { "type": "string", "description": "Stable requirement ID (e.g. REQ-ENG-SAFE-001)" }
-        },
-        "required": ["id"]
-      }
-    },
-    {
-      "name": "syscribe_next_id",
-      "description": "Return the next unused stable ID for a given prefix.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "prefix": { "type": "string", "description": "ID prefix, e.g. REQ-ENG-SAFE or TC-ENG-SEC" }
-        },
-        "required": ["prefix"]
-      }
-    }
-  ]
-}
+```bash
+syscribe -m model/ mcp              # full read + guarded-write surface
+syscribe -m model/ mcp --read-only  # read/query only (write tools hidden)
 ```
 
-Each tool handler runs the corresponding `syscribe` command, captures stdout, and returns it as the tool result. The agent calls `syscribe_validate` after every write and only proceeds when it returns `[]`.
+Register it with Claude Code:
+
+```bash
+claude mcp add syscribe -- /abs/path/to/syscribe mcp -m /abs/path/to/model
+```
+
+It exposes **37 structured tools** (31 read-only + 6 guarded writes); references are accepted as id / qualified-name / display-name, and write tools are `dry_run`-by-default with a new-error commit gate. Run **`syscribe help mcp`** for the full, current tool list. By category:
+
+| Category | Tools |
+|---|---|
+| Navigate / query | `get_element`, `search`, `list_by_type`, `tree`, `neighbors`, `graph_query`, `trace`, `impact`, `validate`, `validate_element`, `reload` |
+| Authoring helpers | `describe_type`, `template`, `explain_finding`, `check_ref`, `next_id`, `coverage` |
+| Variability | `features`, `feature_check`, `configure`, `project`, `diff_configs`, `why_active` |
+| Evidence & coverage | `coverage_matrix`, `coverage_gaps`, `evidence` |
+| Diagram / doc integrity | `lint_docs`, `render_diagram`, `diagram_coverage`, `generate_view` |
+| Report passthrough | `run_report` (allowlisted, read-only reports) |
+| Guarded writes | `create_element`, `update_element`, `move_element`, `delete_element`, `apply_changes`, `ingest_results` |
+
+It also serves the format spec, project config, and each element as **resources**; offers element-reference **completion**; and exposes authoring **prompts** (`create-model`, `add-requirement`, `break-down-requirement`, `add-testcase-for`, `traceability-review`).
+
+### Wrapping CLI commands instead
+
+If you prefer not to run the built-in server, any MCP host that can execute shell commands can wrap individual `syscribe` commands as tools (one tool per command, `SYSCRIBE_MODEL` set once). Each handler runs the command, captures stdout, and returns it; the agent calls `syscribe validate --json` after every write and proceeds only on `[]`.

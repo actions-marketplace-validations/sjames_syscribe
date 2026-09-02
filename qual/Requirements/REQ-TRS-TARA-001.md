@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-TARA-001
 type: Requirement
-name: TARA Sheet Validation Rules
-title: Tool shall enforce TARASheet validation rules E940–E941, W905
+name: Tool shall enforce TARASheet validation rules E940–E941, W905
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -4,6 +4,8 @@ name: PowerSystemIBD
 diagramKind: IBD
 svgMode: companion
 svgFile: ./PowerSystemIBD.svg
+pumlMode: companion
+pumlFile: ./PowerSystemIBD.puml
 subject: UAV::Power::PowerSystem
 shapes:
   s-boundary:
@@ -46,6 +48,6 @@ edges:
     kind: binding
 ---
 
-<img src="./PowerSystemIBD.svg" alt="Power System Internal Block Diagram" width="100%"/>
+![PowerSystemIBD](./PowerSystemIBD.svg)
 
 Internal Block Diagram for `PowerSystem`. Shows `battery : BatteryPack` supplying DC power to `pdu : PowerDistributionUnit` via a `PowerConnectionDef` flow, with the PDU's output port bound to the system-level `mainPowerOut` port presented at the boundary.

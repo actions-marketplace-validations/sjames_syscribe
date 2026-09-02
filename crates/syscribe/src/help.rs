@@ -10,6 +10,12 @@ const HELP: &[(&str, &str)] = &[
     ("validate", include_str!("../../../prompts/help/validate.md")),
     ("report", include_str!("../../../prompts/help/report.md")),
     ("audit", include_str!("../../../prompts/help/audit.md")),
+    ("stats", include_str!("../../../prompts/help/stats.md")),
+    ("digest", include_str!("../../../prompts/help/digest.md")),
+    ("search-text", include_str!("../../../prompts/help/search-text.md")),
+    ("summarize", include_str!("../../../prompts/help/summarize.md")),
+    ("topics", include_str!("../../../prompts/help/topics.md")),
+    ("clusters", include_str!("../../../prompts/help/clusters.md")),
     // Browsing
     ("show", include_str!("../../../prompts/help/show.md")),
     ("ls", include_str!("../../../prompts/help/ls.md")),
@@ -21,25 +27,47 @@ const HELP: &[(&str, &str)] = &[
     ("untyped", include_str!("../../../prompts/help/untyped.md")),
     ("connectivity", include_str!("../../../prompts/help/connectivity.md")),
     ("export", include_str!("../../../prompts/help/export.md")),
+    ("export-html", include_str!("../../../prompts/help/export-html.md")),
     // Traceability
     ("trace", include_str!("../../../prompts/help/trace.md")),
     ("why", include_str!("../../../prompts/help/why.md")),
     ("who-verifies", include_str!("../../../prompts/help/who-verifies.md")),
     ("links", include_str!("../../../prompts/help/links.md")),
     ("refs", include_str!("../../../prompts/help/refs.md")),
+    ("suspect", include_str!("../../../prompts/help/suspect.md")),
+    ("baseline", include_str!("../../../prompts/help/baseline.md")),
     ("matrix", include_str!("../../../prompts/help/matrix.md")),
+    ("magicgrid", include_str!("../../../prompts/help/magicgrid.md")),
+    ("trade-study", include_str!("../../../prompts/help/trade-study.md")),
     ("verification-depth", include_str!("../../../prompts/help/verification-depth.md")),
+    ("testplan", include_str!("../../../prompts/help/testplan.md")),
     // Safety / security analysis
     ("metrics", include_str!("../../../prompts/help/metrics.md")),
     ("cyber-risk", include_str!("../../../prompts/help/cyber-risk.md")),
     ("co-analysis", include_str!("../../../prompts/help/co-analysis.md")),
     ("safety-case", include_str!("../../../prompts/help/safety-case.md")),
+    ("behavioral-coverage", include_str!("../../../prompts/help/behavioral-coverage.md")),
+    ("sbom", include_str!("../../../prompts/help/sbom.md")),
+    ("export-reqif", include_str!("../../../prompts/help/export-reqif.md")),
+    ("zones", include_str!("../../../prompts/help/zones.md")),
+    ("conduits", include_str!("../../../prompts/help/conduits.md")),
+    ("repos", include_str!("../../../prompts/help/repos.md")),
+    ("plugins", include_str!("../../../prompts/help/plugins.md")),
+    ("annotations", include_str!("../../../prompts/help/annotations.md")),
+    ("impact", include_str!("../../../prompts/help/impact.md")),
+    ("n2", include_str!("../../../prompts/help/n2.md")),
+    ("reviews", include_str!("../../../prompts/help/reviews.md")),
+    ("review", include_str!("../../../prompts/help/review.md")),
+    ("fmea", include_str!("../../../prompts/help/fmea.md")),
+    ("fault-tree", include_str!("../../../prompts/help/fault-tree.md")),
+    ("lint-docs", include_str!("../../../prompts/help/lint-docs.md")),
     // Product lines
     ("feature-check", include_str!("../../../prompts/help/feature-check.md")),
     ("features", include_str!("../../../prompts/help/features.md")),
     ("feature", include_str!("../../../prompts/help/feature.md")),
     ("why-active", include_str!("../../../prompts/help/why-active.md")),
     ("configure", include_str!("../../../prompts/help/configure.md")),
+    ("build-config", include_str!("../../../prompts/help/build-config.md")),
     ("diff", include_str!("../../../prompts/help/diff.md")),
     // Authoring helpers
     ("template", include_str!("../../../prompts/help/template.md")),
@@ -47,13 +75,25 @@ const HELP: &[(&str, &str)] = &[
     ("check-ref", include_str!("../../../prompts/help/check-ref.md")),
     ("path-for", include_str!("../../../prompts/help/path-for.md")),
     ("move", include_str!("../../../prompts/help/move.md")),
+    ("mcp", include_str!("../../../prompts/help/mcp.md")),
+    ("lsp", include_str!("../../../prompts/help/lsp.md")),
+    ("applies-when", include_str!("../../../prompts/help/applies-when.md")),
     ("scaffold-gherkin", include_str!("../../../prompts/help/scaffold-gherkin.md")),
     ("ingest-results", include_str!("../../../prompts/help/ingest-results.md")),
+    ("plantuml", include_str!("../../../prompts/help/plantuml.md")),
     ("render", include_str!("../../../prompts/help/render.md")),
     ("diagram", include_str!("../../../prompts/help/diagram.md")),
+    ("scripts", include_str!("../../../prompts/help/scripts.md")),
     ("spec", include_str!("../../../prompts/help/spec.md")),
     ("help", include_str!("../../../prompts/help/help.md")),
 ];
+
+/// The command registry: `(name, one-line summary)` for every command that has a man
+/// page. This is the single source of truth the clap router derives its subcommands
+/// from (REQ-TRS-CLI-008), so the router cannot drift from the help pages.
+pub fn commands() -> impl Iterator<Item = (&'static str, &'static str)> {
+    HELP.iter().map(|(name, body)| (*name, summary(body)))
+}
 
 /// The man page for a command, if one exists.
 pub fn page(cmd: &str) -> Option<&'static str> {

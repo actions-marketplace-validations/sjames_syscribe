@@ -8,12 +8,12 @@ All frontmatter fields. Optional unless marked **required**.
 | Field | Applies to | Type | Default | Notes |
 |---|---|---|---|---|
 | `type` | All | string | **required** | Element type from the type inventory |
-| `name` | All | string | filename stem | Overrides the filename stem as display name and QName segment |
+| `name` | **All** | string | filename stem (name-identified) | The single human-readable label on **every** element type. For name-identified types (SysML structural, `Package`, `Diagram`, `FeatureDef`) it is also the QName/identity segment and must be a basic name (`W042`). For id-identified types (native Req/TC/TP/Config/ADR/safety/security) it is **required** free prose — spaces/punctuation allowed, `W042` does not apply. |
 | `shortName` | All | string | absent | Abbreviated name for display |
 | `qualifiedName` | All | string | derived | Auto-derived from path; set to override |
 | `visibility` | All | string | `public` | `public` or `private` |
-| `id` | native Req/TC/ADR/safety | string | **required** | Stable opaque ID matching type pattern |
-| `title` | native Req/TC/ADR/safety | string | **required** | Human-readable title |
+| `id` | id-identified types + `FeatureDef` | string | **required** | Stable opaque ID matching the type's pattern. **Mandatory `FEAT-*` id on `FeatureDef`** too (E201 if missing) — a feature stays name-labelled but must carry a stable id. |
+| `title` | — | — | — | **REMOVED.** No longer a label field on any element; use `name`. A stray `title:` on any element is error `E025`. |
 | `status` | native Req/TC/ADR/safety | string | **required** | Lifecycle status |
 | `extRef` | All | string or list | absent | External reference(s) — this element represents an artifact in another tool (DNG, a SysML tool). Opaque (URI or `tool:id`). Look up with `extref <ref>`; duplicate across elements warns `W028`. Not a model cross-ref target. |
 
@@ -83,13 +83,14 @@ All frontmatter fields. Optional unless marked **required**.
 
 ## State machines
 
-| Field | Applies to | Type |
-|---|---|---|
-| `entryAction` | StateDef/State | string or map |
-| `doAction` | StateDef/State | string or map |
-| `exitAction` | StateDef/State | string or map |
-| `subStates` | StateDef/State | list |
-| `transitions` | StateDef/State | list |
+| Field | Applies to | Type | Notes |
+|---|---|---|---|
+| `entryAction` | StateDef/State | string or map | Behaviour on entry |
+| `doAction` | StateDef/State | string or map | Ongoing behaviour |
+| `exitAction` | StateDef/State | string or map | Behaviour on exit |
+| `isParallel` | StateDef/State | bool | Parallel (orthogonal) region container |
+| `subStates` | StateDef/State | list | Nested states; each may itself carry `transitions`/`subStates` |
+| `transitions` | StateDef/State | list | Each entry: `source` · `target` · `accept` (event/payload) · `guard`. The deprecated spellings `from`/`to`/`trigger` still parse but warn **W075** — prefer `source`/`target`/`accept`. |
 
 ## Constraints and expressions
 
@@ -111,7 +112,7 @@ All frontmatter fields. Optional unless marked **required**.
 | `framedConcerns` | RequirementDef | list |
 | `derivedFrom` | RequirementDef/Requirement | list |
 | `satisfies` | Part/PartDef/etc. | list |
-| `implementedBy` | Part/PartDef | string or list |
+| `implementedBy` | Part/PartDef/Interface/InterfaceDef | string or list |
 | `verifiedBy` | Requirement | list |
 | `verifies` | VerificationCase | list |
 | `verdictExpression` | VerificationCase | string |
@@ -142,6 +143,7 @@ All frontmatter fields. Optional unless marked **required**.
 | Field | Type | Notes |
 |---|---|---|
 | `testLevel` | string | **required** — `L1` (doc review) · `L2` (analysis) · `L3` (unit/integration) · `L4` (system) · `L5` (HIL/physical) |
+| `securityTestMethod` | string | optional (ISO/SAE 21434 §13.3) — `fuzz` · `penetration_test` · `security_regression` · `vulnerability_scan` · `threat_modeling` (W809 if other). Orthogonal to `testLevel`; lets `verification-depth`/`matrix` distinguish security-method tests from functional ones |
 | `sourceFile` | string | Path relative to model root (W004 if not found) |
 | `testFunctions` | list | `{function: name, scenario: "title"}` mappings |
 | `tags` | list | Free-form tags |
@@ -172,14 +174,28 @@ All frontmatter fields. Optional unless marked **required**.
 | `satisfiedBy` | ViewpointDef | list |
 | `methods` | ViewpointDef | list |
 
+## Diagrams (`type: Diagram`)
+
+| Field | Applies to | Type | Notes |
+|---|---|---|---|
+| `diagramKind` | Diagram | string | `BDD` · `IBD` · `StateMachine` · `Sequence` · `Requirement` · `Mermaid` · `PlantUML` |
+| `subject` | Diagram | string | QName of the element the diagram depicts (W401 if unresolved) |
+| `pumlMode` | Diagram | string | Only value: `companion` (E403 otherwise). Generates a `.puml` via `syscribe plantuml`, rendered to SVG by `syscribe plantuml render`. Requires `diagramKind` (E404) and an `<img>` tag in the body (W413); `.puml` must exist (W414). |
+| `pumlFile` | Diagram | string | Path to the `.puml` companion source |
+| `svgMode` | Diagram | string | `companion` (composed-SVG workflow) · `inline` (embedded SVG in body) |
+| `svgFile` | Diagram | string | Path to a pre-rendered SVG companion |
+| `shapes` | Diagram | map | Shape-id → `{ref, kind, parent}` (shape `ref:` warns W402 if unresolved) |
+| `edges` | Diagram | map | Edge-id → `{source, target, kind}` (source/target warn W403 if not a shape-id) |
+
 ## Packaging and imports
 
-| Field | Applies to | Type |
-|---|---|---|
-| `imports` | Package | list |
-| `aliases` | All | list |
-| `filterCondition` | Package | string |
-| `dependsOn` | All | list |
+| Field | Applies to | Type | Notes |
+|---|---|---|---|
+| `imports` | Package | list | Import declarations |
+| `aliases` | All | list | Alias declarations |
+| `filterCondition` | Package | string | KerML opaque package filter |
+| `dependsOn` | All | list | Dependency edges |
+| `repoImports` | Package `_index.md` | list | Multi-repo composition (§14, opt-in): each `{repo, qname, as}` mounts a peer-repo subtree. `repo` is an alias from `[repos]` in `.syscribe.toml` (E513), `qname` the element/package in that repo (E514), `as` the local mount name. Inert unless `[repos]` is configured. |
 
 ## Miscellaneous
 
@@ -190,6 +206,20 @@ All frontmatter fields. Optional unless marked **required**.
 | `values` | EnumerationDef | list | **required** |
 | `annotates` | MetadataDef | list | Restricts what types this metadata may annotate |
 | `itemType` | FlowDef | string | QName of the item type flowing |
+| `responsibility` | All work products | string | Accountable party/organisation (ISO 26262-8 §5 DIA/CIA split); drives W038. Opt-in. |
+| `ffiRationale` | PartDef/Part/etc. | string | Freedom-from-interference argument for mixed-criticality on a shared resource; suppresses W034. Opt-in. |
+
+## Custom fields
+
+| Field | Applies to | Type | Notes |
+|---|---|---|---|
+| `custom_fields` | All | map | Freeform user metadata: `string -> scalar \| list-of-scalars`. Keys are not validated. Values must be scalars or lists of scalars (nested map → `W041`). Serialised in sorted order. Read-only in UI/`show`. Queryable via `--where custom.<key>[=,=~,~=]<val>`. |
+
+```yaml
+custom_fields:
+  supplier: Bosch
+  partNumbers: [A-1001, A-1002]
+```
 
 ## Product Line Engineering (PLE) fields
 
@@ -198,8 +228,11 @@ All frontmatter fields. Optional unless marked **required**.
 | `appliesWhen` | Any element (incl. TestCase), or a Package | string/list | Boolean expression over FeatureDef QNames: `and`/`or`/`not`/parentheses; a bare QName or a list (AND) also work. Element/TestCase is included only in variants where it holds. A TestCase with no `appliesWhen` runs in every Configuration. On a Package it gates the whole subtree transitively; one declaration per path (`E228`), empty gated package `W026`. |
 | `featureModel` | FeatureDef/Configuration | string | QName of the system FeatureDef model root |
 | `features` | Configuration | map | Feature selections: `<FeatureDef QName>: true/false` (§9.8) |
-| `parameters` | FeatureDef | list | Typed parameters (§9.7): each `{name, type, range, enumValues, default, isFixed, isRequired, value}` |
-| `parameterBindings` | Configuration | map | Bind feature parameters: `<FeatureDef QName>.<param>: <value>` (dotted member; validated: E203–E206, E222, W017) |
+| `subConfigurations` | Configuration | string/list | **Optional** (§14.7, `ADR-SYS-HPLE-001`). One or more other `Configuration`s this one consolidates — reachable locally or via `[repos]`, at any depth. Each entry must resolve to a real, internally-valid `Configuration` (`E516` dangling, `E517` wrong-type, `E518` not internally valid). A leaf tier with no lower tiers to consolidate simply omits it. |
+| `parameters` | FeatureDef | list | Typed parameters (§9.7): each `{name, type, range, enumValues, default, isFixed, isRequired, value, buildVar}`. Optional `buildVar:` maps the parameter's bound (or default) value to a named build variable emitted by `build-config`. |
+| `buildExports` | FeatureDef | list | **Optional.** Build variable declarations for `build-config`: each `{var, whenSelected, whenDeselected}`. `whenSelected` (default `1`) is emitted when the feature is selected; `whenDeselected` is emitted when not selected, or the variable is omitted when absent. Multiple entries allowed per feature. See E050/W050. |
+| `parameterBindings` | Configuration | map | Bind feature parameters: `<FeatureDef QName>.<param>: <value>` (dotted member; validated: E203–E206, E222, W017). A dotted key also resolves transitively through `subConfigurations:` at any depth, using the parameter's ordinary qname — no new syntax; the cross-tier legality checks are `E519`/`E523`, and the opt-in completeness warning for what's still left open anywhere in the subtree is `W513` (§14.7). |
+| `buildOverrides` | Configuration | map | **Optional.** Build variable overrides applied last by `build-config`, after `buildExports` and `parameterBindings`. Use for config-specific variables (version strings, SKU names) not tied to a feature. Wins on name collision. |
 | `parameterConstraints` | Package `_index.md` | list | Cross-feature constraints `{id, expression, severity, appliesWhen}` — `expression` is a comparison over dotted refs, `appliesWhen` a boolean predicate; checked by `feature-check` (E213/W014, E221/W025) |
 | `groupKind` | FeatureDef | string | child grouping: `optional` · `alternative` · `or` · `mandatory` (legacy member shorthand) |
 | `mandatory` | FeatureDef | bool | membership vs parent (orthogonal to `groupKind`): `true` = selected whenever parent is / always at top level |
@@ -264,6 +297,88 @@ Full narrative + rules: `syscribe spec safety`.
 | `cvssScore` | VulnerabilityReport | float | 0.0–10.0 (`E824` if out of range) |
 | `cveId` | VulnerabilityReport | string | `CVE-YYYY-NNNNN` |
 | `affectedElements` | VulnerabilityReport | list | QNames of affected model elements |
+
+## `.syscribe.toml` — project configuration reference
+
+Everything below lives in **one file**, `<model_root>/.syscribe.toml`, never in model frontmatter.
+Every table is **opt-in**: absent means built-in defaults, and a model with no `.syscribe.toml` at
+all behaves identically to one with an empty file. Malformed individual entries are reported (a
+warning, naming the file) and excluded rather than failing the whole table — the same posture
+`W046` (`[ids.prefixes]`) and `W309` (`[users]`) both follow.
+
+**Reading the `Required` column:** every table itself is optional — "Required" only means *once
+you declare that table (or that entry within a table-of-tables), this field must be present too*.
+Nothing in this file is ever required just to have a valid `.syscribe.toml`; an empty file (or no
+file at all) is always legal.
+
+| Table / Key | Field | Required | Type | Default | Notes |
+|---|---|---|---|---|---|
+| *(top-level)* | `repo_root` (alias `repoRoot`) | No | string | auto-detected (walks up for `.git`) | Git repo root; `repo:`-prefixed `sourceFile:`/`implementedBy:`/evidence `path:` values resolve against it. |
+| `[ids]` | `max_digits` (alias `maxDigits`) | No | int | `8` | Max digits in a stable-ID numeric suffix (min `3`), §11, REQ-TRS-ID-005. |
+| `[ids.prefixes]` | `<TypeName> = [<prefix>, ...]` | No | map → list of strings | `{}` | Extra stable-ID prefixes per element type, additive to the built-in (`REQ`/`TC`/`ADR`/…). Each prefix must match `^[A-Z][A-Z0-9]{1,11}$`; a malformed prefix or unknown type key is `W046` and ignored. REQ-TRS-ID-007. |
+| `[repos.<alias>]` | `path` | **Yes**, once the alias is declared | string | — | Peer repo root, relative to `.syscribe.toml`. §14. |
+| `[repos.<alias>]` | `root` | No | string | `"model/"` | Path within the peer repo where its Syscribe model root lives. |
+| `[repos.<alias>]` | `ref` | No | string | unset — pins nothing (`W510`) | Git tag/branch/SHA to pin via `repos sync`. Drives `repoImports:`, `subConfigurations:` (§14.7), and cross-repo `verifies:`/`derivedFrom:`/etc. resolution. |
+| `[links]` | `base_url` (alias `baseUrl`) | No — but see note | string | unset | Hosted-source URL template, simple form: `<base_url>/<path>`. REQ-TRS-LINK-001. |
+| `[links]` | `url_template` (alias `urlTemplate`) | No — but see note | string | unset | Escape-hatch template: `{path}`/`{qname}`/`{id}`/`{ref}` placeholders. **One of `base_url`/`url_template` must be set for `[links]` to do anything** — declaring the table with neither leaves the feature inert. |
+| `[links]` | `ref` | No | string | `""` | Substituted for `{ref}` in `url_template`. |
+| `[scripts]` | `path` | No | string | `.syscribe/scripts/` | Rhai extension-scripts directory, relative to the model root. REQ-TRS-SCRIPT-001. |
+| `[plantuml]` | `theme` | No | string | unset | `!theme <name>` emitted into generated `.puml` files. |
+| `[plantuml]` | `style_file` | No | string | unset | `!include <path>`; takes precedence over `theme`. REQ-TRS-PUML-040. |
+| `[plantuml]` | `base_url` | No | string | `http://localhost:3000` | Base URL for clickable element links; `""` suppresses links. |
+| `[plantuml]` | `jar` | No | string | unset | Path to a PlantUML `.jar` for `plantuml render`. REQ-TRS-PUML-051. |
+| `[baselines]` | `element_dir` (alias `elementDir`) | No | string | `model/Baselines` | Output dir for the sealed `type: Baseline` element. REQ-TRS-BL-010. |
+| `[baselines]` | `manifest_dir` (alias `manifestDir`) | No | string | `<git-root>/baselines` | Output dir for the JSON manifest. |
+| `[users]` | `<username> = "<display name>"` | No | map | `{}` | Roster for `PlanningItem.assignedTo:` (§23.7). A key not matching the Unix-style username shape `^[a-z_][a-z0-9_-]{0,31}$` is `W309` and excluded from the roster. REQ-TRS-PLANITEM-008. |
+| `[profiles.<name>]` | `promote` | No | list of strings | `[]` | Warning codes this profile promotes to a gate failure. |
+| `[profiles.<name>]` | `sil` / `status` / `tag` | No | string | unset (unscoped — promotes everywhere) | Optional scope filters; an entry with none of these applies to every element. |
+| `[profiles.<name>]` | `magicgrid` | No | bool | `false` | Runs the gated MagicGrid validation pass under `--profile <name>`. |
+| `[matchers]` | `<extension> = [<regex>, ...]` | No | map → list of strings | built-ins for Rust/Java/C/C++/Kotlin/shell | Per-extension function-definition patterns for `W009`; an override **replaces** the built-in list for that extension, not merges with it. |
+| `[remote]` | `download` | No — but see note | string | unset | `sh -c` command template (`{url}`/`{dest}` placeholders) to fetch a remote `sourceFile:`. **Required for `[remote]` to do anything** — a table with no `download` loads as inert. Only runs under the explicit `validate --fetch-remote` flag — configuring it alone never executes anything. |
+| `[remote]` | `cache_dir` (alias `cacheDir`) | No | string | `.syscribe/cache` | Where fetched remote sources are cached, relative to the model root. |
+
+```toml
+# .syscribe.toml — everything is optional; this shows every table at once
+repo_root = "."
+
+[ids]
+max_digits = 6
+
+[ids.prefixes]
+Requirement = ["STK", "SYS"]
+
+[repos]
+avionics = { path = "../avionics-model", root = "model/", ref = "v2.1.0" }
+
+[links]
+base_url = "https://github.com/acme/model/blob/main"
+
+[scripts]
+path = ".syscribe/scripts"
+
+[plantuml]
+theme = "plain"
+base_url = "https://model.internal:3000"
+
+[baselines]
+element_dir = "model/Baselines"
+manifest_dir = "baselines"
+
+[users]
+alice = "Alice Nakamura"
+bob = "Bob Patel"
+
+[profiles.ci]
+promote = ["W015", "W300"]
+status = "approved"
+
+[matchers]
+rs = ["fn\\s+(\\w+)\\s*\\("]
+
+[remote]
+download = "curl -sSfL {url} -o {dest}"
+cache_dir = ".syscribe/cache"
+```
 | `mitigatedBy` | VulnerabilityReport | list | `SecurityControl` id/QName refs |
 | `derivedFromSecurityGoal` | Requirement | string | `CSG-*` that generated this requirement |
 | `derivedFromSafetyGoal` | Requirement | string | `SG-*` that generated this requirement |

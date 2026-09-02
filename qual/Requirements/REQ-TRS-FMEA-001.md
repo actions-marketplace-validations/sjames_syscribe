@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-FMEA-001
 type: Requirement
-name: FMEA Validation Rules
-title: Tool shall enforce FMEASheet and FMEAEntry validation rules E911–E914, W902–W904
+name: Tool shall enforce FMEASheet and FMEAEntry validation rules E911–E914, W902–W904
 status: draft
 reqDomain: software
 verificationMethod: test

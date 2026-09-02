@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-TRACE-007
 type: Requirement
-name: HW/SW Independence
-title: "Tool shall emit E315 for cross-domain supertype: or typedBy: links"
+name: "Tool shall emit E315 for cross-domain supertype: or typedBy: links"
 status: draft
 reqDomain: software
 verificationMethod: test

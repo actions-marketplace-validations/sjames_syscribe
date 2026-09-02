@@ -2,7 +2,7 @@
 
 `GUIDE · TRACEABILITY`
 
-Section §12 of the format spec defines six enforced traceability rules. All are checked by the validator.
+Section §12 of the format spec defines seven enforced traceability rules. All are checked by the validator.
 
 ## Rule 1 — OSLC link direction (§12.1)
 
@@ -21,7 +21,26 @@ Concretely:
 | Requirement satisfaction | Architecture element | `satisfies: [REQ-LEAF-*]` |
 | Implementation | Architecture element | `implementedBy: [src/...]` |
 | Test case verification | TestCase | `verifies: [REQ-*]` |
-| Function allocation | Allocation element | `allocatedFrom:` / `allocatedTo:` |
+| Allocation (default) | Source element | `allocatedTo: [target]` — `allocatedFrom` is **derived** |
+
+### Allocation — two forms (§12.9)
+
+An allocation can be authored two ways, sharing one edge model and a derived
+`allocatedFrom` reverse index (shown as **`## Allocated from`** on the target in `show`):
+
+- **`allocatedTo:` on the source element** — the OSLC-canonical, lightweight default. The
+  source holds `allocatedTo: <target>`; `allocatedFrom` is derived, never authored (same
+  direction as `satisfies`/`verifies`/`refines`). Use this for simple allocations.
+- **A standalone `Allocation` element** naming both `allocatedFrom` and `allocatedTo` — a
+  *reified relationship artifact*, kept for **documented** allocations whose body carries
+  rationale (e.g. the freedom-from-interference / deployment allocations of §12.6). Naming
+  both endpoints is its purpose, not redundancy.
+
+Both forms feed `MG041`/`MG081`, `matrix --allocations`, and the derived index identically. A
+`features:` entry is an edge when it has both `allocatedFrom` and `allocatedTo`, with or
+without a per-entry `type: Allocation`. Declaring the **same** edge in *both* forms is
+redundant — warning **`W503`**. Guidance: `allocatedTo` by default; promote to an `Allocation`
+element only when the allocation needs its own documentation.
 
 ## Rule 2 — Decomposition requires an ADR (§12.2)
 
@@ -94,7 +113,7 @@ implementedBy:
 
 The field accepts a single string or a list. Path resolution is identical to a TestCase's `sourceFile`: model-/repo-relative, `model:`/`repo:` prefixes, absolute, and `file://` paths are checked on disk; remote URIs (`scheme://`) are accepted as external pointers and not verified locally.
 
-- **W023** — a non-`draft` `Part`/`PartDef` has an `implementedBy:` path that does not exist on disk
+- **W023** — a non-`draft` `Part`/`PartDef`/`Interface`/`InterfaceDef` has an `implementedBy:` path that does not exist on disk
 
 The check is **opt-in** (only when `implementedBy:` is present) and **draft-suppressed** (skipped for `status: draft`, where the implementation may not exist yet). Gate it in CI with `validate --deny W023`.
 
@@ -111,7 +130,7 @@ Leaf-level TestCases (L1/L2) verify individual derived requirements but do not c
 # TC-UAV-PERF-001.md — system test covering the parent requirement
 type: TestCase
 id: TC-UAV-PERF-001
-title: Full performance envelope system test
+name: Full performance envelope system test
 status: active
 testLevel: L3
 verifies:
@@ -132,3 +151,45 @@ The validation report (section 4) prints a matrix of all leaf requirements again
 | REQ-UAV-FC-001    | ✓             |                | 1          |
 | REQ-UAV-NAV-001   |               | ✓              | 1          |
 ```
+
+## Suspect links — has a reviewed link gone stale? (`ADR-SYS-SUSLINK-001`)
+
+A trace link asserts a relationship that was valid *when a human reviewed it*. When the
+target later changes, the assertion may silently become stale — a test may no longer cover
+the requirement it verifies. **Suspect-link detection** flags this by storing a content
+**baseline** of the target at review time and re-checking it on every `validate`.
+
+The baseline is a `blake3` hash of the target's *normative projection* (its body plus
+normative frontmatter — `status`, `reqDomain`, safety fields, …). Editorial fields (`name`,
+`displayOrder`, `extRef`, diagram layout) are **excluded**, so cosmetic edits never raise a
+false flag. It lives on the **source** element (the one holding the link, per Rule 1),
+keyed by the target reference:
+
+```yaml
+# Verification/SafeLandingTest.md — a reviewed verification link
+verifies:
+  - REQ-UAV-SAFE-001
+traceBaselines:
+  REQ-UAV-SAFE-001: "blake3:1ddab032…"   # captured with `suspect accept`
+```
+
+The feature is **opt-in and additive**: a link with no baseline is never flagged. Baseline
+a reviewed link, and thereafter any change to the target's projected content raises **W090**.
+
+```bash
+# Discover links (suspect vs. never-baselined); onboard an existing model in one pass
+syscribe -m model/ suspect list
+syscribe -m model/ suspect accept --all-unbaselined     # baseline every un-baselined link
+
+# Capture a single reviewed link, then gate CI on staleness
+syscribe -m model/ suspect accept TC-UAV-SAFE-001 REQ-UAV-SAFE-001
+syscribe -m model/ validate --deny W090
+```
+
+Try it on the demo model: edit the body of `REQ-UAV-SAFE-001` and re-run `validate` — the
+`TC-UAV-SAFE-001 → REQ-UAV-SAFE-001` link (baselined above) is now reported suspect (W090).
+Review the change and clear it by re-running `suspect accept` (or `suspect accept --all` to
+clear every suspect link at once). Propagation is **implicit, one hop per review**: only the
+direct link goes suspect; a link *into* the source flips only once the source's own
+projection actually changes. The same operations are exposed over MCP as `suspect_list` and
+the guarded `suspect_accept`.

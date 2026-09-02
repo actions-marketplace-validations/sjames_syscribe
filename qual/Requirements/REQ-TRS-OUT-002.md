@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-OUT-002
 type: Requirement
-name: Finding Detail
-title: Report shall list each finding with severity, code, element reference, and description
+name: Report shall list each finding with severity, code, element reference, and description
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -1,0 +1,13 @@
+@startuml AvionicsBayIBD
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+
+rectangle "AvionicsBay" as s_boundary [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/AvionicsBay.md]] {
+  component "FlightController" as s_fc [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/FlightController.md]]
+  component "IMU" as s_imu [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/IMU.md]]
+  component "GPSReceiver" as s_gps [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/GPSReceiver.md]]
+}
+
+s_fc --> s_imu : flowConnection
+s_fc --> s_gps : flowConnection
+
+@enduml

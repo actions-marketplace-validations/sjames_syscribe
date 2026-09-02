@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-OUT-003
 type: Requirement
-name: Summary Count
-title: Report shall include a summary count of errors and warnings
+name: Report shall include a summary count of errors and warnings
 status: draft
 reqDomain: software
 verificationMethod: test

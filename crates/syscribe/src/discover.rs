@@ -7,6 +7,8 @@
 //! exit 0 (the discovery overview), while `feature`/`why-active` still error on a
 //! genuinely unknown/unresolvable argument.
 
+use std::collections::{HashMap, HashSet};
+
 use serde_json::json;
 use syscribe_model::{
     element::{ElementType, RawElement},
@@ -83,12 +85,19 @@ fn excludes_of(fd: &RawElement) -> Vec<String> {
     fd.frontmatter.excludes.clone().unwrap_or_default()
 }
 
-/// Configurations (by display id) that select `q` true.
+/// Configurations (by display id) that select `q` true. Selections keyed by a
+/// FeatureDef's FEAT-* id are normalized to the qname first (REQ-TRS-ID-006).
 fn configs_selecting(elements: &[RawElement], q: &str) -> Vec<String> {
+    let alias = variability::feature_id_to_qname(elements);
     let mut ids: Vec<String> = elements
         .iter()
         .filter(|e| is_type(e, ElementType::Configuration))
-        .filter(|c| c.frontmatter.feature_selections().get(q).copied().unwrap_or(false))
+        .filter(|c| {
+            variability::canon_selection(&c.frontmatter.feature_selections(), &alias)
+                .get(q)
+                .copied()
+                .unwrap_or(false)
+        })
         .map(disp_id)
         .collect();
     ids.sort();
@@ -100,6 +109,66 @@ fn total_configs(elements: &[RawElement]) -> usize {
         .iter()
         .filter(|e| is_type(e, ElementType::Configuration))
         .count()
+}
+
+/// A FeatureDef's real parent qname, matching `feature_model::build_encoding`'s
+/// own `parent_of`: an explicit `parentFeature:` wins when it resolves to a
+/// known FeatureDef; otherwise the nearest qname-prefix ancestor that is
+/// itself a FeatureDef. `None` = top-level. A namespace segment that is *not*
+/// itself a FeatureDef — a plain directory, or a `FeatureModel` sheet's own
+/// qname (REQ-TRS-FM-005) — must not count as an ancestor; naively indenting
+/// by raw qname-segment count (as opposed to this real chain) misrenders any
+/// such feature as nested under an unrelated sibling.
+fn real_parent_of(fd: &RawElement, fdef_qnames: &HashSet<String>) -> Option<String> {
+    if let Some(pf) = fd.frontmatter.parent_feature.as_deref() {
+        if fdef_qnames.contains(pf) {
+            return Some(pf.to_string());
+        }
+    }
+    let mut cur = fd.qualified_name.as_str();
+    while let Some(idx) = cur.rfind("::") {
+        cur = &cur[..idx];
+        if fdef_qnames.contains(cur) {
+            return Some(cur.to_string());
+        }
+    }
+    None
+}
+
+/// Print one feature and its real (not qname-depth) descendants, depth-first,
+/// siblings sorted by qname for determinism.
+#[allow(clippy::too_many_arguments)]
+fn print_feature_subtree(
+    parent: Option<&str>,
+    depth: usize,
+    children: &HashMap<Option<String>, Vec<&RawElement>>,
+    elements: &[RawElement],
+    total: usize,
+) {
+    let Some(kids) = children.get(&parent.map(str::to_string)) else { return };
+    for fd in kids {
+        let q = &fd.qualified_name;
+        let indent = "  ".repeat(depth);
+        let gk = fd.frontmatter.group_kind.as_deref().unwrap_or("optional");
+        let n = configs_selecting(elements, q).len();
+        println!("{}- {} [{}] — selected in {}/{}", indent, q, gk, n, total);
+        if fd.frontmatter.mandatory == Some(true) {
+            println!("{}    mandatory: true", indent);
+        }
+        let reqs = requires_of(fd);
+        if !reqs.is_empty() {
+            println!("{}    requires: {}", indent, reqs.join(", "));
+        }
+        let exc = excludes_of(fd);
+        if !exc.is_empty() {
+            println!("{}    excludes: {}", indent, exc.join(", "));
+        }
+        let params = param_labels(fd);
+        if !params.is_empty() {
+            println!("{}    parameters: {}", indent, params.join(", "));
+        }
+        print_feature_subtree(Some(q.as_str()), depth + 1, children, elements, total);
+    }
 }
 
 // ── features: feature-model overview ────────────────────────────────────────
@@ -147,30 +216,21 @@ pub fn cmd_features(elements: &[RawElement], json: bool) {
 
     println!("# Feature Model");
     println!();
+
+    // Group by *real* parent (parentFeature: override, else nearest FeatureDef
+    // qname-prefix ancestor) rather than raw qname-segment count, so a feature
+    // under a plain namespace directory (no FeatureDef of its own) prints as
+    // the top-level feature it actually is, and a `parentFeature:`-relocated
+    // feature prints nested under its real parent.
+    let fdef_qnames: HashSet<String> = fdefs.iter().map(|fd| fd.qualified_name.clone()).collect();
+    let mut children: HashMap<Option<String>, Vec<&RawElement>> = HashMap::new();
     for fd in &fdefs {
-        let q = &fd.qualified_name;
-        // Indentation follows namespace nesting depth.
-        let depth = q.matches("::").count();
-        let indent = "  ".repeat(depth);
-        let gk = fd.frontmatter.group_kind.as_deref().unwrap_or("optional");
-        let n = configs_selecting(elements, q).len();
-        println!("{}- {} [{}] — selected in {}/{}", indent, q, gk, n, total);
-        if fd.frontmatter.mandatory == Some(true) {
-            println!("{}    mandatory: true", indent);
-        }
-        let reqs = requires_of(fd);
-        if !reqs.is_empty() {
-            println!("{}    requires: {}", indent, reqs.join(", "));
-        }
-        let exc = excludes_of(fd);
-        if !exc.is_empty() {
-            println!("{}    excludes: {}", indent, exc.join(", "));
-        }
-        let params = param_labels(fd);
-        if !params.is_empty() {
-            println!("{}    parameters: {}", indent, params.join(", "));
-        }
+        children.entry(real_parent_of(fd, &fdef_qnames)).or_default().push(fd);
     }
+    for kids in children.values_mut() {
+        kids.sort_by(|a, b| a.qualified_name.cmp(&b.qualified_name));
+    }
+    print_feature_subtree(None, 0, &children, elements, total);
 }
 
 // ── feature <q>: single-feature card ────────────────────────────────────────
@@ -295,11 +355,16 @@ pub fn cmd_why_active(elements: &[RawElement], key: &str, config: Option<&str>, 
     // Effective condition: the element's own appliesWhen, else the nearest
     // ancestor package's (transitive package conditioning, REQ-TRS-VAR-006).
     let pkg = variability::package_conditions(elements);
+    // Normalize both sides to the canonical (qname) feature key space so a FEAT-*
+    // id reference behaves identically to the qname (REQ-TRS-ID-006).
+    let feat_alias = variability::feature_id_to_qname(elements);
+    let sel = sel.map(|s| variability::canon_selection(&s, &feat_alias));
     let eff = variability::effective_applies_when(elem, &pkg);
     let aw_source: Option<String> = eff.as_ref().and_then(|(_, src)| src.clone());
     let expr: Option<FeatureExpr> = eff
         .as_ref()
-        .and_then(|(v, _)| variability::applies_when_expr(v).ok().flatten());
+        .and_then(|(v, _)| variability::applies_when_expr(v).ok().flatten())
+        .map(|e| e.canonicalize(&|q: &str| variability::canon_feature_ref(q, &feat_alias)));
 
     // Build the verdict.
     let (verdict, referenced): (&str, Vec<(String, bool)>) = match (&expr, &sel) {

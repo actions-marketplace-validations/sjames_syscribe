@@ -1,8 +1,7 @@
 ---
 id: SG-BAD-001
 type: SafetyGoal
-name: SG-BAD-001
-title: Safety goal for the out-of-range diagnosticCoverage fixture
+name: Safety goal for the out-of-range diagnosticCoverage fixture
 status: approved
 asilLevel: D
 safeState: De-energise actuator

@@ -31,7 +31,7 @@ Errors block a clean build. Warnings are advisory.
 
 | Range | Group | Description |
 |---|---|---|
-| E001–E022 | Parse-time | Required fields, ID patterns, status enums, Gherkin structure, ASPICE fields |
+| E001–E025 | Parse-time | Required fields, ID patterns, status enums, Gherkin structure, ASPICE fields, ID-digit cap (E023), unified label rule — `name` is the universal label and `title` is removed (a stray `title:` is E025; E024 retired) |
 | W001–W008 | Parse-time warnings | Normative text, SIL/ASIL pairing, sourceFile presence, unused type defs |
 | E016–E018 | Cycle detection | Cycles in supertype, derivedFrom, or subsets graphs |
 | E101–E106 | Cross-reference | Duplicate IDs, unresolved `verifies`/`derivedFrom`, scenario names |
@@ -55,12 +55,23 @@ Errors block a clean build. Warnings are advisory.
 | E911–E914 | Tier 4 — FMEA | FMEASheet and FMEAEntry required fields, ID patterns, severity/occurrence/detection range 1–10 |
 | W902–W904 | Tier 4 — FMEA | Empty FMEA sheet, high-RPN entry without recommended action, unresolved ref |
 | E940–E941, W905 | Tier 4 — TARA | TARASheet required fields, ID pattern, empty sheet |
+| E600–E606, W610–W616 | TestPlan | TestPlan required fields, ID pattern, member resolution, scope/coverage |
+| E700–E705, W700, W704 | Review records | ReviewRecord required fields, ID/status/type enums, reviewed-element resolution, dispositions |
+| E706–E717, E719–E723, W308–W309 | PlanningItem (§23) | ID/required-field/status/itemType, parent resolution + cycle, top-level achieves, evidence ref/path resolution, leaf-done-needs-evidence, blockedBy resolution + cycle + stale-status warning, assignedTo username format + roster check, malformed [users] key |
+| E510–E515, W510–W512 | Multi-repository (§14) | Circular import, missing path, cross-repo ref resolution, import alias/qname, duplicate stable ID, ref-pin / drift / submodule-gitlink reproducibility |
+| E516–E518 | Hierarchical product lines (REQ-TRS-HPLE-001) | `subConfigurations:` dangling / wrong-type / not-internally-valid (local or genuinely re-validated peer `Configuration`, or exceeded consolidation depth) |
+| E519, E523 | Hierarchical product lines (REQ-TRS-HPLE-003) | Cross-tier `parameterBindings:` targets a feature the owning tier doesn't select, or double-binds a parameter a nearer tier already closed |
+| W513 | Hierarchical product lines (REQ-TRS-HPLE-004) | Opt-in, `--deny`-gateable: a required parameter anywhere in a consolidated `subConfigurations:` subtree remains unbound after every tier's own `parameterBindings:` |
+| E865, E866–E868, W060, W860 | Decomposition & budgets (§22.2) | Sibling-satisfy decomposition, budget expression syntax/rollup |
+| E869–E877, W061–W064 | Trade studies (§15) | TradeStudy required fields, criteria/alternatives/scores matrix, weights, objective/decision |
+| E950–E956, W950–W953 | IEC 62443 (§13) | Zone/Conduit required fields, ID patterns, zone/member/conduit resolution, Security-Level gaps |
+| W070–W079, W080 | Behavior (§22.1) | State-machine completeness (dead/trap/initial/parallel/transition), sequence-diagram send/receive completeness |
 
 See [Rule Reference](rules.md) for every code.
 
 ## Tool qualification
 
-The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains 60 requirements (`REQ-TRS-*`) and 60 test cases (`TC-TRS-*`) in Syscribe format — covering every emitted validation code — along with a shell test runner that invokes the binary against crafted fixture models.
+The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains the qualification model — over 240 requirements (`REQ-TRS-*`) and a matching test case (`TC-TRS-*`) per requirement, in Syscribe format, covering every emitted validation code — along with a shell test runner that invokes the binary against crafted fixture models.
 
 Run `syscribe -m qual/` to validate the qualification model, or `bash qual/tests/run_qual.sh` to execute the full TCL2 test suite. See [Tool Qualification](../tool-qualification/index.md) for the complete story.
 

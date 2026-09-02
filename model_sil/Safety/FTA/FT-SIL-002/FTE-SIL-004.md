@@ -1,9 +1,8 @@
 ---
 id: FTE-SIL-004
 type: FaultTreeEvent
-name: FTE-SIL-004
 eventKind: basic
-title: Track circuit false-clear — train present but section reported clear
+name: Track circuit false-clear — train present but section reported clear
 ref: System::Hardware::TrackCircuitInterface
 failureRate: 3.0e-9
 probability: 3.0e-6

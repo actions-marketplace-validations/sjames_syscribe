@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-QNAME-004
 type: Requirement
-name: Index File No Name Segment
-title: _index.md shall not contribute a name segment to sibling qualified names
+name: _index.md shall not contribute a name segment to sibling qualified names
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -47,14 +47,64 @@ Every `.md` file in the model tree is one element. The `type:` field in YAML fro
 
 ## Native elements (own schema)
 
-These are not standard SysML usages — they carry a stable opaque identifier and their own required field sets.
+These are not standard SysML usages — they carry a stable opaque identifier and their own required field sets. They are **id-identified**: their identity is the stable `id`, and their human-readable label is **`name`** (free prose — spaces and punctuation allowed, `W042` does not apply). The `title` field is **removed**; a `title:` on any element is error `E025`, and `E024` (formerly: `name` on an id-identified type) is **retired**. See [Frontmatter → Label field](frontmatter.md#label-field-name).
 
 | Type | ID pattern | Required fields |
 |---|---|---|
-| `Requirement` | `REQ(-[A-Z0-9]{2,12})+-[0-9]{3}` | `id`, `title`, `status` |
-| `TestCase` | `TC(-[A-Z0-9]{2,12})+-[0-9]{3}` | `id`, `title`, `status`, `testLevel`, `verifies` |
-| `ADR` | `ADR(-[A-Z0-9]{2,12})+-[0-9]{3}` | `id`, `title`, `status` |
-| `Configuration` | `CONF(-[A-Z0-9]{2,12})+-[0-9]{3}` | `id`, `title`, `status`, `featureModel` |
+| `Requirement` | `REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status` |
+| `TestCase` | `TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status`, `testLevel`, `verifies` |
+| `TestPlan` | `TP(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status` |
+| `ADR` | `ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status` |
+| `ReviewRecord` | `RR(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `reviewType`, `reviews` |
+| `TradeStudy` | `TRD(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `criteria`, `alternatives`, `scores` |
+| `PlanningItem` | `PI(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status` |
+| `Zone` | `ZN(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `targetSL` |
+| `Conduit` | `CD(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `fromZone`, `toZone` |
+| `Configuration` | `CONF(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `featureModel` |
+
+**`Zone`** / **`Conduit`** (§13) model IEC 62443 industrial cybersecurity: a `Zone` (`ZN-*`)
+groups parts under a Security Level (`targetSL`/`achievedSL`); a `Conduit` (`CD-*`) connects
+two zones. Structural elements may carry `targetSL`/`achievedSL`/`inZone:`. Validation
+`E950`–`E956`, `W950`–`W953`; commands `zones`, `conduits`, `zones --coverage`.
+
+**`ReviewRecord`** (§19) captures a formal review event (design / requirements / hazard /
+test-readiness review, inspection, walkthrough) and the model elements it covers — a thin,
+baselined traceability anchor whose `recordedAt:` points to the external review (e.g. a
+GitHub PR). Validation `E700`–`E705`, `W700`, `W704`; commands `reviews`, `review`,
+`reviews --coverage`. See [CLI → Reviews](../cli/index.md#review-records-reviews).
+
+**`TradeStudy`** (§15) records a weighted-criteria evaluation of design alternatives
+(`criteria` with weight + `maximize`/`minimize`, `alternatives`, a `scores` matrix, optional
+`objective`/`decision`). The tool computes — never writes — normalised/weighted scores and
+rankings. Validation `E869`–`E877`, `W061`–`W064`; command `trade-study`.
+
+**`PlanningItem`** (`ADR-SYS-PLANITEM-001`) is the model's native representation of the day-to-day
+work of getting from `Requirement` to satisfied/verified — the shape a Jira epic/story/task or a
+GitHub issue hierarchy fills today, made durable and structurally part of the traceability graph.
+A strict **single-parent tree** (`parent:`, at most one — not a DAG); a top-level item (no
+`parent:`) must set `achieves:` (one or more `Requirement`s this branch of work exists to realise,
+deliberately a separate field from `satisfies:`, which stays scoped to architecture semantics).
+`status` (`todo`/`in_progress`/`blocked`/`done`) and `itemType` (`bug`/`task`/`feature`) reuse
+GitHub's own current vocabulary verbatim. `blockedBy:` names one or more elements it's waiting on —
+resolved permissively like `evidence.ref:` below, not restricted to `PlanningItem` — with dangling
+and cycle checks; a non-empty `blockedBy:` while `status` isn't `blocked` warns (likely stale), but
+`status: blocked` with an empty `blockedBy:` raises nothing — being blocked needs no proof, unlike
+claiming done. `evidence:` is a list of duck-typed entries — `ref:` (any
+resolvable element, unrestricted by kind) or `path:` (a file/doc, resolved like `implementedBy:`) —
+each with an optional `rationale:` that waives that one entry's own check. A **leaf** item (no
+children) claiming `status: done` must have at least one non-waived, resolving `evidence:` entry —
+graded harder than the analogous `Requirement` rule (`W300`, a warning) since claiming done with no
+proof is a correctness defect, not a time-bound gap. `assignedTo:` names a single Unix-style
+username — not a cross-reference (users aren't model elements) — always format-checked
+(`^[a-z_][a-z0-9_-]{0,31}$`, `E723`), and additionally checked against a project-declared roster
+(`[users]` in `.syscribe.toml`, mapping username → display name) only when that roster is
+non-empty (`E722`); roster membership is dormant otherwise, matching every other opt-in
+`.syscribe.toml`-configured table — a malformed roster key is `W309` and excluded from the
+effective roster. `show` resolves and prints the declared display name alongside the username.
+No dedicated CLI subcommand or MCP tool yet — queried via the generic
+`list`/`show`/`ls`/`find`/`refs` commands, and gets a working guarded MCP write path for free via
+the existing `create_element`/`update_element`/etc. tools. Validation `E706`–`E717`, `E719`–`E723`,
+`W308`, `W309`. See `examples/planning-item/` for a complete worked example.
 
 ## Tier 2 — Safety & cybersecurity elements (own schema)
 

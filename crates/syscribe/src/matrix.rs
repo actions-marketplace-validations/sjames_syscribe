@@ -3,11 +3,12 @@
 //!
 //! Rows are requirements; columns are the model's `Configuration` elements. Each
 //! cell classifies the (requirement, configuration) pair as:
-//!   * `na`      — the requirement's `appliesWhen:` is not satisfied by the
-//!                 configuration's selections (it does not exist in this variant);
-//!   * `covered` — the requirement is active and a non-draft TestCase that runs
-//!                 in this configuration verifies it;
-//!   * `gap`     — the requirement is active but no such TestCase exists.
+//!
+//! * `na` — the requirement's `appliesWhen:` is not satisfied by the configuration's
+//!   selections (it does not exist in this variant);
+//! * `covered` — the requirement is active and a non-draft TestCase that runs in this
+//!   configuration verifies it;
+//! * `gap` — the requirement is active but no such TestCase exists.
 //!
 //! When the variability dimension is dormant (REQ-TRS-VAR-001) the command
 //! prints a notice and falls back to a flat requirement/testcase view.
@@ -33,6 +34,18 @@ fn disp_id(e: &RawElement) -> String {
         .id
         .clone()
         .unwrap_or_else(|| e.qualified_name.clone())
+}
+
+/// REQ-TRS-ORDER-001 — order requirement rows by `displayOrder` (ascending, unset
+/// sinking last), tie-broken by display id, so the matrix follows the authored
+/// reading order rather than pure identifier order.
+fn sort_reqs_by_display_order(reqs: &mut [&RawElement]) {
+    reqs.sort_by(|a, b| {
+        a.frontmatter
+            .display_order_key()
+            .total_cmp(&b.frontmatter.display_order_key())
+            .then_with(|| disp_id(a).cmp(&disp_id(b)))
+    });
 }
 
 /// Cross-reference identity keys an inbound `verifies:` entry may use.
@@ -90,9 +103,12 @@ pub fn cmd_matrix_features(elements: &[RawElement], json: bool) {
         .filter(|e| is_type(e, ElementType::Configuration))
         .collect();
     configs.sort_by_key(|e| disp_id(e));
+    // Selections keyed by a FeatureDef's FEAT-* id are normalized to the qname so
+    // an id-keyed config selects the same feature as a qname-keyed one (REQ-TRS-ID-006).
+    let feat_alias = variability::feature_id_to_qname(elements);
     let cfg_sel: Vec<(String, BTreeMap<String, bool>)> = configs
         .iter()
-        .map(|c| (disp_id(c), c.frontmatter.feature_selections()))
+        .map(|c| (disp_id(c), variability::canon_selection(&c.frontmatter.feature_selections(), &feat_alias)))
         .collect();
 
     let mut feats: Vec<&RawElement> = elements
@@ -162,36 +178,267 @@ fn cell_state(
     r: &RawElement,
     sel: &BTreeMap<String, bool>,
     pkg: &std::collections::HashMap<String, serde_yaml::Value>,
-    tcs: &[(Option<FeatureExpr>, Vec<String>, TcVerdict)],
+    alias: &std::collections::HashMap<String, String>,
+    tcs: &[(Option<FeatureExpr>, Vec<String>, TcVerdict, bool)],
     evidence: Option<&ResultsData>,
 ) -> &'static str {
     let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
-    let rexpr = variability::effective_expr(r, pkg);
-    let active = rexpr.as_ref().map_or(true, |e| e.eval(&selected));
+    let rexpr = variability::effective_expr_canon(r, pkg, alias);
+    let active = rexpr.as_ref().is_none_or(|e| e.eval(&selected));
     if !active {
         return "na";
     }
     let rkeys = keys(r);
-    let mut covered = false;
+    let mut nondraft_covered = false;
+    let mut draft_covered = false;
     let mut any_pass = false;
-    for (texpr, ver, verdict) in tcs {
-        let runs = texpr.as_ref().map_or(true, |e| e.eval(&selected));
+    let mut any_fail = false;
+    for (texpr, ver, verdict, is_draft) in tcs {
+        let runs = texpr.as_ref().is_none_or(|e| e.eval(&selected));
         if runs && ver.iter().any(|v| rkeys.iter().any(|k| k == v)) {
-            covered = true;
-            if *verdict == TcVerdict::Pass {
-                any_pass = true;
+            if *is_draft {
+                draft_covered = true;
+            } else {
+                nondraft_covered = true;
+                match verdict {
+                    TcVerdict::Pass => any_pass = true,
+                    TcVerdict::Fail => any_fail = true,
+                    _ => {}
+                }
             }
         }
     }
-    if !covered {
-        "gap"
-    } else if evidence.is_some() && any_pass {
-        "passing"
+    // A non-draft TestCase is real coverage; a draft-only link is `planned` intent.
+    if nondraft_covered {
+        if evidence.is_some() && any_pass {
+            "passing"
+        } else if evidence.is_some() && any_fail {
+            "failing"
+        } else {
+            "covered"
+        }
+    } else if draft_covered {
+        "planned"
     } else {
-        "covered"
+        "gap"
     }
 }
 
+/// TestCases that participate in coverage, as `(effective appliesWhen, verifies,
+/// verdict)`. Non-draft TestCases always participate; a *draft* TestCase joins
+/// only once executed evidence shows it passing (issue #21) — without a results
+/// sidecar a draft TestCase is excluded, matching the linked-coverage view.
+/// Every TestCase as `(effective appliesWhen, verifies, verdict, is_draft)`. Unlike
+/// before, draft TestCases are retained (flagged) so the classifier can report a
+/// draft-only-linked requirement as `planned` rather than dropping the link.
+fn participating_tcs(
+    elements: &[RawElement],
+    pkg: &std::collections::HashMap<String, serde_yaml::Value>,
+    feat_alias: &std::collections::HashMap<String, String>,
+    evidence: Option<&ResultsData>,
+) -> Vec<(Option<FeatureExpr>, Vec<String>, TcVerdict, bool)> {
+    elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::TestCase))
+        .map(|e| {
+            (
+                variability::effective_expr_canon(e, pkg, feat_alias),
+                e.frontmatter.verifies.clone().unwrap_or_default(),
+                tc_verdict(e, evidence),
+                e.frontmatter.status.as_deref() == Some("draft"),
+            )
+        })
+        .collect()
+}
+
+/// Compute the active (feature-model) coverage grid: the configuration columns,
+/// the per-requirement cell states (honouring tag/status/`--gaps-only` filters),
+/// and the coverage rollup. Shared by the text and JSON renderers.
+#[allow(clippy::type_complexity)]
+fn active_grid(
+    elements: &[RawElement],
+    tag: Option<&str>,
+    status: Option<&str>,
+    gaps_only: bool,
+    evidence: Option<&ResultsData>,
+) -> (
+    Vec<(String, BTreeMap<String, bool>)>,
+    Vec<(String, Vec<&'static str>)>,
+    Coverage,
+) {
+    // Columns: the model's Configuration elements, sorted by id.
+    let mut configs: Vec<&RawElement> = elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::Configuration))
+        .collect();
+    configs.sort_by_key(|e| disp_id(e));
+    let feat_alias = variability::feature_id_to_qname(elements);
+    let cfg_sel: Vec<(String, BTreeMap<String, bool>)> = configs
+        .iter()
+        .map(|c| (disp_id(c), variability::canon_selection(&c.frontmatter.feature_selections(), &feat_alias)))
+        .collect();
+
+    // Rows: requirements (optionally tag- and status-filtered), sorted by id.
+    let mut reqs: Vec<&RawElement> = elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::Requirement))
+        .filter(|e| tag.is_none_or(|t| has_tag(e, t)))
+        .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
+        .collect();
+    sort_reqs_by_display_order(&mut reqs);
+
+    // Effective conditions honour transitive package appliesWhen (REQ-TRS-VAR-006).
+    let pkg = variability::package_conditions(elements);
+    let tcs = participating_tcs(elements, &pkg, &feat_alias, evidence);
+
+    // Materialise each retained row's cell states once: (id, [state per column]).
+    // `--gaps-only` keeps only rows that have at least one `gap` cell (dropping
+    // fully-covered and all-N/A rows).
+    let grid: Vec<(String, Vec<&'static str>)> = reqs
+        .iter()
+        .map(|r| {
+            let cells: Vec<&'static str> = cfg_sel
+                .iter()
+                .map(|(_, sel)| cell_state(r, sel, &pkg, &feat_alias, &tcs, evidence))
+                .collect();
+            (disp_id(r), cells)
+        })
+        .filter(|(_, cells)| !gaps_only || cells.contains(&"gap"))
+        .collect();
+
+    let coverage = Coverage::compute(&cfg_sel, &grid);
+    (cfg_sel, grid, coverage)
+}
+
+/// The flat (no-feature-model) `matrix --json` document. Shared by the CLI
+/// dormant path and `matrix_json`, so the JSON is identical either way.
+fn dormant_json(elements: &[RawElement], status: Option<&str>, gaps_only: bool) -> serde_json::Value {
+    let mut reqs: Vec<&RawElement> = elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::Requirement))
+        .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
+        .collect();
+    sort_reqs_by_display_order(&mut reqs);
+
+    let tcs: Vec<Vec<String>> = elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::TestCase))
+        .filter(|e| e.frontmatter.status.as_deref() != Some("draft"))
+        .map(|e| e.frontmatter.verifies.clone().unwrap_or_default())
+        .collect();
+    let verified_by = |r: &RawElement| -> bool {
+        let rkeys = keys(r);
+        tcs.iter().any(|ver| ver.iter().any(|v| rkeys.iter().any(|k| k == v)))
+    };
+    let grid: Vec<(String, bool)> = reqs
+        .iter()
+        .map(|r| (disp_id(r), verified_by(r)))
+        .filter(|(_, cov)| !gaps_only || !*cov)
+        .collect();
+    let covered = grid.iter().filter(|(_, c)| *c).count() as u32;
+    let applicable = grid.len() as u32;
+    let pct = Coverage::pct(covered, applicable);
+    let rows: Vec<_> = grid
+        .iter()
+        .map(|(id, cov)| json!({ "id": id, "verified": cov }))
+        .collect();
+    json!({
+        "schemaVersion": SCHEMA_VERSION,
+        "note": "no feature model present — flat coverage view",
+        "columns": Vec::<String>::new(),
+        "rows": rows,
+        "coverage": json!({
+            "perConfig": serde_json::Map::new(),
+            "overall": { "covered": covered, "applicable": applicable, "pct": pct },
+        }),
+    })
+}
+
+/// The `matrix --json` document for an arbitrary model: the Requirement ×
+/// Configuration grid plus the coverage rollup, or the flat fallback when no
+/// feature model is present. The single value producer shared by the CLI
+/// `matrix --json` output and the MCP `coverage_matrix` tool.
+pub fn matrix_json(
+    elements: &[RawElement],
+    tag: Option<&str>,
+    status: Option<&str>,
+    gaps_only: bool,
+    results: Option<&ResultsData>,
+    linked_only: bool,
+) -> serde_json::Value {
+    let evidence = if linked_only { None } else { results };
+    if !variability::is_active(elements) {
+        return dormant_json(elements, status, gaps_only);
+    }
+    let (cfg_sel, grid, coverage) = active_grid(elements, tag, status, gaps_only, evidence);
+    let columns: Vec<String> = cfg_sel.iter().map(|(c, _)| c.clone()).collect();
+    let rows: Vec<_> = grid
+        .iter()
+        .map(|(id, cells)| {
+            let mut cell_map = serde_json::Map::new();
+            for ((cid, _), s) in cfg_sel.iter().zip(cells) {
+                cell_map.insert(cid.clone(), json!(*s));
+            }
+            json!({ "id": id, "cells": cell_map })
+        })
+        .collect();
+    json!({
+        "schemaVersion": SCHEMA_VERSION,
+        "columns": columns,
+        "rows": rows,
+        "coverage": coverage.json(),
+    })
+}
+
+/// Collapse the coverage grid to one verdict per requirement (keyed by `disp_id`):
+/// `"verified"` | `"planned"` | `"unverified"` | `"na"`. This is the row-collapse
+/// (AND across applicable configurations) of the same per-cell classifier that
+/// `coverage_matrix` displays, so `coverage` cannot contradict the matrix.
+pub fn requirement_rollup(
+    elements: &[RawElement],
+    results: Option<&ResultsData>,
+) -> std::collections::HashMap<String, &'static str> {
+    let alias = variability::feature_id_to_qname(elements);
+    let pkg = variability::package_conditions(elements);
+    let tcs = participating_tcs(elements, &pkg, &alias, results);
+    // Project over the model's Configurations; a flat model collapses over a
+    // single empty selection (every requirement active, no projection).
+    let cfgs: Vec<BTreeMap<String, bool>> = if variability::is_active(elements) {
+        elements
+            .iter()
+            .filter(|e| is_type(e, ElementType::Configuration))
+            .map(|c| variability::canon_selection(&c.frontmatter.feature_selections(), &alias))
+            .collect()
+    } else {
+        vec![BTreeMap::new()]
+    };
+    let mut out = std::collections::HashMap::new();
+    for r in elements.iter().filter(|e| is_type(e, ElementType::Requirement)) {
+        let cells: Vec<&'static str> = cfgs
+            .iter()
+            .map(|sel| cell_state(r, sel, &pkg, &alias, &tcs, results))
+            .collect();
+        out.insert(disp_id(r), rollup_cells(&cells));
+    }
+    out
+}
+
+/// AND row-collapse of a requirement's cells over the configurations it applies to.
+fn rollup_cells(cells: &[&'static str]) -> &'static str {
+    let active: Vec<&str> = cells.iter().copied().filter(|c| *c != "na").collect();
+    if active.is_empty() {
+        return "na";
+    }
+    if active.iter().any(|c| *c == "gap" || *c == "failing") {
+        return "unverified";
+    }
+    if active.contains(&"planned") {
+        return "planned";
+    }
+    "verified"
+}
+
+#[allow(clippy::too_many_arguments)]
 fn cmd_matrix_inner(
     elements: &[RawElement],
     json: bool,
@@ -210,89 +457,18 @@ fn cmd_matrix_inner(
         return;
     }
 
-    // Columns: the model's Configuration elements, sorted by id.
-    let mut configs: Vec<&RawElement> = elements
-        .iter()
-        .filter(|e| is_type(e, ElementType::Configuration))
-        .collect();
-    configs.sort_by_key(|e| disp_id(e));
-    let cfg_sel: Vec<(String, BTreeMap<String, bool>)> = configs
-        .iter()
-        .map(|c| (disp_id(c), c.frontmatter.feature_selections()))
-        .collect();
-
-    // Rows: requirements (optionally tag- and status-filtered), sorted by id.
-    let mut reqs: Vec<&RawElement> = elements
-        .iter()
-        .filter(|e| is_type(e, ElementType::Requirement))
-        .filter(|e| tag.is_none_or(|t| has_tag(e, t)))
-        .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
-        .collect();
-    reqs.sort_by_key(|e| disp_id(e));
-
-    // Effective conditions honour transitive package appliesWhen (REQ-TRS-VAR-006).
-    let pkg = variability::package_conditions(elements);
-
-    // Non-draft TestCases that participate in coverage: (appliesWhen, verifies, verdict).
-    // The verdict is the executed-evidence aggregate (Unknown when no results /
-    // linked-only). Computed once per TestCase.
-    let tcs: Vec<(Option<FeatureExpr>, Vec<String>, TcVerdict)> = elements
-        .iter()
-        .filter(|e| is_type(e, ElementType::TestCase))
-        .filter(|e| e.frontmatter.status.as_deref() != Some("draft"))
-        .map(|e| {
-            (
-                variability::effective_expr(e, &pkg),
-                e.frontmatter.verifies.clone().unwrap_or_default(),
-                tc_verdict(e, evidence),
-            )
-        })
-        .collect();
-
-    // state(req, config selections) -> "na" | "covered" | "passing" | "gap",
-    // delegating to the single `cell_state` definition shared with `audit`.
-    let state = |r: &RawElement, sel: &BTreeMap<String, bool>| -> &'static str {
-        cell_state(r, sel, &pkg, &tcs, evidence)
-    };
-
-    // Materialise each retained row's cell states once: (id, [state per column]).
-    // `--gaps-only` keeps only rows that have at least one `gap` cell (dropping
-    // fully-covered and all-N/A rows).
-    let grid: Vec<(String, Vec<&'static str>)> = reqs
-        .iter()
-        .map(|r| {
-            let cells: Vec<&'static str> = cfg_sel.iter().map(|(_, sel)| state(r, sel)).collect();
-            (disp_id(r), cells)
-        })
-        .filter(|(_, cells)| !gaps_only || cells.iter().any(|c| *c == "gap"))
-        .collect();
-
-    // Coverage rollup: covered / applicable, applicable = covered + gap (N/A
-    // excluded). Computed over the retained rows. Plain (unweighted) coverage
-    // only — SIL-weighted coverage is a deliberate follow-up (out of scope here).
-    let coverage = Coverage::compute(&cfg_sel, &grid);
-
     if json {
-        let columns: Vec<String> = cfg_sel.iter().map(|(c, _)| c.clone()).collect();
-        let rows: Vec<_> = grid
-            .iter()
-            .map(|(id, cells)| {
-                let mut cell_map = serde_json::Map::new();
-                for ((cid, _), s) in cfg_sel.iter().zip(cells) {
-                    cell_map.insert(cid.clone(), json!(*s));
-                }
-                json!({ "id": id, "cells": cell_map })
-            })
-            .collect();
-        let doc = json!({
-            "schemaVersion": SCHEMA_VERSION,
-            "columns": columns,
-            "rows": rows,
-            "coverage": coverage.to_json(),
-        });
-        println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&matrix_json(
+                elements, tag, status, gaps_only, results, linked_only
+            ))
+            .unwrap()
+        );
         return;
     }
+
+    let (cfg_sel, grid, coverage) = active_grid(elements, tag, status, gaps_only, evidence);
 
     // Text grid. "passing" → ✓ (covered + passing evidence); "covered" → ✓ when
     // no executed evidence is in play, else ▣ (covered but not passing).
@@ -305,6 +481,11 @@ fn cmd_matrix_inner(
                 "✓"
             }
         }
+        "planned" => "▢",
+        // Covered by a non-draft TestCase whose latest verdict is fail: the
+        // requirement IS covered, just not passing — same ▣ glyph as an
+        // evidence-less "covered" cell, and visually distinct from a true gap.
+        "failing" => "▣",
         "gap" => "✗",
         _ => "—",
     };
@@ -371,7 +552,8 @@ impl Coverage {
                         covered += 1;
                         applicable += 1;
                     }
-                    "gap" => applicable += 1,
+                    // Applicable but not (yet) covered.
+                    "gap" | "planned" | "failing" => applicable += 1,
                     _ => {}
                 }
             }
@@ -403,37 +585,27 @@ impl Coverage {
             .filter(|e| is_type(e, ElementType::Configuration))
             .collect();
         configs.sort_by_key(|e| disp_id(e));
+        let feat_alias = variability::feature_id_to_qname(elements);
         let cfg_sel: Vec<(String, BTreeMap<String, bool>)> = configs
             .iter()
-            .map(|c| (disp_id(c), c.frontmatter.feature_selections()))
+            .map(|c| (disp_id(c), variability::canon_selection(&c.frontmatter.feature_selections(), &feat_alias)))
             .collect();
 
         let mut reqs: Vec<&RawElement> = elements
             .iter()
             .filter(|e| is_type(e, ElementType::Requirement))
             .collect();
-        reqs.sort_by_key(|e| disp_id(e));
+        sort_reqs_by_display_order(&mut reqs);
 
         let pkg = variability::package_conditions(elements);
-        let tcs: Vec<(Option<FeatureExpr>, Vec<String>, TcVerdict)> = elements
-            .iter()
-            .filter(|e| is_type(e, ElementType::TestCase))
-            .filter(|e| e.frontmatter.status.as_deref() != Some("draft"))
-            .map(|e| {
-                (
-                    variability::effective_expr(e, &pkg),
-                    e.frontmatter.verifies.clone().unwrap_or_default(),
-                    tc_verdict(e, evidence),
-                )
-            })
-            .collect();
+        let tcs = participating_tcs(elements, &pkg, &feat_alias, evidence);
 
         let grid: Vec<(String, Vec<&'static str>)> = reqs
             .iter()
             .map(|r| {
                 let cells: Vec<&'static str> = cfg_sel
                     .iter()
-                    .map(|(_, sel)| cell_state(r, sel, &pkg, &tcs, evidence))
+                    .map(|(_, sel)| cell_state(r, sel, &pkg, &feat_alias, &tcs, evidence))
                     .collect();
                 (disp_id(r), cells)
             })
@@ -563,7 +735,7 @@ fn cmd_matrix_dormant(
         .filter(|e| is_type(e, ElementType::Requirement))
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         .collect();
-    reqs.sort_by_key(|e| disp_id(e));
+    sort_reqs_by_display_order(&mut reqs);
 
     let tcs: Vec<Vec<String>> = elements
         .iter()
@@ -591,21 +763,7 @@ fn cmd_matrix_dormant(
     let pct = Coverage::pct(covered, applicable);
 
     if json {
-        let rows: Vec<_> = grid
-            .iter()
-            .map(|(id, cov)| json!({ "id": id, "verified": cov }))
-            .collect();
-        let doc = json!({
-            "schemaVersion": SCHEMA_VERSION,
-            "note": "no feature model present — flat coverage view",
-            "columns": Vec::<String>::new(),
-            "rows": rows,
-            "coverage": json!({
-                "perConfig": serde_json::Map::new(),
-                "overall": { "covered": covered, "applicable": applicable, "pct": pct },
-            }),
-        });
-        println!("{}", serde_json::to_string_pretty(&doc).unwrap());
+        println!("{}", serde_json::to_string_pretty(&dormant_json(elements, status, gaps_only)).unwrap());
         return;
     }
 

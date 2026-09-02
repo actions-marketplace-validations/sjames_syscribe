@@ -1,10 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 use crate::element::{ElementType, RawElement};
 
 static REQ_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TC_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static TP_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CONF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ADR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static RR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static TRD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static ZN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static CD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CM_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // Tier 2 safety/security stable-ID patterns
 static HE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -29,61 +35,340 @@ static TS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CSG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static SC_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static VR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// Asset (ISO/SAE 21434 §15.3) stable-ID pattern (REQ-TRS-TYPE-017)
+static ASSET_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// FeatureDef optional stable-ID pattern (REQ-TRS-ID-006)
+static FEAT_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// Baseline stable-ID pattern (FEAT-style, no trailing numeric suffix; REQ-TRS-BL-001)
+static BL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+// PlanningItem stable-ID pattern (REQ/TC/ADR-style, requires trailing numeric suffix;
+// REQ-TRS-PLANITEM-001)
+static PI_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 
 fn req_re() -> &'static regex::Regex {
-    REQ_RE.get_or_init(|| regex::Regex::new(r"^REQ(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    // Category segment(s) before the numeric suffix are optional (`*`, not `+`):
+    // `REQ-042` is as valid as `REQ-SCHED-042`. Purely additive — every id that
+    // matched the old `+`-only pattern still matches this one.
+    REQ_RE.get_or_init(|| regex::Regex::new(r"^REQ(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
 }
 
 fn tc_re() -> &'static regex::Regex {
-    TC_RE.get_or_init(|| regex::Regex::new(r"^TC(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    // Same relaxation as `req_re` — see its comment.
+    TC_RE.get_or_init(|| regex::Regex::new(r"^TC(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
+}
+
+fn tp_re() -> &'static regex::Regex {
+    TP_RE.get_or_init(|| regex::Regex::new(r"^TP(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn conf_re() -> &'static regex::Regex {
-    CONF_RE.get_or_init(|| regex::Regex::new(r"^CONF(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    CONF_RE.get_or_init(|| regex::Regex::new(r"^CONF(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn adr_re() -> &'static regex::Regex {
-    ADR_RE.get_or_init(|| regex::Regex::new(r"^ADR(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    // Same relaxation as `req_re` — see its comment.
+    ADR_RE.get_or_init(|| regex::Regex::new(r"^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
+}
+
+fn rr_re() -> &'static regex::Regex {
+    RR_RE.get_or_init(|| regex::Regex::new(r"^RR(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn trd_re() -> &'static regex::Regex {
+    TRD_RE.get_or_init(|| regex::Regex::new(r"^TRD(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn zn_re() -> &'static regex::Regex {
+    ZN_RE.get_or_init(|| regex::Regex::new(r"^ZN(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn cd_re() -> &'static regex::Regex {
+    CD_RE.get_or_init(|| regex::Regex::new(r"^CD(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn cm_re() -> &'static regex::Regex {
-    CM_RE.get_or_init(|| regex::Regex::new(r"^CM(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    CM_RE.get_or_init(|| regex::Regex::new(r"^CM(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn he_re() -> &'static regex::Regex {
-    HE_RE.get_or_init(|| regex::Regex::new(r"^HE(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    HE_RE.get_or_init(|| regex::Regex::new(r"^HE(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn sg_re() -> &'static regex::Regex {
-    SG_RE.get_or_init(|| regex::Regex::new(r"^SG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    SG_RE.get_or_init(|| regex::Regex::new(r"^SG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn ds_re() -> &'static regex::Regex {
-    DS_RE.get_or_init(|| regex::Regex::new(r"^DS(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    DS_RE.get_or_init(|| regex::Regex::new(r"^DS(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn ts_re() -> &'static regex::Regex {
-    TS_RE.get_or_init(|| regex::Regex::new(r"^TS(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    TS_RE.get_or_init(|| regex::Regex::new(r"^TS(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn csg_re() -> &'static regex::Regex {
-    CSG_RE.get_or_init(|| regex::Regex::new(r"^CSG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    CSG_RE.get_or_init(|| regex::Regex::new(r"^CSG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn sc_re() -> &'static regex::Regex {
-    SC_RE.get_or_init(|| regex::Regex::new(r"^SC(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    SC_RE.get_or_init(|| regex::Regex::new(r"^SC(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn vr_re() -> &'static regex::Regex {
-    VR_RE.get_or_init(|| regex::Regex::new(r"^VR(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    VR_RE.get_or_init(|| regex::Regex::new(r"^VR(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn asset_re() -> &'static regex::Regex {
+    ASSET_RE.get_or_init(|| regex::Regex::new(r"^ASSET(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+/// Returns true for ASSET-* IDs (REQ-TRS-TYPE-017).
+pub fn is_asset_id(s: &str) -> bool {
+    asset_re().is_match(s) || extra_matches("ASSET", s)
+}
+
+fn feat_re() -> &'static regex::Regex {
+    // FEAT ids do NOT require a trailing numeric segment (unlike REQ/TC/…): a feature
+    // may be `FEAT-ABS` or `FEAT-ABS-001`. Each segment is [A-Z0-9]{2,12}.
+    FEAT_RE.get_or_init(|| regex::Regex::new(r"^FEAT(-[A-Z0-9]{2,12})+$").unwrap())
+}
+
+/// Returns true for FEAT-* IDs (optional FeatureDef stable id, REQ-TRS-ID-006).
+pub fn is_feat_id(s: &str) -> bool {
+    feat_re().is_match(s) || extra_matches("FEAT", s)
+}
+
+fn bl_re() -> &'static regex::Regex {
+    // BL ids do NOT require a trailing numeric segment (FEAT-style, REQ-TRS-BL-001):
+    // a baseline may be `BL-2026-07` or `BL-QUARTERLY-001`. Each segment is [A-Z0-9]{2,12}.
+    BL_RE.get_or_init(|| regex::Regex::new(r"^BL(-[A-Z0-9]{2,12})+$").unwrap())
+}
+
+/// Returns true for BL-* IDs (Baseline, REQ-TRS-BL-001).
+pub fn is_baseline_id(s: &str) -> bool {
+    bl_re().is_match(s) || extra_matches("BL", s)
+}
+
+fn pi_re() -> &'static regex::Regex {
+    // PI ids require a trailing numeric segment (REQ/TC/ADR-style, unlike FEAT/BL):
+    // e.g. `PI-SCHED-001`. Each segment is [A-Z0-9]{2,12}. Category segment(s)
+    // before it are optional (`*`, not `+`) — `PI-042` is as valid as
+    // `PI-SCHED-042`; see `req_re`'s comment.
+    PI_RE.get_or_init(|| regex::Regex::new(r"^PI(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
+}
+
+/// Returns true for PI-* IDs (PlanningItem, REQ-TRS-PLANITEM-001).
+pub fn is_pi_id(s: &str) -> bool {
+    pi_re().is_match(s) || extra_matches("PI", s)
+}
+
+// ── Configurable additional stable-ID prefixes (REQ-TRS-ID-007) ──────────────────
+//
+// Each id-identified type has a fixed built-in prefix; a project may declare *extra*
+// prefixes per type in `[ids.prefixes]` of `.syscribe.toml`. Extras are strictly
+// additive (the built-in always stays valid) and pure identity (they affect only id
+// recognition / id-based resolution). The registry below is installed once from the
+// loaded config; when empty (the default) behaviour is identical to built-in only.
+
+/// The id-identified element types, each paired with its built-in stable-ID prefix and
+/// whether its ids require a trailing numeric suffix (every type except `FeatureDef`,
+/// REQ-TRS-ID-006). Single source of truth: the type name is the `[ids.prefixes]` key,
+/// the built-in prefix keys the runtime registry, and the suffix flag selects the
+/// grammar used to compile an additional prefix.
+pub const STABLE_ID_KINDS: &[(&str, &str, bool)] = &[
+    ("Requirement", "REQ", true),
+    ("TestCase", "TC", true),
+    ("TestPlan", "TP", true),
+    ("Configuration", "CONF", true),
+    ("ADR", "ADR", true),
+    ("ReviewRecord", "RR", true),
+    ("TradeStudy", "TRD", true),
+    ("Zone", "ZN", true),
+    ("Conduit", "CD", true),
+    ("ConfirmationMeasure", "CM", true),
+    ("HazardousEvent", "HE", true),
+    ("SafetyGoal", "SG", true),
+    ("DamageScenario", "DS", true),
+    ("ThreatScenario", "TS", true),
+    ("CybersecurityGoal", "CSG", true),
+    ("SecurityControl", "SC", true),
+    ("VulnerabilityReport", "VR", true),
+    ("Asset", "ASSET", true),
+    ("TARASheet", "TARA", true),
+    ("FaultTree", "FT", true),
+    ("FaultTreeGate", "FTG", true),
+    ("FaultTreeEvent", "FTE", true),
+    ("FMEASheet", "FMEA", true),
+    ("FMEAEntry", "FM", true),
+    ("AttackTree", "AT", true),
+    ("AttackTreeGate", "ATG", true),
+    ("AttackStep", "ATS", true),
+    ("Argument", "ARG", true),
+    ("AssumptionOfUse", "AOU", true),
+    ("FeatureDef", "FEAT", false),
+    ("Baseline", "BL", false),
+    ("PlanningItem", "PI", true),
+];
+
+static PREFIX_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// True when `s` is a well-formed stable-ID prefix: uppercase, starting with a letter,
+/// 2–12 characters (`^[A-Z][A-Z0-9]{1,11}$`) — the shape of every built-in prefix and
+/// the rule a configured additional prefix must satisfy (REQ-TRS-ID-007).
+pub fn is_valid_id_prefix(s: &str) -> bool {
+    PREFIX_RE
+        .get_or_init(|| regex::Regex::new(r"^[A-Z][A-Z0-9]{1,11}$").unwrap())
+        .is_match(s)
+}
+
+static USERNAME_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// True when `s` has the shape of a Unix-style username (REQ-TRS-PLANITEM-008):
+/// lowercase, starting with a letter or underscore, followed by lowercase
+/// letters/digits/underscore/hyphen, 1–32 characters total
+/// (`^[a-z_][a-z0-9_-]{0,31}$`) — the same convention `useradd`/`adduser` enforce
+/// by default. Governs both `PlanningItem.assignedTo:` and the declared keys of
+/// `[users]` in `.syscribe.toml`.
+pub fn is_valid_username(s: &str) -> bool {
+    USERNAME_RE
+        .get_or_init(|| regex::Regex::new(r"^[a-z_][a-z0-9_-]{0,31}$").unwrap())
+        .is_match(s)
+}
+
+/// True when `name` is an element-type name that carries a stable id (an accepted
+/// `[ids.prefixes]` key).
+pub fn is_stable_id_type_name(name: &str) -> bool {
+    STABLE_ID_KINDS.iter().any(|(ty, _, _)| *ty == name)
+}
+
+/// Compiled additional stable-ID prefixes (REQ-TRS-ID-007), keyed by the **built-in**
+/// prefix of the type they extend (e.g. `"REQ"`). Installed from `.syscribe.toml` via
+/// [`set_extra_id_prefixes_by_type`]; empty (the default) means built-in prefixes only.
+static EXTRA_PREFIXES: std::sync::OnceLock<RwLock<HashMap<String, Vec<regex::Regex>>>> =
+    std::sync::OnceLock::new();
+
+fn extra_registry() -> &'static RwLock<HashMap<String, Vec<regex::Regex>>> {
+    EXTRA_PREFIXES.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Install the configured additional stable-ID prefixes, replacing any previous set.
+/// `by_type` is keyed by element-type name (`[ids.prefixes]` form). Unknown type names
+/// and prefixes failing [`is_valid_id_prefix`] are silently skipped here (the validator
+/// reports them as `W046`); an empty map clears all extras.
+pub fn set_extra_id_prefixes_by_type(by_type: &HashMap<String, Vec<String>>) {
+    let mut compiled: HashMap<String, Vec<regex::Regex>> = HashMap::new();
+    for (type_name, builtin, requires_suffix) in STABLE_ID_KINDS {
+        let Some(extras) = by_type.get(*type_name) else { continue };
+        let mut res = Vec::new();
+        for p in extras {
+            if !is_valid_id_prefix(p) {
+                continue;
+            }
+            let pat = if *requires_suffix {
+                format!(r"^{p}(-[A-Z0-9]{{2,12}})+-[0-9]{{3,}}$")
+            } else {
+                format!(r"^{p}(-[A-Z0-9]{{2,12}})+$")
+            };
+            if let Ok(re) = regex::Regex::new(&pat) {
+                res.push(re);
+            }
+        }
+        if !res.is_empty() {
+            compiled.insert((*builtin).to_string(), res);
+        }
+    }
+    if let Ok(mut w) = extra_registry().write() {
+        *w = compiled;
+    }
+}
+
+/// True when `s` matches any configured additional prefix registered under built-in
+/// prefix `builtin` (REQ-TRS-ID-007).
+fn extra_matches(builtin: &str, s: &str) -> bool {
+    let Ok(map) = extra_registry().read() else { return false };
+    map.get(builtin).is_some_and(|res| res.iter().any(|re| re.is_match(s)))
+}
+
+/// True when `s` matches any configured additional prefix for any type.
+fn any_extra_matches(s: &str) -> bool {
+    let Ok(map) = extra_registry().read() else { return false };
+    map.values().any(|res| res.iter().any(|re| re.is_match(s)))
+}
+
+/// The **auto-imported** SysMLv2 standard-library packages whose membership is fully
+/// known (spec §4.7). Type references to these resolve from the built-in inventory
+/// without an `.md` file; an unknown member of one of them is a likely typo
+/// (REQ-TRS-LIB-001). Import-only packages (`SI`, `ISQ`, …) are intentionally absent —
+/// their membership is not enumerated, so they stay lenient.
+pub const BUILTIN_TYPE_PACKAGES: &[(&str, &[&str])] = &[
+    ("ScalarValues", &["Integer", "Real", "Natural", "Boolean", "String"]),
+    ("Base", &["Anything", "DataValue"]),
+];
+
+/// Classification of a reference against the built-in type inventory.
+pub enum BuiltinType {
+    /// A recognised member of a known auto-imported built-in package.
+    Member,
+    /// A reference into a known built-in package, to a member it does not declare.
+    UnknownMember {
+        pkg: &'static str,
+        member: String,
+        known: &'static [&'static str],
+    },
+    /// Not a reference into a known auto-imported built-in package (in-model,
+    /// import-only stdlib, or external).
+    NotBuiltin,
+}
+
+/// Classify `s` against [`BUILTIN_TYPE_PACKAGES`] (REQ-TRS-LIB-001). Only a single
+/// `Pkg::member` form is considered; deeper nesting or a bare package is `NotBuiltin`.
+pub fn builtin_type_kind(s: &str) -> BuiltinType {
+    for (pkg, members) in BUILTIN_TYPE_PACKAGES {
+        if let Some(member) = s.strip_prefix(pkg).and_then(|r| r.strip_prefix("::")) {
+            if member.is_empty() || member.contains("::") {
+                return BuiltinType::NotBuiltin;
+            }
+            if members.contains(&member) {
+                return BuiltinType::Member;
+            }
+            return BuiltinType::UnknownMember {
+                pkg,
+                member: member.to_string(),
+                known: members,
+            };
+        }
+    }
+    BuiltinType::NotBuiltin
+}
+
+/// True when `s` names a recognised built-in standard-library type (REQ-TRS-LIB-001).
+pub fn is_builtin_type(s: &str) -> bool {
+    matches!(builtin_type_kind(s), BuiltinType::Member)
+}
+
+static BASIC_NAME_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// True when `s` is a SysMLv2 **basic name**: a letter or `_`, then letters, digits
+/// or `_` (`^[A-Za-z_][A-Za-z0-9_]*$`). Hyphens, spaces and other punctuation are not
+/// permitted — such names must be renamed (REQ-TRS-NAME-001 / `W042`).
+pub fn is_basic_name(s: &str) -> bool {
+    BASIC_NAME_RE
+        .get_or_init(|| regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap())
+        .is_match(s)
 }
 
 /// Returns true when `s` matches any known stable-ID pattern.
 pub fn is_stable_id(s: &str) -> bool {
     req_re().is_match(s)
         || tc_re().is_match(s)
+        || tp_re().is_match(s)
+        || asset_re().is_match(s)
         || conf_re().is_match(s)
         || adr_re().is_match(s)
+        || rr_re().is_match(s)
+        || trd_re().is_match(s)
+        || zn_re().is_match(s)
+        || cd_re().is_match(s)
         || cm_re().is_match(s)
         || he_re().is_match(s)
         || sg_re().is_match(s)
@@ -103,109 +388,138 @@ pub fn is_stable_id(s: &str) -> bool {
         || ats_re().is_match(s)
         || arg_re().is_match(s)
         || aou_re().is_match(s)
+        || feat_re().is_match(s)
+        || bl_re().is_match(s)
+        || pi_re().is_match(s)
+        || any_extra_matches(s)
 }
 
 /// Returns true for HE-* IDs (HazardousEvent).
-pub fn is_he_id(s: &str) -> bool { he_re().is_match(s) }
+pub fn is_he_id(s: &str) -> bool { he_re().is_match(s) || extra_matches("HE", s) }
 /// Returns true for SG-* IDs (SafetyGoal).
-pub fn is_sg_id(s: &str) -> bool { sg_re().is_match(s) }
+pub fn is_sg_id(s: &str) -> bool { sg_re().is_match(s) || extra_matches("SG", s) }
 /// Returns true for DS-* IDs (DamageScenario).
-pub fn is_ds_id(s: &str) -> bool { ds_re().is_match(s) }
+pub fn is_ds_id(s: &str) -> bool { ds_re().is_match(s) || extra_matches("DS", s) }
 /// Returns true for TS-* IDs (ThreatScenario).
-pub fn is_ts_id(s: &str) -> bool { ts_re().is_match(s) }
+pub fn is_ts_id(s: &str) -> bool { ts_re().is_match(s) || extra_matches("TS", s) }
 /// Returns true for CSG-* IDs (CybersecurityGoal).
-pub fn is_csg_id(s: &str) -> bool { csg_re().is_match(s) }
+pub fn is_csg_id(s: &str) -> bool { csg_re().is_match(s) || extra_matches("CSG", s) }
 /// Returns true for SC-* IDs (SecurityControl).
-pub fn is_sc_id(s: &str) -> bool { sc_re().is_match(s) }
+pub fn is_sc_id(s: &str) -> bool { sc_re().is_match(s) || extra_matches("SC", s) }
 /// Returns true for VR-* IDs (VulnerabilityReport).
-pub fn is_vr_id(s: &str) -> bool { vr_re().is_match(s) }
+pub fn is_vr_id(s: &str) -> bool { vr_re().is_match(s) || extra_matches("VR", s) }
 
 fn tara_re() -> &'static regex::Regex {
-    TARA_RE.get_or_init(|| regex::Regex::new(r"^TARA(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    TARA_RE.get_or_init(|| regex::Regex::new(r"^TARA(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 /// Returns true for TARA-* IDs (TARASheet).
-pub fn is_tara_id(s: &str) -> bool { tara_re().is_match(s) }
+pub fn is_tara_id(s: &str) -> bool { tara_re().is_match(s) || extra_matches("TARA", s) }
 
 fn ft_re() -> &'static regex::Regex {
-    FT_RE.get_or_init(|| regex::Regex::new(r"^FT(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    FT_RE.get_or_init(|| regex::Regex::new(r"^FT(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn ftg_re() -> &'static regex::Regex {
-    FTG_RE.get_or_init(|| regex::Regex::new(r"^FTG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    FTG_RE.get_or_init(|| regex::Regex::new(r"^FTG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn fte_re() -> &'static regex::Regex {
-    FTE_RE.get_or_init(|| regex::Regex::new(r"^FTE(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    FTE_RE.get_or_init(|| regex::Regex::new(r"^FTE(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn fmea_re() -> &'static regex::Regex {
-    FMEA_RE.get_or_init(|| regex::Regex::new(r"^FMEA(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    FMEA_RE.get_or_init(|| regex::Regex::new(r"^FMEA(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn fm_re() -> &'static regex::Regex {
-    FM_RE.get_or_init(|| regex::Regex::new(r"^FM(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    FM_RE.get_or_init(|| regex::Regex::new(r"^FM(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 /// Returns true for FT-* IDs (FaultTree).
-pub fn is_ft_id(s: &str) -> bool { ft_re().is_match(s) }
+pub fn is_ft_id(s: &str) -> bool { ft_re().is_match(s) || extra_matches("FT", s) }
 /// Returns true for FTG-* IDs (FaultTreeGate).
-pub fn is_ftg_id(s: &str) -> bool { ftg_re().is_match(s) }
+pub fn is_ftg_id(s: &str) -> bool { ftg_re().is_match(s) || extra_matches("FTG", s) }
 /// Returns true for FTE-* IDs (FaultTreeEvent).
-pub fn is_fte_id(s: &str) -> bool { fte_re().is_match(s) }
+pub fn is_fte_id(s: &str) -> bool { fte_re().is_match(s) || extra_matches("FTE", s) }
 /// Returns true for FMEA-* IDs (FMEASheet).
-pub fn is_fmea_id(s: &str) -> bool { fmea_re().is_match(s) }
+pub fn is_fmea_id(s: &str) -> bool { fmea_re().is_match(s) || extra_matches("FMEA", s) }
 /// Returns true for FM-* IDs (FMEAEntry).
-pub fn is_fm_id(s: &str) -> bool { fm_re().is_match(s) }
+pub fn is_fm_id(s: &str) -> bool { fm_re().is_match(s) || extra_matches("FM", s) }
 
 fn at_re() -> &'static regex::Regex {
-    AT_RE.get_or_init(|| regex::Regex::new(r"^AT(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    AT_RE.get_or_init(|| regex::Regex::new(r"^AT(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn atg_re() -> &'static regex::Regex {
-    ATG_RE.get_or_init(|| regex::Regex::new(r"^ATG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    ATG_RE.get_or_init(|| regex::Regex::new(r"^ATG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn ats_re() -> &'static regex::Regex {
-    ATS_RE.get_or_init(|| regex::Regex::new(r"^ATS(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    ATS_RE.get_or_init(|| regex::Regex::new(r"^ATS(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 fn arg_re() -> &'static regex::Regex {
-    ARG_RE.get_or_init(|| regex::Regex::new(r"^ARG(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    ARG_RE.get_or_init(|| regex::Regex::new(r"^ARG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 fn aou_re() -> &'static regex::Regex {
-    AOU_RE.get_or_init(|| regex::Regex::new(r"^AOU(-[A-Z0-9]{2,12})+-[0-9]{3}$").unwrap())
+    AOU_RE.get_or_init(|| regex::Regex::new(r"^AOU(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 /// Returns true for ARG-* IDs (Argument).
-pub fn is_arg_id(s: &str) -> bool { arg_re().is_match(s) }
+pub fn is_arg_id(s: &str) -> bool { arg_re().is_match(s) || extra_matches("ARG", s) }
 /// Returns true for AOU-* IDs (AssumptionOfUse).
-pub fn is_aou_id(s: &str) -> bool { aou_re().is_match(s) }
+pub fn is_aou_id(s: &str) -> bool { aou_re().is_match(s) || extra_matches("AOU", s) }
 
 /// Returns true for AT-* IDs (AttackTree).
-pub fn is_at_id(s: &str) -> bool { at_re().is_match(s) }
+pub fn is_at_id(s: &str) -> bool { at_re().is_match(s) || extra_matches("AT", s) }
 /// Returns true for ATG-* IDs (AttackTreeGate).
-pub fn is_atg_id(s: &str) -> bool { atg_re().is_match(s) }
+pub fn is_atg_id(s: &str) -> bool { atg_re().is_match(s) || extra_matches("ATG", s) }
 /// Returns true for ATS-* IDs (AttackStep).
-pub fn is_ats_id(s: &str) -> bool { ats_re().is_match(s) }
+pub fn is_ats_id(s: &str) -> bool { ats_re().is_match(s) || extra_matches("ATS", s) }
 
 /// Returns true for ADR-* IDs.
 pub fn is_adr_id(s: &str) -> bool {
-    adr_re().is_match(s)
+    adr_re().is_match(s) || extra_matches("ADR", s)
+}
+
+/// Returns true for RR-* IDs (ReviewRecord).
+pub fn is_rr_id(s: &str) -> bool {
+    rr_re().is_match(s) || extra_matches("RR", s)
+}
+
+/// Returns true for TRD-* IDs (TradeStudy).
+pub fn is_trd_id(s: &str) -> bool {
+    trd_re().is_match(s) || extra_matches("TRD", s)
+}
+
+/// Returns true for ZN-* IDs (Zone).
+pub fn is_zn_id(s: &str) -> bool {
+    zn_re().is_match(s) || extra_matches("ZN", s)
+}
+
+/// Returns true for CD-* IDs (Conduit).
+pub fn is_cd_id(s: &str) -> bool {
+    cd_re().is_match(s) || extra_matches("CD", s)
 }
 
 /// Returns true for CM-* IDs (ConfirmationMeasure).
 pub fn is_cm_id(s: &str) -> bool {
-    cm_re().is_match(s)
+    cm_re().is_match(s) || extra_matches("CM", s)
 }
 
 /// Returns true for REQ-* IDs.
 pub fn is_req_id(s: &str) -> bool {
-    req_re().is_match(s)
+    req_re().is_match(s) || extra_matches("REQ", s)
 }
 
 /// Returns true for TC-* IDs.
 pub fn is_tc_id(s: &str) -> bool {
-    tc_re().is_match(s)
+    tc_re().is_match(s) || extra_matches("TC", s)
+}
+
+/// Returns true for TP-* IDs (TestPlan).
+pub fn is_test_plan_id(s: &str) -> bool {
+    tp_re().is_match(s) || extra_matches("TP", s)
 }
 
 /// Returns true for CONF-* IDs.
 pub fn is_conf_id(s: &str) -> bool {
-    conf_re().is_match(s)
+    conf_re().is_match(s) || extra_matches("CONF", s)
 }
 
 pub struct Resolver {
@@ -265,6 +579,56 @@ impl Resolver {
         self.by_name.get(r).map(|&i| &elements[i])
     }
 
+    /// Resolve `r` relative to the enclosing-package scope chain of
+    /// `from_qname`, walking outward — the namespace-lookup order a
+    /// SysML v2-authored `typedBy:`/`supertype:` value needs when it was
+    /// written as a name relative to its own declaring package, not the
+    /// from-model-root qualified form this format's hand-authored
+    /// convention otherwise always uses (`REQ-TRS-SYSMLV2-016`). A `.sysml`
+    /// author writing `part x : Services::Documented;` inside `package
+    /// System { ... }` produces the *relative* string `"Services::Documented"`
+    /// verbatim on `x`'s `typedBy:` — `ingest.rs` does no resolution of its
+    /// own at parse time — so a plain [`Self::resolve_ref`] exact-qname
+    /// lookup fails unless the reference happens to already equal the real,
+    /// full qname from the model root.
+    ///
+    /// Tries, innermost scope first: `<from_qname>::<r>`, then each
+    /// enclosing package in turn (walking up one `::`-segment at a time, the
+    /// same prefix-walk `graph.rs`'s `Contains` edge already uses), down to
+    /// the model root (`<r>` itself, unprefixed) — real namespace-shadowing
+    /// semantics, nearest scope wins. Falls back to [`Self::resolve_ref`]'s
+    /// plain id/qname/display-name resolution if no scoped candidate
+    /// matches, so an already-fully-qualified qname, a stable ID, or a bare
+    /// display-name reference all keep resolving exactly as before — this
+    /// is a strict widening, never a new failure mode. A stable-ID `r`
+    /// (`REQ-*`, `CONF-*`, …) skips the scoped walk entirely and goes
+    /// straight to `resolve_ref`, since stable IDs are already global and
+    /// package-scope-independent.
+    pub fn resolve_scoped_ref<'a>(
+        &self,
+        elements: &'a [RawElement],
+        from_qname: &str,
+        r: &str,
+    ) -> Option<&'a RawElement> {
+        if !is_stable_id(r) {
+            let mut scope = from_qname;
+            loop {
+                let candidate = if scope.is_empty() { r.to_string() } else { format!("{scope}::{r}") };
+                if let Some(elem) = self.get(elements, &candidate) {
+                    return Some(elem);
+                }
+                if scope.is_empty() {
+                    break;
+                }
+                scope = match scope.rfind("::") {
+                    Some(sep) => &scope[..sep],
+                    None => "",
+                };
+            }
+        }
+        self.resolve_ref(elements, r)
+    }
+
     /// True if `elem` is a native Requirement (type: Requirement with a REQ-* id).
     pub fn is_native_requirement(elem: &RawElement) -> bool {
         matches!(elem.frontmatter.element_type, Some(ElementType::Requirement))
@@ -276,6 +640,86 @@ impl Resolver {
                 .unwrap_or(false)
     }
 
+    /// True if `elem` is a native PlanningItem (type: PlanningItem with a PI-* id),
+    /// the `parent:` cross-reference target check (REQ-TRS-PLANITEM-002), mirroring
+    /// [`Self::is_native_requirement`].
+    pub fn is_planning_item(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::PlanningItem))
+            && elem
+                .frontmatter
+                .id
+                .as_deref()
+                .map(is_pi_id)
+                .unwrap_or(false)
+    }
+
+    /// True if `elem` is a legal `verifies:` target (`E104`): a native
+    /// Requirement (the original, unchanged rule — untouched by anything
+    /// below), or an element that both (a) is one of the fixed set of
+    /// requirement/architecture-shaped element kinds (`REQ-TRS-SYSMLV2-007`'s
+    /// mapped-kind list, reused verbatim for plugin and annotation origin
+    /// too) and (b) was actually synthesized by SysMLv2 ingestion (per
+    /// `sysmlv2_qnames`, `REQ-TRS-SYSMLV2-004`), by a stdio plugin (per
+    /// `plugin_qnames`, `ADR-SYS-PLUGIN-002`), or by annotated-source scanning
+    /// (per `annotation_qnames`, `ADR-SYS-ANNOTATE-001`) — a `TestCase` can
+    /// verify a SysMLv2-authored, plugin-authored, or marker-authored
+    /// Part/Attribute/Port/Connection/Interface/Item/Allocation/Requirement
+    /// exactly like it verifies a native Requirement today.
+    ///
+    /// `RawElement` itself carries no origin marker — synthesized and
+    /// hand-authored elements stay deliberately indistinguishable once in the
+    /// graph, the same origin-agnostic design `REQ-TRS-SYSMLV2-002`'s
+    /// rationale already establishes for `RawElement`/`Resolver`. So origin
+    /// is decided here via three independent side-channel provenance sets the
+    /// caller supplies — see [`crate::sysmlv2::synthesized_qnames`],
+    /// [`crate::plugins::synthesized_qnames`], and
+    /// [`crate::annotations::synthesized_qnames`] and their doc comments for
+    /// how each is derived. Kept as three separate sets, not merged into one,
+    /// mirroring the SysMLv2 ADR's own reasoning: each origin's widening is a
+    /// deliberate, independently-reasoned decision, not a blanket one.
+    /// Gating on element *kind* alone (this function's original shape, before
+    /// `REQ-TRS-SYSMLV2-004`) was wrong: it silently loosened `E104` for
+    /// hand-authored native elements of these kinds too, in every model, not
+    /// just SysMLv2 or plugin ones. A `type: Requirement`/`RequirementDef`
+    /// target that fails `is_native_requirement` (e.g. a hand-authored one
+    /// missing a `REQ-*` id) is *not* rescued by membership in any
+    /// provenance set unless it actually is one — each set only ever contains
+    /// qnames its own origin actually synthesized.
+    pub fn is_verify_target(
+        elem: &RawElement,
+        sysmlv2_qnames: &HashSet<String>,
+        plugin_qnames: &HashSet<String>,
+        annotation_qnames: &HashSet<String>,
+    ) -> bool {
+        if Self::is_native_requirement(elem) {
+            return true;
+        }
+        if !sysmlv2_qnames.contains(&elem.qualified_name)
+            && !plugin_qnames.contains(&elem.qualified_name)
+            && !annotation_qnames.contains(&elem.qualified_name)
+        {
+            return false;
+        }
+        matches!(
+            elem.frontmatter.element_type,
+            Some(ElementType::PartDef)
+                | Some(ElementType::Part)
+                | Some(ElementType::AttributeDef)
+                | Some(ElementType::Attribute)
+                | Some(ElementType::PortDef)
+                | Some(ElementType::Port)
+                | Some(ElementType::ConnectionDef)
+                | Some(ElementType::Connection)
+                | Some(ElementType::InterfaceDef)
+                | Some(ElementType::Interface)
+                | Some(ElementType::ItemDef)
+                | Some(ElementType::Item)
+                | Some(ElementType::Allocation)
+                | Some(ElementType::RequirementDef)
+                | Some(ElementType::Requirement)
+        )
+    }
+
     /// True if `elem` is a native TestCase (type: TestCase with a TC-* id).
     pub fn is_native_testcase(elem: &RawElement) -> bool {
         matches!(elem.frontmatter.element_type, Some(ElementType::TestCase))
@@ -285,6 +729,11 @@ impl Resolver {
                 .as_deref()
                 .map(is_tc_id)
                 .unwrap_or(false)
+    }
+
+    /// True if `elem` is a native TestPlan (type: TestPlan).
+    pub fn is_test_plan(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::TestPlan))
     }
 
     /// True if `elem` is a FeatureDef.
@@ -364,5 +813,104 @@ impl Resolver {
 
     pub fn is_confirmation_measure(elem: &RawElement) -> bool {
         matches!(elem.frontmatter.element_type, Some(ElementType::ConfirmationMeasure))
+    }
+
+    pub fn is_asset(elem: &RawElement) -> bool {
+        matches!(elem.frontmatter.element_type, Some(ElementType::Asset))
+    }
+}
+
+// ── resolve_scoped_ref (REQ-TRS-SYSMLV2-016) ────────────────────────────────
+
+#[cfg(test)]
+mod resolve_scoped_ref_tests {
+    use super::*;
+    use crate::element::{ParseIssue, RawFrontmatter};
+
+    fn make_elem(qname: &str, yaml: &str) -> RawElement {
+        let fm: RawFrontmatter = serde_yaml::from_str(yaml).expect("yaml parse");
+        RawElement {
+            qualified_name: qname.to_string(),
+            file_path: format!("{qname}.md"),
+            frontmatter: fm,
+            doc: String::new(),
+            parse_issue: None::<ParseIssue>,
+            derived: Default::default(),
+            derive_findings: vec![],
+        }
+    }
+
+    #[test]
+    fn a_package_relative_reference_resolves_via_the_nearest_enclosing_scope() {
+        let elements = vec![
+            make_elem("SysML2::Services::Documented", "type: PartDef\nname: Documented\n"),
+            make_elem("SysML2::System::Top", "type: PartDef\nname: Top\n"),
+            make_elem("SysML2::System::Top::x", "type: Part\nname: x\n"),
+        ];
+        let resolver = Resolver::new(&elements);
+        let found = resolver.resolve_scoped_ref(&elements, "SysML2::System::Top::x", "Services::Documented");
+        assert_eq!(
+            found.map(|e| e.qualified_name.as_str()),
+            Some("SysML2::Services::Documented"),
+            "should resolve via the SysML2-level scope, walking outward from x's own qname"
+        );
+    }
+
+    #[test]
+    fn a_nearer_scope_shadows_a_farther_one_with_the_same_relative_name() {
+        // Both "Outer::Services::Documented" and "Outer::Mid::Services::Documented"
+        // exist; from "Outer::Mid::Inner", "Services::Documented" should resolve
+        // to the *nearer* one (Outer::Mid::...), not the farther Outer::... one.
+        let elements = vec![
+            make_elem("Outer::Services::Documented", "type: PartDef\nname: Documented\n"),
+            make_elem("Outer::Mid::Services::Documented", "type: PartDef\nname: Documented\n"),
+            make_elem("Outer::Mid::Inner", "type: Part\nname: Inner\n"),
+        ];
+        let resolver = Resolver::new(&elements);
+        let found = resolver.resolve_scoped_ref(&elements, "Outer::Mid::Inner", "Services::Documented");
+        assert_eq!(found.map(|e| e.qualified_name.as_str()), Some("Outer::Mid::Services::Documented"));
+    }
+
+    #[test]
+    fn an_already_fully_qualified_reference_still_resolves() {
+        let elements = vec![
+            make_elem("A::B::Target", "type: PartDef\nname: Target\n"),
+            make_elem("A::C::Usage", "type: Part\nname: Usage\n"),
+        ];
+        let resolver = Resolver::new(&elements);
+        let found = resolver.resolve_scoped_ref(&elements, "A::C::Usage", "A::B::Target");
+        assert_eq!(found.map(|e| e.qualified_name.as_str()), Some("A::B::Target"));
+    }
+
+    #[test]
+    fn a_stable_id_reference_bypasses_the_scoped_walk_and_still_resolves() {
+        let elements = vec![
+            make_elem("Requirements::Req", "type: Requirement\nname: Req\nid: REQ-001\n"),
+            make_elem("A::B::Usage", "type: Part\nname: Usage\n"),
+        ];
+        let resolver = Resolver::new(&elements);
+        let found = resolver.resolve_scoped_ref(&elements, "A::B::Usage", "REQ-001");
+        assert_eq!(found.map(|e| e.qualified_name.as_str()), Some("Requirements::Req"));
+    }
+
+    #[test]
+    fn an_unresolvable_reference_still_returns_none() {
+        let elements = vec![make_elem("A::B::Usage", "type: Part\nname: Usage\n")];
+        let resolver = Resolver::new(&elements);
+        assert!(resolver.resolve_scoped_ref(&elements, "A::B::Usage", "NoSuchThing").is_none());
+    }
+
+    #[test]
+    fn a_display_name_fallback_still_works_via_the_final_resolve_ref_delegation() {
+        let elements = vec![
+            make_elem("A::B::HwBase", "type: PartDef\nname: HwBase\n"),
+            make_elem("A::C::Usage", "type: Part\nname: Usage\n"),
+        ];
+        let resolver = Resolver::new(&elements);
+        // "HwBase" doesn't match any scoped-prefix candidate (A::C::HwBase, A::HwBase,
+        // HwBase all miss the real qname A::B::HwBase) -- only the by_name fallback
+        // resolve_ref delegates to at the end finds it.
+        let found = resolver.resolve_scoped_ref(&elements, "A::C::Usage", "HwBase");
+        assert_eq!(found.map(|e| e.qualified_name.as_str()), Some("A::B::HwBase"));
     }
 }

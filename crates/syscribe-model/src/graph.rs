@@ -27,6 +27,8 @@ pub enum EdgeKind {
     AllocatedTo,           // allocation → target element
     ConditionalOn,         // element → FeatureDef (appliesWhen:)
     Satisfies,             // Part/Config → Requirement/FeatureDef (satisfies:)
+    PlanningParent,        // PlanningItem child → parent (ADR-SYS-PLANITEM-001)
+    PlanningBlockedBy,     // PlanningItem → element it's waiting on (REQ-TRS-PLANITEM-007)
     // Part-to-part wiring (resolved from connection feature chains; issue #26)
     Connection,            // connections:        (from/to or ends[].binds)
     Flow,                  // flowConnections:    (from/to)
@@ -68,6 +70,8 @@ impl EdgeKind {
             EdgeKind::AllocatedTo => "allocatedTo",
             EdgeKind::ConditionalOn => "conditionalOn",
             EdgeKind::Satisfies => "satisfies",
+            EdgeKind::PlanningParent => "planningParent",
+            EdgeKind::PlanningBlockedBy => "planningBlockedBy",
             EdgeKind::Connection => "connection",
             EdgeKind::Flow => "flow",
             EdgeKind::Binding => "binding",
@@ -143,10 +147,21 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
             }
         }
 
-        // TypedBy — may be a string or a sequence
+        // TypedBy — may be a string or a sequence. Resolved via resolve_scoped_ref,
+        // not a plain idx.get exact-qname lookup (REQ-TRS-SYSMLV2-017) — a
+        // SysMLv2-authored typedBy: is frequently a *relative* name (e.g.
+        // "Services::Documented" written inside `package System`) that only
+        // resolves once searched outward through the referencing element's own
+        // enclosing-package scope chain; a hand-authored typedBy: (always written
+        // fully qualified from the model root, by this format's own convention)
+        // resolves identically either way.
         if let Some(ref tb) = fm.typed_by {
             for s in yaml_strings(tb) {
-                if let Some(dst) = idx.get(s).copied() {
+                if let Some(dst) = resolver
+                    .resolve_scoped_ref(elements, &elem.qualified_name, s)
+                    .and_then(|e| idx.get(&e.qualified_name))
+                    .copied()
+                {
                     graph.add_edge(src, dst, EdgeKind::TypedBy);
                 }
             }
@@ -204,6 +219,29 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
             for df in dfs {
                 if let Some(dst) = resolve_to_idx(df) {
                     graph.add_edge(src, dst, EdgeKind::DerivedFrom);
+                }
+            }
+        }
+
+        // PlanningItem parent — child → parent, ID-based resolution
+        // (ADR-SYS-PLANITEM-001 / REQ-TRS-PLANITEM-002). A single scalar, unlike
+        // derivedFrom's list: strictly single-parent.
+        if let Some(ref p) = fm.parent {
+            if let Some(dst) = resolve_to_idx(p) {
+                graph.add_edge(src, dst, EdgeKind::PlanningParent);
+            }
+        }
+
+        // PlanningItem blockedBy — element(s) it's waiting on, permissively
+        // resolved (any element, not restricted to PlanningItem), for cycle
+        // detection (REQ-TRS-PLANITEM-007). Dangling entries are handled
+        // separately as a validation finding (E720), not here — this pass
+        // only ever adds an edge when the target actually resolves, exactly
+        // like every other edge kind in this function.
+        if let Some(ref bs) = fm.blocked_by {
+            for b in bs {
+                if let Some(dst) = resolve_to_idx(b) {
+                    graph.add_edge(src, dst, EdgeKind::PlanningBlockedBy);
                 }
             }
         }
@@ -292,37 +330,21 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
                 return; // need at least two distinct endpoints to form an edge
             }
             for &other in rest {
-                graph.add_edge(first, other, kind.clone());
+                graph.add_edge(first, other, kind);
             }
         };
 
-        // Collect a single connection entry's resolved endpoints, given the YAML
-        // field names that hold its endpoint chains.
+        // Collect a single connection entry's resolved endpoints. Chain
+        // extraction (which YAML keys count as endpoints) lives in
+        // `crate::connections::parse_entry`, shared with the diagram-editor's
+        // connection add/remove helpers so the two can never disagree on shape.
         let entry_endpoints = |entry: &serde_yaml::Value| -> Vec<NodeIndex> {
-            let serde_yaml::Value::Mapping(m) = entry else { return vec![] };
-            let mut chains: Vec<String> = Vec::new();
-            // binary forms
-            for key in ["from", "to", "left", "right"] {
-                if let Some(s) = m.get(serde_yaml::Value::from(key)).and_then(|v| v.as_str()) {
-                    chains.push(s.to_string());
-                }
-            }
-            // n-ary form: ends: [{ binds: <chain> }, …]
-            if let Some(serde_yaml::Value::Sequence(seq)) =
-                m.get(serde_yaml::Value::from("ends"))
-            {
-                for e in seq {
-                    if let serde_yaml::Value::Mapping(em) = e {
-                        if let Some(s) = em
-                            .get(serde_yaml::Value::from("binds"))
-                            .and_then(|v| v.as_str())
-                        {
-                            chains.push(s.to_string());
-                        }
-                    }
-                }
-            }
-            chains.iter().filter_map(|c| resolve_endpoint(c)).collect()
+            let Some(parsed) = crate::connections::parse_entry(entry) else { return vec![] };
+            parsed
+                .endpoints
+                .iter()
+                .filter_map(|ep| resolve_endpoint(&ep.chain))
+                .collect()
         };
 
         for (list, kind) in [
@@ -334,7 +356,7 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
             if let Some(entries) = list {
                 for entry in entries {
                     let ends = entry_endpoints(entry);
-                    add_wiring(ends, kind.clone(), &mut graph);
+                    add_wiring(ends, kind, &mut graph);
                 }
             }
         }
@@ -424,7 +446,7 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
         }
 
         // derivedFromSecurityGoal: Requirement → CybersecurityGoal
-        if let Some(ref csg) = fm.derived_from_security_goal {
+        if let Some(ref csg) = fm.derived_from_cybersecurity_goal {
             if let Some(dst) = resolve_to_idx(csg) {
                 graph.add_edge(src, dst, EdgeKind::DerivedFromSecurityGoal);
             }
@@ -510,7 +532,7 @@ pub fn connectivity_subgraph(
                 continue;
             }
             if seen.insert((e.source(), t, e.weight().name())) {
-                edges.push((graph[e.source()].clone(), graph[t].clone(), e.weight().clone()));
+                edges.push((graph[e.source()].clone(), graph[t].clone(), *e.weight()));
             }
         }
     }

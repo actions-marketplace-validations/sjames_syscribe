@@ -1,0 +1,20 @@
+@startuml SafetyRequirementsD
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+hide empty members
+
+class "SafetyReqs" as s_safety_root <<requirement def>> [[https://github.com/sjames/syscribe/blob/main/model/Requirements/SafetyReqs.md]]
+class "Flight controller shall detect single sensor failure within 50 ms" as s_fc_req <<requirement>> [[https://github.com/sjames/syscribe/blob/main/model/Requirements/FaultTolerantFCReq.md]]
+class "Autonomous safe landing on battery-critical or link-loss event" as s_land_req <<requirement>> [[https://github.com/sjames/syscribe/blob/main/model/Requirements/SafeLandingReq.md]]
+class "FC detects injected sensor failure within 50 ms on HIL bench" as s_fc_test <<test case def>> [[https://github.com/sjames/syscribe/blob/main/model/Verification/FCFaultInjectionTest.md]]
+class "Autonomous landing descent rate ≤ 3 m/s on battery-critical trigger" as s_land_test <<test case def>> [[https://github.com/sjames/syscribe/blob/main/model/Verification/SafeLandingTest.md]]
+class "FlightController" as s_fc_hw <<part def>> [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/FlightController.md]]
+class "UAVSystem" as s_uav_sys <<part def>> [[https://github.com/sjames/syscribe/blob/main/model/UAV/UAVSystem.md]]
+
+s_fc_req ..> s_safety_root : derivedFrom
+s_land_req ..> s_safety_root : derivedFrom
+s_fc_test ..> s_fc_req : verifies
+s_land_test ..> s_land_req : verifies
+s_fc_req ..> s_fc_hw : allocated to
+s_land_req ..> s_uav_sys : allocated to
+
+@enduml

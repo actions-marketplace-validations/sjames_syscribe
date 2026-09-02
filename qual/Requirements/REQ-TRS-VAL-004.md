@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-VAL-004
 type: Requirement
-name: Integrity Level Propagation Errors
-title: Tool shall enforce integrity-level propagation errors E841–E843
+name: Tool shall enforce integrity-level propagation errors E841–E843
 status: draft
 reqDomain: software
 verificationMethod: test

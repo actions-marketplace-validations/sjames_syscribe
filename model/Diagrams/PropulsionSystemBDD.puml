@@ -1,0 +1,11 @@
+@startuml PropulsionSystemBDD
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+hide empty members
+
+class "PropulsionSystem" as s_propulsion <<part def>> [[https://github.com/sjames/syscribe/blob/main/model/UAV/Propulsion/PropulsionSystem.md]]
+class "Motor" as s_motor <<part def>> [[https://github.com/sjames/syscribe/blob/main/model/UAV/Propulsion/Motor.md]]
+class "RotorAssembly" as s_rotor <<part def>> [[https://github.com/sjames/syscribe/blob/main/model/UAV/Propulsion/RotorAssembly.md]]
+
+s_rotor *-- s_motor : motor-comp
+
+@enduml

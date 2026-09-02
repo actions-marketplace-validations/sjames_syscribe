@@ -1,0 +1,23 @@
+@startuml FlightStatesMachineD
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+
+state "disarmed" as s_disarmed [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/disarmed.md]]
+state "armed" as s_armed [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/armed.md]]
+state "takingOff" as s_takingOff [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/takingOff.md]]
+state "flying" as s_flying [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/flying.md]]
+state "landing" as s_landing [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/landing.md]]
+state "fault" as s_fault [[https://github.com/sjames/syscribe/blob/main/model/Behavior/FlightStates/fault.md]]
+
+[*] --> s_disarmed : init
+s_disarmed --> s_armed : arm
+s_armed --> s_takingOff : takeoff
+s_armed --> s_fault : armfault
+s_takingOff --> s_flying : fly
+s_takingOff --> s_fault : tofault
+s_flying --> s_landing : land
+s_flying --> s_fault : flyfault
+s_landing --> s_disarmed : disarm
+s_landing --> s_fault : lndfault
+s_fault --> s_disarmed : recover
+
+@enduml

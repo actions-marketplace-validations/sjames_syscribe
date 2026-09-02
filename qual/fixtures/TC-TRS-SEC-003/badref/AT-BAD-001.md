@@ -1,8 +1,7 @@
 ---
 id: AT-BAD-001
 type: AttackTree
-name: AT-BAD-001
-title: Attack tree with a threatRef that does not resolve to a ThreatScenario
+name: Attack tree with a threatRef that does not resolve to a ThreatScenario
 threatRef: Ecu
 status: approved
 ---

@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-QNAME-003
 type: Requirement
-name: Element Name Override
-title: "Element name shall use name: from frontmatter when present"
+name: "Element name shall use name: from frontmatter when present"
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-PARSE-004
 type: Requirement
-name: Sysmlignore Support
-title: Tool shall honor .sysmlignore exclusion patterns
+name: Tool shall honor .sysmlignore exclusion patterns
 status: draft
 reqDomain: software
 verificationMethod: test

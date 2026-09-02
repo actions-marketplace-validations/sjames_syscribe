@@ -36,6 +36,7 @@ fn strip_nulls(v: serde_json::Value) -> serde_json::Value {
 fn element_json(
     elem: &RawElement,
     result: &validator::ValidationResult,
+    config: &ValidateConfig,
 ) -> serde_json::Value {
     let fm = &elem.frontmatter;
 
@@ -52,10 +53,36 @@ fn element_json(
             computed.insert("derivedChildren".into(), serde_json::json!(children));
         }
     }
+    // REQ-TRS-MG-001/002 — refinedBy / actorIn key by stable id when present,
+    // else qualified name (matching the validator's index_key).
+    let mg_key = fm.id.as_deref().unwrap_or(elem.qualified_name.as_str());
+    if let Some(ucs) = result.refined_by.get(mg_key) {
+        computed.insert("refinedBy".into(), serde_json::json!(ucs));
+    }
+    if let Some(ucs) = result.actor_in.get(mg_key) {
+        computed.insert("actorIn".into(), serde_json::json!(ucs));
+    }
+    // REQ-TRS-MG-008 — mopRefinedBy: the MoPs refining this MoE.
+    if let Some(mops) = result.mop_refined_by.get(mg_key) {
+        computed.insert("mopRefinedBy".into(), serde_json::json!(mops));
+    }
+    // REQ-TRS-ALLOC-001 — allocatedFrom: the sources allocated to this target,
+    // over both authoring forms. Keyed by stable id else qname.
+    if let Some(srcs) = result.allocated_from.get(mg_key) {
+        computed.insert("allocatedFrom".into(), serde_json::json!(srcs));
+    }
 
     let mut obj = serde_json::Map::new();
     obj.insert("qname".into(), serde_json::json!(elem.qualified_name));
     obj.insert("file".into(), serde_json::json!(elem.file_path));
+    // REQ-TRS-LINK-001/004 — hosted source URL when `[links]` is configured.
+    if let Some(url) = config.hosted_url_for(
+        &elem.file_path,
+        &elem.qualified_name,
+        fm.id.as_deref().unwrap_or(""),
+    ) {
+        obj.insert("url".into(), serde_json::json!(url));
+    }
     if let Some(id) = &fm.id {
         obj.insert("id".into(), serde_json::json!(id));
     }
@@ -86,13 +113,13 @@ pub fn cmd_export(elements: &[RawElement], config: &ValidateConfig, ndjson: bool
         });
         println!("{}", serde_json::to_string(&header).unwrap());
         for elem in elements {
-            println!("{}", serde_json::to_string(&element_json(elem, &result)).unwrap());
+            println!("{}", serde_json::to_string(&element_json(elem, &result, config)).unwrap());
         }
         return;
     }
 
     let items: Vec<serde_json::Value> =
-        elements.iter().map(|e| element_json(e, &result)).collect();
+        elements.iter().map(|e| element_json(e, &result, config)).collect();
     let doc = serde_json::json!({
         "schemaVersion": SCHEMA_VERSION,
         "elementCount": elements.len(),

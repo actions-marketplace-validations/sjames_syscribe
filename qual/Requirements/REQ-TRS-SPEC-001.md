@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-SPEC-001
 type: Requirement
-name: Discoverable Spec Reference Completeness
-title: The syscribe spec reference shall document every element type and frontmatter field, including the safety/security analysis set
+name: The syscribe spec reference shall document every element type and frontmatter field, including the safety/security analysis set
 status: draft
 reqDomain: software
 verificationMethod: test

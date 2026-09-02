@@ -1,6 +1,6 @@
 [package]
 name = "syscribe"
-version = "0.12.0"
+version = "0.38.0"
 edition = "2021"
 
 [[bin]]
@@ -13,7 +13,7 @@ serde_yaml = { workspace = true }
 quick-xml = { workspace = true }
 regex = { workspace = true }
 walkdir = { workspace = true }
-taffy = "0.10.1"
+taffy = "0.11"
 ab_glyph = "0.2.32"
 fontdb = "0.23.0"
 serde_json.workspace = true
@@ -22,3 +22,14 @@ clap = "4"
 cassowary = "0.3.0"
 svg = "0.18.0"
 pathfinding = "4"
+rhai = "=1.25.1"
+rmcp = { version = "1", features = ["server", "transport-io", "macros"] }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+schemars = "1"
+tokio = { workspace = true }
+anyhow = { workspace = true }
+petgraph = { workspace = true }
+tower-lsp = "0.20.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

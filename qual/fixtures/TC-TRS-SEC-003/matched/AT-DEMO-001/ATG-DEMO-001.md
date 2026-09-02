@@ -1,9 +1,8 @@
 ---
 id: ATG-DEMO-001
 type: AttackTreeGate
-name: ATG-DEMO-001
 gateType: OR
-title: OR gate — bypass authentication OR replay a captured frame
+name: OR gate — bypass authentication OR replay a captured frame
 inputs:
   - ATG-DEMO-002
   - ATS-DEMO-003

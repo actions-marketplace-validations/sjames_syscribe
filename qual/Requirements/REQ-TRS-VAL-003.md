@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-VAL-003
 type: Requirement
-name: Warning Rules
-title: Tool shall enforce warning rules W001–W007 and W300–W305
+name: Tool shall enforce warning rules W001–W007 and W300–W305
 status: draft
 reqDomain: software
 verificationMethod: test

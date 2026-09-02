@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-TRACE-001
 type: Requirement
-name: OSLC Link Direction
-title: Tool shall enforce that traceability links point upstream
+name: Tool shall enforce that traceability links point upstream
 status: draft
 reqDomain: software
 verificationMethod: analysis

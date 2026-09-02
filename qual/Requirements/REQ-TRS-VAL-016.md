@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-VAL-016
 type: Requirement
-name: WCET Claim Evidence and Queryability
-title: Tool shall make wcet queryable and flag SIL/ASIL requirements whose WCET claim has no measuring test (W029)
+name: Tool shall make wcet queryable and flag SIL/ASIL requirements whose WCET claim has no measuring test (W029)
 status: draft
 reqDomain: software
 verificationMethod: test

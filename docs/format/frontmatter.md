@@ -9,8 +9,9 @@ All fields are optional unless marked **Required**. `type:` is required on every
 | Field | YAML type | Default | Description |
 |---|---|---|---|
 | `type` | string | — | **Required.** Element type (see [Element Types](elements.md)) |
-| `name` | string | filename stem | Display name; defaults to the `.md` filename without extension |
-| `id` | string | absent | Stable opaque identifier — required on Requirement, TestCase, ADR, Configuration |
+| `name` | string | filename stem (name-identified) | The single human-readable label on **every** element type. On name-identified types (SysML structural types, `Package`, `Diagram`, `FeatureDef`) it is also the identity/QName segment and defaults to the `.md` filename. On id-identified types (`Requirement`, `TestCase`, `ADR`, the safety/security types) it is **required** free prose. See [Label field](#label-field-name) below. |
+| `title` | — | — | **REMOVED.** No longer a label field on any element; use `name`. A stray `title:` is error `E025` (see below). |
+| `id` | string | absent | Stable opaque identifier — required on the id-identified types **and on `FeatureDef`** (mandatory `FEAT-*` id; `E201` if missing) |
 | `supertype` | string or list | absent | Qualified name(s) of parent definition(s) |
 | `subsets` | list of strings | absent | Features subsetted by this element |
 | `redefines` | string or list | absent | Features redefined by this element |
@@ -18,6 +19,34 @@ All fields are optional unless marked **Required**. `type:` is required on every
 | `isAbstract` | bool | `false` | Cannot be instantiated directly |
 | `domain` | string | absent | `system`, `hardware`, or `software` — used in traceability rules §12 |
 | `satisfies` | list | absent | Qualified names or REQ-* IDs of Requirements satisfied by this element |
+
+## Label field: `name`
+
+**`name` is the single, universal human-readable label on every element type** —
+`Requirement`, `TestCase`, `ADR`, `PartDef`, `Package`, `FeatureDef`, the safety/security
+types, everything. There is no longer a per-identity-class split.
+
+- For **name-identified types** (all SysML structural types, `Package`, `Diagram`, and
+  `FeatureDef`) `name` is **both** the label **and** the identity/QName segment, so the
+  basic-name grammar (`W042`) applies to it.
+- For **id-identified types** — those whose identity is a stable `id` (`REQ-*`, `TC-*`,
+  `HE-*`, …): `Requirement`, `TestCase`, `TestPlan`, `Configuration`, `ADR`,
+  `ConfirmationMeasure`, `ReviewRecord`, `TradeStudy`, `Baseline`, `PlanningItem`,
+  and all safety/security types (`HazardousEvent`, `SafetyGoal`,
+  `DamageScenario`, `ThreatScenario`, `CybersecurityGoal`, `SecurityControl`,
+  `VulnerabilityReport`, `TARASheet`, `FaultTree`/`FaultTreeGate`/`FaultTreeEvent`,
+  `FMEASheet`/`FMEAEntry`, `AttackTree`/`AttackTreeGate`/`AttackStep`, `Argument`,
+  `AssumptionOfUse`) — `name` is **free prose** (spaces and punctuation allowed; `W042`
+  does **not** apply) and is **required**.
+
+**`title` is removed.** It is no longer a recognized label field. Declaring `title:` on
+**any** element raises error **`E025`** ("the `title` field is removed — rename it to
+`name`"). Error **`E024`** (formerly: a `name:` on an id-identified type) is **retired** —
+a `Requirement` carrying `id` + `name` validates clean.
+
+`FeatureDef` is name-identified (its `name` is its label *and* QName segment) and *also*
+carries a **mandatory** stable `id` (its `FEAT-*` shortName; a feature with no `id` is
+`E201`). The `id` axis and the `name` (label) axis are independent.
 
 ## Features (`features:`)
 
@@ -73,31 +102,81 @@ bindingConnections:
 
 | Field | Description |
 |---|---|
-| `title` | Short human-readable title |
+| `name` | Short human-readable label — free prose (spaces/punctuation allowed) |
 | `status` | `draft` · `review` · `approved` · `implemented` · `verified` |
 | `reqDomain` | `system` · `hardware` · `software` |
 | `silLevel` | IEC 61508 SIL 1–4 |
 | `asilLevel` | ISO 26262 ASIL A–D |
 | `derivedFrom` | List of parent REQ-* IDs |
 | `breakdownAdr` | Qualified name of the accepted ADR that justifies this derivation |
+| `decompositionKind` | ASIL D / SIL 4 decomposition argument: `independent` · `redundant` · `diverse` (§22.3; siblings must satisfy distinct elements — `E865` — and number ≥2 — `W860`) |
+
+## Native element fields (ReviewRecord, TradeStudy, PlanningItem, budget)
+
+These id-identified native types carry their own field sets (full schema in [Element Types](elements.md) and `syscribe spec fields`):
+
+| Type / field | Description |
+|---|---|
+| `ReviewRecord` (`RR-*`) | `reviewType`, `reviews:` (covered elements), `items[].disposition`, `recordedAt:` (URI to the external review — keep records thin), `reviewDate`, `reviewedBy` (§19) |
+| `TradeStudy` (`TRD-*`) | `criteria:` (`weight` + `direction`), `alternatives:` (optional `element:`), `scores:` matrix, optional `objective:` / `decision:` (§15) |
+| `PlanningItem` (`PI-*`) | `status` (`todo`/`in_progress`/`blocked`/`done`, required), `itemType` (`bug`/`task`/`feature`, optional), `parent:` (single scalar — strict single-parent tree, not a DAG), `achieves:` (one or more `Requirement`s; required on a top-level item with no `parent:`), `blockedBy:` (one or more elements it's waiting on, resolved permissively like `evidence.ref:`; dangling/cycle are errors, non-empty while not `status: blocked` is a warning), `assignedTo:` (single Unix-style username — `^[a-z_][a-z0-9_-]{0,31}$`, always format-checked; also checked against the `[users]` roster in `.syscribe.toml` when that roster is non-empty, else roster membership is dormant), `evidence:` (list of duck-typed `ref:`/`path:` entries, each with an optional waiving `rationale:`; required on a leaf item once `status: done`) (`ADR-SYS-PLANITEM-001`) |
+| `CalculationDef` budget | `bodyLanguage: budget` + `body:` (restricted arithmetic over inline attribute values) and `evaluate:` (a `ConstraintDef` bounding the result) (§22.2) |
+
+## State machine transitions (`StateDef`/`State`)
+
+The canonical transition schema (§8.8.3) is `source` / `target` / `accept{payload,via}` / `guard` / `effect`, authored either nested under a `subStates:` entry (implicit source) or top-level (explicit `source:`); `isInitial`/`isFinal` mark the initial/final substates. The legacy `from`/`to`/`trigger` keys are accepted as aliases but **deprecated** (`W075`). Hierarchy/region-aware completeness checks are `W070`–`W079`.
 
 ## Traceability fields (TestCases)
 
 | Field | Description |
 |---|---|
-| `title` | Short human-readable title |
+| `name` | Short human-readable label — free prose (spaces/punctuation allowed) |
 | `status` | `draft` · `review` · `approved` · `active` · `retired` |
 | `testLevel` | `L1` (unit) through `L5` (HIL) |
 | `verifies` | List of REQ-* IDs verified by this test case |
 | `testFunctions` | List of `{scenario, file, line}` mappings linking Gherkin scenarios to source |
 
-## Implementation trace (`implementedBy:`)
+## TestPlan fields (`type: TestPlan`)
 
-`Part`/`PartDef` elements may link to the source artifact(s) that realise them, closing the V-model leg `Requirement ─satisfies→ Architecture ─implementedBy→ Code ─verifies→ Test`.
+A `TestPlan` (stable `TP-*` id) groups reusable TestCases by product and scope.
 
 | Field | Description |
 |---|---|
-| `implementedBy` | String or list of paths to the implementing source. Resolved like a TestCase's `sourceFile` (model-/repo-relative, `model:`/`repo:` prefixes, absolute, `file://`, remote `scheme://`). A missing **local** path on a non-`draft` element emits **W023** (§12.8); remote URIs are accepted as external pointers. Opt-in, draft-suppressed, gate with `--deny W023`. |
+| `name`, `status` | Required; `name` is free prose; status `draft` · `review` · `approved` · `active` · `retired` |
+| `scope` | Recommended `unit·smoke·integration·hil·certification·security·regression` (other → `W610`); discriminates plans over the same config |
+| `configurations` | A `Configuration` id or list of ids — the product variant(s) the plan is for; absent = config-agnostic. Each must resolve (`E606`) |
+| `demonstrates` | Optional list of goals/requirements the plan is evidence for (`E603` if unresolved); not required |
+| `testCases` | Explicit `TC-*` members (`E601` if not a TestCase) |
+| `selection` | Additive query: `testLevels` (L1–L5, `E602`), `domains` (system/hardware/software, `E605`), `tags` |
+
+Effective members = `testCases` ∪ `selection` matches. Surfaced by `testplan` and the `--plan TP-X` lens on `matrix`/`verification-depth`/`audit`. Codes `E600`–`E606` / `W610`–`W616` in the [Rule Reference](../validation/rules.md).
+
+## Multi-repository composition (`repoImports:`, §14)
+
+A Package `_index.md` may mount a sub-tree from a peer repository declared in the `[repos]` table of the model-root `.syscribe.toml`. Cross-repo references resolve against the local model first, then each repo in declaration order (global stable ID or qualified name).
+
+| Field | Description |
+|---|---|
+| `repoImports` | List of `{repo, qname, as}` mappings. `repo` is an alias from `[repos]` (`E513` if unknown); `qname` is the element/package to import (`E514` if unresolved in that repo); `as` is the optional local mount name (defaults to the last `qname` segment). |
+
+```yaml
+type: Package
+name: Integration
+repoImports:
+  - repo: brakes
+    qname: BrakeSystem
+    as: Brakes
+```
+
+Validation rules `E510`–`E515`/`W510`–`W512` are active only when `[repos]` is configured — see the [Rule Reference](../validation/rules.md#multi-repository-composition-e510e515-w510w512-14) and the [Multi-Repository Composition guide](../model-guide/multi-repo.md). A pinned repo (`ref:`) whose `HEAD` has drifted raises `W511`; a submodule peer whose `ref:` disagrees with the parent's gitlink raises `W512`. Gate CI on a reproducible composition with `validate --deny W511 --deny W512`. CLI: `repos list|status|sync`.
+
+## Implementation trace (`implementedBy:`)
+
+`Part`/`PartDef`/`Interface`/`InterfaceDef` elements may link to the source artifact(s) that realise them, closing the V-model leg `Requirement ─satisfies→ Architecture ─implementedBy→ Code ─verifies→ Test`.
+
+| Field | Description |
+|---|---|
+| `implementedBy` | String or list of paths to the implementing source. Valid on `Part`, `PartDef`, `Interface`, and `InterfaceDef`. Resolved like a TestCase's `sourceFile` (model-/repo-relative, `model:`/`repo:` prefixes, absolute, `file://`, remote `scheme://`). A missing **local** path on a non-`draft` element emits **W023** (§12.8); remote URIs are accepted as external pointers. Opt-in, draft-suppressed, gate with `--deny W023`. |
 
 ```yaml
 type: PartDef
@@ -142,8 +221,16 @@ Opt-in: ignored when the model declares no `FeatureDef`. See the [Variability gu
 | `parameters` | `FeatureDef` | Typed parameters: each `{name, type, range:"min..max", enumValues, default, isFixed, isRequired, value}` (§9.7) |
 | `featureModel` | `Configuration`, `FeatureDef` | Qualified name of the feature-model package |
 | `features` | `Configuration` | **Map** of `<FeatureDef qname>: true/false` (the selection; absent = deselected) |
-| `parameterBindings` | `Configuration` | Map of `<FeatureDef qname>::<param>: <value>` |
+| `parameterBindings` | `Configuration` | Map of `<FeatureDef qname>::<param>: <value>`. Resolves transitively through `subConfigurations:` at any depth (§14.7). |
+| `subConfigurations` | `Configuration` | String or list of `Configuration` id/qnames this one consolidates — local or via `[repos]` (§14.7, `ADR-SYS-HPLE-001`); see the [Multi-Repository guide](../model-guide/multi-repo.md) |
 | `parameterConstraints` | package `_index.md` | List of cross-feature constraints `{id, expression, severity, appliesWhen}` |
 | `tags` | any element | Free-text labels; filter with `--tag` (orthogonal to the feature model) |
 
-A `Configuration` requires `id` (`CONF-*`), `title`, `status`, and `featureModel`. Validation codes for these fields are in the [Rule Reference](../validation/rules.md) (PLE errors `E2xx`, projection `E226`/`E227`, warnings `W01x`–`W022`).
+A `Configuration` requires `id` (`CONF-*`), `name`, `status`, and `featureModel`. Validation codes for these fields are in the [Rule Reference](../validation/rules.md) (PLE errors `E2xx`, projection `E226`/`E227`, warnings `W01x`–`W022`).
+
+## Custom fields (`custom_fields:`)
+
+| Field | Description |
+|---|---|
+| `custom_fields` | On any element: a flat map of `string → scalar` or `list-of-scalars` for user-defined data. Freeform keys; serialised sorted. A value that is not a scalar/list-of-scalars warns `W041`. Query with `--where custom.<key>` on `ls`/`find`/`list`; rendered read-only by `show` and the web detail panel. See [Custom Fields](../model-guide/custom-fields.md). |
+

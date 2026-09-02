@@ -64,7 +64,7 @@ The server watches the model directory for changes and reloads automatically.
 3. **Write an ADR** for each decomposition decision — the validator enforces this (E310)
 4. **Build the architecture** — create `PartDef`, `PortDef`, `InterfaceDef` elements
 5. **Assign requirements** — add `satisfies:` and `domain:` to architecture elements
-6. **Link implementation** — add `implementedBy:` on `Part`/`PartDef` to point at the source code that realises each element (§12.8); the validator flags missing paths with `W023`
+6. **Link implementation** — add `implementedBy:` on `Part`/`PartDef`/`Interface`/`InterfaceDef` to point at the source artifact that realises each element (§12.8); the validator flags missing paths with `W023`
 7. **Write test cases** — create `TestCase` elements with `verifies:` and Gherkin bodies
 8. **Draw diagrams** — create `Diagram` elements; add `layout:` for SVG rendering
 9. **Validate** — run the validator; fix all errors; review warnings
@@ -104,6 +104,11 @@ Its shape:
 ## Further reading
 
 - [Requirements & Test Cases](requirements.md) — stable IDs, lifecycle, Gherkin
-- [Traceability](traceability.md) — the seven §12 rules, including `implementedBy:`/`W023`
+- [Traceability](traceability.md) — the seven §12 rules, including `implementedBy:`/`W023`, plus suspect-link detection (`traceBaselines:`/`W090`, the `suspect` commands)
 - [Architecture Decisions](adrs.md) — ADR lifecycle and breakdown rules
+- [State Machines](state-machines.md) — `StateDef` transitions, hierarchy/parallel regions, the `W070`–`W079` completeness checks
 - [Variability & Product Lines](variability.md) — feature models, `appliesWhen`, `matrix`, `feature-check`, the `--config` lens
+- [Multi-Repository Composition](multi-repo.md) — `[repos]`, `repoImports:`, cross-repo resolution, the `E510`–`E515`/`W510`–`W512` reproducibility gates, git-submodule integration
+- [Native SysMLv2 Submodels](sysmlv2-submodel.md) — `sysmlSubmodel: true`, in-process `.sysml`/`.kerml` parsing, `satisfy`/`verify`/`@SyscribeFeature` cross-references, the `W540`/`W541` diagnostics
+- [Foreign-Format Plugins (stdio)](stdio-plugins.md) — `foreignFormat:`, `[plugins.<alias>]`, the JSON stdio envelope, `E550`/`E551`/`W550`–`W553`/`E108`
+- [MagicGrid](magicgrid.md) — the B/W/S × 1-4 overlay (`mg_` custom fields), MoEs/MoPs, logical/physical layers, the `magicgrid` / `trade-study` reports

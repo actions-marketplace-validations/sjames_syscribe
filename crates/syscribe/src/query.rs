@@ -84,13 +84,17 @@ pub fn type_label(et: &ElementType) -> &'static str {
         ElementType::RequirementDef => "RequirementDef",
         ElementType::TestCase => "TestCase",
         ElementType::ADR => "ADR",
+        ElementType::Baseline => "Baseline",
+        ElementType::PlanningItem => "PlanningItem",
         ElementType::Package => "Package",
         ElementType::Allocation => "Allocation",
         ElementType::AllocationDef => "AllocationDef",
         ElementType::FlowDef => "FlowDef",
         ElementType::EnumerationDef => "EnumerationDef",
         ElementType::AttributeDef => "AttributeDef",
+        ElementType::Attribute => "Attribute",
         ElementType::FeatureDef => "FeatureDef",
+        ElementType::FeatureModel => "FeatureModel",
         ElementType::Configuration => "Configuration",
         ElementType::StateDef => "StateDef",
         ElementType::UseCaseDef => "UseCaseDef",
@@ -128,6 +132,8 @@ pub fn type_label(et: &ElementType) -> &'static str {
         ElementType::AssumptionOfUse => "AssumptionOfUse",
         // TARA container
         ElementType::TARASheet => "TARASheet",
+        // Asset identification (ISO/SAE 21434 §15.3)
+        ElementType::Asset => "Asset",
         // Tier 2
         ElementType::HazardousEvent => "HazardousEvent",
         ElementType::SafetyGoal => "SafetyGoal",
@@ -137,6 +143,16 @@ pub fn type_label(et: &ElementType) -> &'static str {
         ElementType::SecurityControl => "SecurityControl",
         ElementType::VulnerabilityReport => "VulnerabilityReport",
         ElementType::ConfirmationMeasure => "ConfirmationMeasure",
+        // Previously fell through to "Other" (mislabelled in show/list) — GH #42 follow-up.
+        ElementType::ConcernDef => "ConcernDef",
+        ElementType::Concern => "Concern",
+        ElementType::CaseDef => "CaseDef",
+        ElementType::EventOccurrenceDef => "EventOccurrenceDef",
+        ElementType::EventOccurrence => "EventOccurrence",
+        ElementType::SuccessionDef => "SuccessionDef",
+        ElementType::RenderingDef => "RenderingDef",
+        ElementType::ExhibitState => "ExhibitState",
+        ElementType::BindingConnector => "BindingConnector",
         _ => "Other",
     }
 }
@@ -161,6 +177,152 @@ fn yaml_strings(v: &serde_yaml::Value) -> Vec<String> {
         }
         _ => vec![],
     }
+}
+
+// ── Custom fields (GH #39) ─────────────────────────────────────────────────────
+
+/// Render a single YAML *scalar* (string/number/bool/null) as its plain string
+/// form. Non-scalars fall back to `serde_yaml`'s compact representation (used
+/// as a defensive default — well-shaped custom fields are scalars or lists
+/// thereof, but this is also reused for `evidence:`, which may legitimately
+/// carry a `ref:`/`path:`/`rationale:` mapping entry). Callers print this
+/// inline in a `|`-delimited markdown table cell, so the fallback's multi-line
+/// YAML dump is collapsed onto one line — a raw embedded newline would break
+/// the table row.
+fn yaml_scalar_string(v: &serde_yaml::Value) -> String {
+    match v {
+        serde_yaml::Value::Null => "null".to_string(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::String(s) => s.clone(),
+        other => serde_yaml::to_string(other)
+            .unwrap_or_default()
+            .trim()
+            .replace('\n', "; "),
+    }
+}
+
+/// Render a custom-field value for display: scalars inline, lists comma-joined.
+fn custom_field_display(v: &serde_yaml::Value) -> String {
+    match v {
+        serde_yaml::Value::Sequence(items) => items
+            .iter()
+            .map(yaml_scalar_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+        other => yaml_scalar_string(other),
+    }
+}
+
+/// A parsed `--where` predicate over the `custom.<key>` namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CustomWhere {
+    /// `custom.<key>` — the field is present (any value).
+    Present { key: String },
+    /// `custom.<key>=<val>` — scalar equals val, or any list element equals val.
+    Eq { key: String, val: String },
+    /// `custom.<key>=~<pat>` — regex (or substring fallback) match on the value's
+    /// string form (scalar string, or the comma-joined list form).
+    Regex { key: String, pat: String },
+    /// `custom.<key>~=<val>` — list membership: the list contains val (also true
+    /// when a scalar field equals val).
+    Member { key: String, val: String },
+}
+
+/// Parse a `--where` argument. Operators are matched longest-first so the two-char
+/// spellings (`=~`, `~=`) win over the one-char `=`. Returns `Err(message)` for an
+/// unparseable predicate (missing `custom.` prefix, empty key).
+///
+/// Operator precedence (checked in this order): `=~`, then `~=`, then `=`, then the
+/// bare presence form. `=~` uses the `regex` crate; an invalid regex pattern falls
+/// back to a plain substring test (so any literal pattern still works).
+pub fn parse_custom_where(arg: &str) -> Result<CustomWhere, String> {
+    let body = arg.strip_prefix("custom.").ok_or_else(|| {
+        format!("--where predicate must address the `custom.<key>` namespace: '{arg}'")
+    })?;
+
+    let mk_key = |k: &str| -> Result<String, String> {
+        if k.is_empty() {
+            Err(format!("--where predicate has an empty custom-field key: '{arg}'"))
+        } else {
+            Ok(k.to_string())
+        }
+    };
+
+    // Longest operators first: `=~` and `~=` before `=`.
+    if let Some((k, pat)) = body.split_once("=~") {
+        return Ok(CustomWhere::Regex { key: mk_key(k)?, pat: pat.to_string() });
+    }
+    if let Some((k, val)) = body.split_once("~=") {
+        return Ok(CustomWhere::Member { key: mk_key(k)?, val: val.to_string() });
+    }
+    if let Some((k, val)) = body.split_once('=') {
+        return Ok(CustomWhere::Eq { key: mk_key(k)?, val: val.to_string() });
+    }
+    // Bare presence form.
+    Ok(CustomWhere::Present { key: mk_key(body)? })
+}
+
+/// The custom-field key a predicate addresses.
+fn custom_where_key(pred: &CustomWhere) -> &str {
+    match pred {
+        CustomWhere::Present { key }
+        | CustomWhere::Eq { key, .. }
+        | CustomWhere::Regex { key, .. }
+        | CustomWhere::Member { key, .. } => key,
+    }
+}
+
+/// Evaluate a predicate against a concrete YAML value (the field is present).
+fn custom_where_value_matches(value: &serde_yaml::Value, pred: &CustomWhere) -> bool {
+    match pred {
+        CustomWhere::Present { .. } => true,
+        CustomWhere::Eq { val, .. } => match value {
+            serde_yaml::Value::Sequence(items) => {
+                items.iter().any(|x| &yaml_scalar_string(x) == val)
+            }
+            other => &yaml_scalar_string(other) == val,
+        },
+        CustomWhere::Regex { pat, .. } => {
+            let hay = custom_field_display(value);
+            match regex::Regex::new(pat) {
+                Ok(re) => re.is_match(&hay),
+                // Invalid regex → substring fallback so literal patterns still work.
+                Err(_) => hay.contains(pat),
+            }
+        }
+        CustomWhere::Member { val, .. } => match value {
+            serde_yaml::Value::Sequence(items) => {
+                items.iter().any(|x| &yaml_scalar_string(x) == val)
+            }
+            // A scalar field "contains" val iff it equals val.
+            other => &yaml_scalar_string(other) == val,
+        },
+    }
+}
+
+/// True when `elem`'s `custom_fields` satisfy the predicate. An element without the
+/// named field never matches (including the presence form).
+pub fn custom_field_matches(elem: &RawElement, pred: &CustomWhere) -> bool {
+    match elem.frontmatter.custom_fields.get(custom_where_key(pred)) {
+        Some(value) => custom_where_value_matches(value, pred),
+        None => false,
+    }
+}
+
+/// Like [`custom_field_matches`] but also consults the top-level `extra` catch-all
+/// (unknown frontmatter keys), so a predicate over a plain top-level key such as
+/// `custom.customKey=keepme` matches. Used by the MCP `search` tool's `where`
+/// filter; the CLI keeps the stricter `custom_fields`-only [`custom_field_matches`].
+pub fn custom_or_extra_matches(elem: &RawElement, pred: &CustomWhere) -> bool {
+    let key = custom_where_key(pred);
+    if let Some(value) = elem.frontmatter.custom_fields.get(key) {
+        return custom_where_value_matches(value, pred);
+    }
+    if let Some(value) = elem.frontmatter.extra.get(key) {
+        return custom_where_value_matches(value, pred);
+    }
+    false
 }
 
 fn doc_excerpt(doc: &str, max: usize) -> String {
@@ -267,10 +429,6 @@ pub fn fuzzy_score(elem: &RawElement, pattern: &str) -> u32 {
     }
     // qname contains
     if qn_lc.contains(&pat_lc) { return 65; }
-    // title contains
-    if let Some(t) = &elem.frontmatter.title {
-        if t.to_lowercase().contains(&pat_lc) { return 50; }
-    }
     // name contains
     if let Some(nm) = &elem.frontmatter.name {
         if nm.to_lowercase().contains(&pat_lc) { return 48; }
@@ -279,8 +437,13 @@ pub fn fuzzy_score(elem: &RawElement, pattern: &str) -> u32 {
     if qn.split("::").any(|seg| seg.to_lowercase().starts_with(&pat_lc)) {
         return 35;
     }
-    // Doc body (first 2000 chars)
-    let doc_slice = &elem.doc[..elem.doc.len().min(2000)];
+    // Doc body (first ~2000 bytes). Round the cap down to a UTF-8 char
+    // boundary so a multi-byte character straddling byte 2000 does not panic.
+    let mut cap = elem.doc.len().min(2000);
+    while cap > 0 && !elem.doc.is_char_boundary(cap) {
+        cap -= 1;
+    }
+    let doc_slice = &elem.doc[..cap];
     if doc_slice.to_lowercase().contains(&pat_lc) { return 15; }
 
     0
@@ -322,13 +485,30 @@ fn outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
         }
     }
     if let Some(ref s) = fm.breakdown_adr { out.push(("breakdownAdr".into(), s.clone())); }
-    if let Some(ref g) = fm.derived_from_security_goal { out.push(("derivedFromSecurityGoal".into(), g.clone())); }
+    if let Some(ref g) = fm.derived_from_cybersecurity_goal { out.push(("derivedFromCybersecurityGoal".into(), g.clone())); }
     if let Some(ref g) = fm.derived_from_safety_goal { out.push(("derivedFromSafetyGoal".into(), g.clone())); }
     if let Some(ref ss) = fm.supports {
         for s in ss { out.push(("supports".into(), s.clone())); }
     }
+    // PlanningItem (ADR-SYS-PLANITEM-001): parent: (single scalar — the strict
+    // single-parent tree) and achieves: (one or more Requirements). Both are
+    // ordinary outbound cross-references; without these, `refs <target>` never
+    // surfaces a PlanningItem's children or which items achieve a Requirement.
+    if let Some(ref p) = fm.parent { out.push(("parent".into(), p.clone())); }
+    if let Some(ref ach) = fm.achieves {
+        for s in ach { out.push(("achieves".into(), s.clone())); }
+    }
+    if let Some(ref bs) = fm.blocked_by {
+        for s in bs { out.push(("blockedBy".into(), s.clone())); }
+    }
     if let Some(ref ev) = fm.evidence {
-        for s in ev { out.push(("evidence".into(), s.clone())); }
+        // Argument.evidence entries are scalar refs; PlanningItem.evidence
+        // entries are ref:/path:/rationale: mappings, not cross-reference
+        // strings in their own right, so they are skipped here (this listing
+        // is specifically the element's outbound scalar cross-references).
+        for s in ev.iter().filter_map(|v| v.as_str()) {
+            out.push(("evidence".into(), s.to_string()));
+        }
     }
     if let Some(ref at) = fm.applies_to {
         for s in at { out.push(("appliesTo".into(), s.clone())); }
@@ -346,6 +526,8 @@ fn outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
         for s in impls { out.push(("implementedBy".into(), s.clone())); }
     }
     if let Some(ref s) = fm.subject { out.push(("subject".into(), s.clone())); }
+    if let Some(ref r) = fm.fmea_ref { out.push(("fmeaRef".into(), r.clone())); }
+    if let Some(ref r) = fm.fta_ref { out.push(("ftaRef".into(), r.clone())); }
     if let Some(ref cl) = fm.clients {
         for s in cl { out.push(("clients".into(), s.clone())); }
     }
@@ -400,7 +582,13 @@ fn outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
 
 // ── cmd: show ─────────────────────────────────────────────────────────────────
 
-pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
+pub fn cmd_show(
+    elements: &[RawElement],
+    resolver: &Resolver,
+    val: &ValidationResult,
+    config: &syscribe_model::config::ValidateConfig,
+    key: &str,
+) {
     let Some(elem) = resolve(elements, resolver, key) else {
         eprintln!("Element not found: {key}");
         eprintln!("Tip: use `find` to search by partial name.");
@@ -418,6 +606,29 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     if let Some(ref id) = fm.id { println!("| **id** | {} |", id); }
     if let Some(ref t) = fm.title { println!("| **title** | {} |", t); }
     if let Some(ref s) = fm.status { println!("| **status** | {} |", s); }
+    // Applied stereotypes (MetadataDef applications, REQ-TRS-META-001) as «Name» banners.
+    {
+        let apps = syscribe_model::element::metadata_applications(&fm.metadata);
+        if !apps.is_empty() {
+            let parts: Vec<String> = apps
+                .iter()
+                .map(|a| {
+                    let nm = a.def.rsplit("::").next().unwrap_or(&a.def);
+                    if a.values.is_empty() {
+                        format!("«{}»", nm)
+                    } else {
+                        let vs: Vec<String> = a
+                            .values
+                            .iter()
+                            .map(|(k, v)| format!("{}={}", k, custom_field_display(v)))
+                            .collect();
+                        format!("«{}» {}", nm, vs.join(", "))
+                    }
+                })
+                .collect();
+            println!("| **stereotypes** | {} |", parts.join(", "));
+        }
+    }
     if let Some(ref refs) = fm.ext_ref { println!("| **extRef** | {} |", refs.join(", ")); }
     if fm.is_abstract == Some(true) { println!("| **abstract** | true |"); }
     if let Some(ref d) = fm.domain { println!("| **domain** | {} |", d); }
@@ -432,11 +643,32 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     if let Some(ref mul) = fm.multiplicity { println!("| **multiplicity** | {} |", mul); }
     if let Some(ref dir) = fm.direction { println!("| **direction** | {} |", dir); }
     if let Some(ref s) = fm.breakdown_adr { println!("| **breakdownAdr** | {} |", s); }
-    if let Some(ref g) = fm.derived_from_security_goal { println!("| **derivedFromSecurityGoal** | {} |", g); }
+    // PlanningItem (ADR-SYS-PLANITEM-001): itemType/parent/achieves/blockedBy
+    // were previously absent from `show`'s field dump entirely (evidence: and
+    // status: were already generic; these were not).
+    if let Some(ref it) = fm.item_type { println!("| **itemType** | {} |", it); }
+    if let Some(ref p) = fm.parent { println!("| **parent** | {} |", p); }
+    if let Some(ref ach) = fm.achieves { if !ach.is_empty() { println!("| **achieves** | {} |", ach.join(", ")); } }
+    if let Some(ref bs) = fm.blocked_by { if !bs.is_empty() { println!("| **blockedBy** | {} |", bs.join(", ")); } }
+    if let Some(ref who) = fm.assigned_to {
+        match config.users.get(who) {
+            Some(display_name) => println!("| **assignedTo** | {} ({}) |", who, display_name),
+            None => println!("| **assignedTo** | {} |", who),
+        }
+    }
+    if let Some(ref g) = fm.derived_from_cybersecurity_goal { println!("| **derivedFromCybersecurityGoal** | {} |", g); }
     if let Some(ref g) = fm.derived_from_safety_goal { println!("| **derivedFromSafetyGoal** | {} |", g); }
     if let Some(ref at) = fm.argument_type { println!("| **argumentType** | {} |", at); }
     if let Some(ref ss) = fm.supports { if !ss.is_empty() { println!("| **supports** | {} |", ss.join(", ")); } }
-    if let Some(ref ev) = fm.evidence { if !ev.is_empty() { println!("| **evidence** | {} |", ev.join(", ")); } }
+    if let Some(ref ev) = fm.evidence {
+        // Argument.evidence entries are scalars; PlanningItem.evidence entries
+        // are ref:/path:/rationale: mappings — yaml_scalar_string renders both
+        // (a mapping falls through to its compact YAML dump).
+        if !ev.is_empty() {
+            let rendered: Vec<String> = ev.iter().map(yaml_scalar_string).collect();
+            println!("| **evidence** | {} |", rendered.join(", "));
+        }
+    }
     if let Some(ref at) = fm.applies_to { if !at.is_empty() { println!("| **appliesTo** | {} |", at.join(", ")); } }
     if let Some(ref f) = fm.feature_model { println!("| **featureModel** | {} |", f); }
     if let Some(ref aw) = fm.applies_when {
@@ -557,6 +789,19 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
         }
     }
 
+    // subConfigurations (§14.7, ADR-SYS-HPLE-001) — the other Configuration(s)
+    // this one consolidates, local or via a loaded peer repo.
+    if let Some(ref subs) = fm.sub_configurations {
+        if !subs.is_empty() {
+            println!();
+            println!("## subConfigurations");
+            println!();
+            for sc in subs {
+                println!("- {}", sc);
+            }
+        }
+    }
+
     // Features table (inline feature declarations — not Configuration selections)
     if fm.element_type.as_ref() != Some(&ElementType::Configuration) {
     if let Some(ref feats) = fm.features {
@@ -580,6 +825,135 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
     }
     }
 
+    // Refined by (MagicGrid «refine», REQ-TRS-MG-001) — the use cases that
+    // `refines:` this requirement. Keyed by stable id when present, else qname.
+    let mg_key = fm.id.as_deref().unwrap_or(elem.qualified_name.as_str());
+    if let Some(ucs) = val.refined_by.get(mg_key) {
+        if !ucs.is_empty() {
+            println!();
+            println!("## Refined by");
+            println!();
+            println!("| Use Case | Type | Status |");
+            println!("|---|---|---|");
+            let mut sorted = ucs.clone();
+            sorted.sort();
+            for uc_ref in &sorted {
+                if let Some(uc) = resolve(elements, resolver, uc_ref) {
+                    let ty = tl(uc.frontmatter.element_type.as_ref());
+                    let st = uc.frontmatter.status.as_deref().unwrap_or("—");
+                    println!("| {} | {} | {} |", uc_ref, ty, st);
+                } else {
+                    println!("| {} | (not found) | — |", uc_ref);
+                }
+            }
+        }
+    }
+
+    // Refined by — MoPs (MagicGrid mopRefinedBy, REQ-TRS-MG-008) — the
+    // Measurements of Performance whose `mg_mop_refines:` names this MoE. Keyed by
+    // stable id when present, else qname (matches the validator's index_key).
+    let mop_key = fm.id.as_deref().unwrap_or(elem.qualified_name.as_str());
+    if let Some(mops) = val.mop_refined_by.get(mop_key) {
+        if !mops.is_empty() {
+            println!();
+            println!("## Refined by (MoP)");
+            println!();
+            println!("| MoP | Type | Status |");
+            println!("|---|---|---|");
+            let mut sorted = mops.clone();
+            sorted.sort();
+            for mop_ref in &sorted {
+                if let Some(mop) = resolve(elements, resolver, mop_ref) {
+                    let ty = tl(mop.frontmatter.element_type.as_ref());
+                    let st = mop.frontmatter.status.as_deref().unwrap_or("—");
+                    println!("| {} | {} | {} |", mop_ref, ty, st);
+                } else {
+                    println!("| {} | (not found) | — |", mop_ref);
+                }
+            }
+        }
+    }
+
+    // Actor participation (MagicGrid actorIn, REQ-TRS-MG-002) — surfaced like the
+    // requirement reverse indices: the use cases that name this part as an actor.
+    // Keyed by stable id when present, else qualified name (matches the validator).
+    let actor_key = fm.id.as_deref().unwrap_or(elem.qualified_name.as_str());
+    if let Some(ucs) = val.actor_in.get(actor_key) {
+        if !ucs.is_empty() {
+            println!();
+            println!("## Actor in");
+            println!();
+            println!("| Use Case | Type | Status |");
+            println!("|---|---|---|");
+            let mut sorted = ucs.clone();
+            sorted.sort();
+            for uc_ref in &sorted {
+                if let Some(uc) = resolve(elements, resolver, uc_ref) {
+                    let ty = tl(uc.frontmatter.element_type.as_ref());
+                    let st = uc.frontmatter.status.as_deref().unwrap_or("—");
+                    println!("| {} | {} | {} |", uc_ref, ty, st);
+                } else {
+                    println!("| {} | (not found) | — |", uc_ref);
+                }
+            }
+        }
+    }
+
+    // Allocated from (REQ-TRS-ALLOC-001) — the derived reverse index: every
+    // source element allocated to this target, aggregated over both authoring
+    // forms (`allocatedTo`-on-source and the standalone `Allocation` element).
+    // Keyed by stable id when present, else qname (matches the validator).
+    let alloc_key = fm.id.as_deref().unwrap_or(elem.qualified_name.as_str());
+    if let Some(srcs) = val.allocated_from.get(alloc_key) {
+        if !srcs.is_empty() {
+            println!();
+            println!("## Allocated from");
+            println!();
+            println!("| Source | Type | Status |");
+            println!("|---|---|---|");
+            let mut sorted = srcs.clone();
+            sorted.sort();
+            for src_ref in &sorted {
+                if let Some(src) = resolve(elements, resolver, src_ref) {
+                    let ty = tl(src.frontmatter.element_type.as_ref());
+                    let st = src.frontmatter.status.as_deref().unwrap_or("—");
+                    println!("| {} | {} | {} |", src_ref, ty, st);
+                } else {
+                    println!("| {} | (not found) | — |", src_ref);
+                }
+            }
+        }
+    }
+
+    // Derived fields (issue #60) — computed by the derive: block.
+    if !elem.derived.is_empty() {
+        println!();
+        println!("## Derived Fields");
+        println!();
+        println!("| Field | Value |");
+        println!("|---|---|");
+        let mut keys: Vec<_> = elem.derived.keys().collect();
+        keys.sort();
+        for key in keys {
+            if let Some(val) = elem.derived.get(key) {
+                println!("| {} | {} |", key, custom_field_display(val));
+            }
+        }
+    }
+
+    // Custom fields (GH #39) — read-only labelled section; scalars inline, lists
+    // comma-joined. Absent → no section. Keys render in sorted order (BTreeMap).
+    if !fm.custom_fields.is_empty() {
+        println!();
+        println!("## Custom Fields");
+        println!();
+        println!("| Field | Value |");
+        println!("|---|---|");
+        for (key, value) in &fm.custom_fields {
+            println!("| {} | {} |", key, custom_field_display(value));
+        }
+    }
+
     // Doc
     let doc = elem.doc.trim();
     if !doc.is_empty() {
@@ -592,8 +966,10 @@ pub fn cmd_show(elements: &[RawElement], resolver: &Resolver, key: &str) {
 
 // ── cmd: ls ──────────────────────────────────────────────────────────────────
 
-pub fn cmd_ls(elements: &[RawElement], parent: &str) {
-    let children = ns_children(elements, parent);
+pub fn cmd_ls(elements: &[RawElement], parent: &str, wheres: &[CustomWhere]) {
+    let mut children = ns_children(elements, parent);
+    // `--where` custom-field predicates (GH #39) — ANDed with each other.
+    children.retain(|c| wheres.iter().all(|w| custom_field_matches(c, w)));
     if children.is_empty() {
         if parent.is_empty() {
             eprintln!("No top-level elements found.");
@@ -698,15 +1074,18 @@ pub fn cmd_types(elements: &[RawElement]) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_list(
     elements: &[RawElement],
     type_filter: &str,
     scope: &str,
-    tag: Option<&str>,
+    tags: &[&str],
     feature: Option<&str>,
+    metadata: Option<&str>,
     status: Option<&str>,
     sil: Option<&str>,
     has_wcet: bool,
+    wheres: &[CustomWhere],
     json: bool,
 ) {
     // `--feature <F>`: keep only elements whose `appliesWhen:` names F as an
@@ -739,15 +1118,23 @@ pub fn cmd_list(
             label == type_filter_lc
         })
         .filter(|e| scope.is_empty() || e.qualified_name.starts_with(scope))
+        // Multi-tag AND: all specified tags must be present (REQ-TRS-TAG-002).
         .filter(|e| {
-            tag.is_none_or(|t| {
-                e.frontmatter
-                    .tags
-                    .as_ref()
-                    .is_some_and(|ts| ts.iter().any(|x| x == t))
-            })
+            tags.is_empty() || {
+                let elem_tags = e.frontmatter.tags.as_deref().unwrap_or(&[]);
+                tags.iter().all(|t| elem_tags.iter().any(|x| x == t))
+            }
         })
         .filter(|e| feature.is_none_or(|feat| gates_feature(e, feat)))
+        // `--metadata <Def>`: keep only elements that apply that stereotype (MetadataDef),
+        // matched by full ref or last `::` segment (REQ-TRS-META-001).
+        .filter(|e| {
+            metadata.is_none_or(|md| {
+                syscribe_model::element::metadata_applications(&e.frontmatter.metadata)
+                    .iter()
+                    .any(|a| a.def == md || a.def.rsplit("::").next() == Some(md))
+            })
+        })
         // `--status <s>`: keep only elements whose `status:` equals s exactly.
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         // `--sil <v>`: one flag covers SIL and ASIL — match when `silLevel`
@@ -760,17 +1147,23 @@ pub fn cmd_list(
         })
         // `--has-wcet`: keep only elements that declare a non-empty `wcet:`.
         .filter(|e| !has_wcet || e.frontmatter.wcet.as_deref().is_some_and(|w| !w.trim().is_empty()))
+        // `--where custom.<key>…` (GH #39): custom-field predicates, ANDed.
+        .filter(|e| wheres.iter().all(|w| custom_field_matches(e, w)))
         .collect();
 
     matches.sort_by_key(|e| e.qualified_name.as_str());
 
-    // `--json`: emit a JSON array of the (filtered) elements. Absent fields are
-    // emitted as null (serde skips nothing here; consumers treat null as absent).
+    let is_testcase = type_filter_lc == "testcase";
+    let is_aou = type_filter_lc == "assumptionofuse";
+
+    // `--json`: emit a JSON array of the (filtered) elements. TestCase gets
+    // extra fields a CI runner needs (REQ-TRS-OUT-014); other types get the
+    // generic set.
     if json {
         let items: Vec<_> = matches
             .iter()
             .map(|e| {
-                serde_json::json!({
+                let mut obj = serde_json::json!({
                     "qualifiedName": e.qualified_name,
                     "type": tl(e.frontmatter.element_type.as_ref()),
                     "name": e.frontmatter.name,
@@ -779,7 +1172,38 @@ pub fn cmd_list(
                     "silLevel": e.frontmatter.sil_level,
                     "asilLevel": e.frontmatter.asil_level,
                     "wcet": e.frontmatter.wcet,
-                })
+                });
+                if is_testcase {
+                    let verifies: Vec<&str> = e.frontmatter.verifies
+                        .as_deref().unwrap_or(&[])
+                        .iter().map(|v| v.as_str()).collect();
+                    let tags_list: Vec<&str> = e.frontmatter.tags
+                        .as_deref().unwrap_or(&[])
+                        .iter().map(|s| s.as_str()).collect();
+                    let tf = e.frontmatter.test_functions
+                        .as_deref().unwrap_or(&[]).to_vec();
+                    obj.as_object_mut().unwrap().extend([
+                        ("testLevel".into(), serde_json::json!(e.frontmatter.test_level)),
+                        ("verifies".into(), serde_json::json!(verifies)),
+                        ("tags".into(), serde_json::json!(tags_list)),
+                        ("sourceFile".into(), serde_json::json!(e.frontmatter.source_file)),
+                        ("testFunctions".into(), serde_json::json!(tf)),
+                    ]);
+                } else if is_aou {
+                    let applies_to: Vec<&str> = e.frontmatter.applies_to
+                        .as_deref().unwrap_or(&[])
+                        .iter().map(|s| s.as_str()).collect();
+                    let body = if e.doc.trim().is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        serde_json::json!(e.doc.trim())
+                    };
+                    obj.as_object_mut().unwrap().extend([
+                        ("appliesTo".into(), serde_json::json!(applies_to)),
+                        ("body".into(), body),
+                    ]);
+                }
+                obj
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&items).unwrap());
@@ -795,27 +1219,72 @@ pub fn cmd_list(
     let scope_note = if scope.is_empty() { String::new() } else { format!(" in `{scope}`") };
     println!("# {} elements{} ({})", type_filter, scope_note, matches.len());
     println!();
-    println!("| Qualified Name | Name / ID | Supertype / TypedBy | File |");
-    println!("|---|---|---|---|");
-    for e in &matches {
-        let label = e.frontmatter.title
-            .as_deref()
-            .or_else(|| e.frontmatter.id.as_deref())
-            .or_else(|| e.frontmatter.name.as_deref())
-            .unwrap_or("—");
-        let classifier = yaml_first_string(e.frontmatter.supertype.as_ref())
-            .or_else(|| yaml_first_string(e.frontmatter.typed_by.as_ref()))
-            .unwrap_or("—");
-        println!("| {} | {} | {} | {} |", e.qualified_name, label, classifier, e.file_path);
+
+    if is_testcase {
+        // TestCase-specific table: columns useful for test-execution planning
+        // (REQ-TRS-OUT-014).
+        println!("| ID | Name | Level | Status | Verifies | Tags |");
+        println!("|---|---|---|---|---|---|");
+        for e in &matches {
+            let id = e.frontmatter.id.as_deref().unwrap_or("—");
+            let name = e.frontmatter.name.as_deref().unwrap_or("—");
+            let level = e.frontmatter.test_level.as_deref().unwrap_or("—");
+            let status = e.frontmatter.status.as_deref().unwrap_or("—");
+            let verifies = {
+                let vs: Vec<&str> = e.frontmatter.verifies
+                    .as_deref().unwrap_or(&[])
+                    .iter().map(|v| v.as_str()).collect();
+                if vs.is_empty() { "—".to_string() } else { vs.join(", ") }
+            };
+            let tags_col = {
+                let ts: Vec<&str> = e.frontmatter.tags
+                    .as_deref().unwrap_or(&[])
+                    .iter().map(|s| s.as_str()).collect();
+                if ts.is_empty() { "—".to_string() } else { ts.join(", ") }
+            };
+            println!("| {} | {} | {} | {} | {} | {} |",
+                id, name, level, status, verifies, tags_col);
+        }
+    } else if is_aou {
+        // AssumptionOfUse SRAC-oriented table (REQ-TRS-OUT-015).
+        println!("| ID | Name | Applies To | Status |");
+        println!("|---|---|---|---|");
+        for e in &matches {
+            let id = e.frontmatter.id.as_deref().unwrap_or("—");
+            let name = e.frontmatter.name.as_deref().unwrap_or("—");
+            let status = e.frontmatter.status.as_deref().unwrap_or("—");
+            let applies = {
+                let ts: Vec<&str> = e.frontmatter.applies_to
+                    .as_deref().unwrap_or(&[])
+                    .iter().map(|s| s.as_str()).collect();
+                if ts.is_empty() { "—".to_string() } else { ts.join(", ") }
+            };
+            println!("| {} | {} | {} | {} |", id, name, applies, status);
+        }
+    } else {
+        println!("| Qualified Name | Name / ID | Supertype / TypedBy | File |");
+        println!("|---|---|---|---|");
+        for e in &matches {
+            let label = e.frontmatter.name
+                .as_deref()
+                .or(e.frontmatter.id.as_deref())
+                .unwrap_or("—");
+            let classifier = yaml_first_string(e.frontmatter.supertype.as_ref())
+                .or_else(|| yaml_first_string(e.frontmatter.typed_by.as_ref()))
+                .unwrap_or("—");
+            println!("| {} | {} | {} | {} |", e.qualified_name, label, classifier, e.file_path);
+        }
     }
     println!();
 }
 
-pub fn cmd_find(elements: &[RawElement], pattern: &str) {
+pub fn cmd_find(elements: &[RawElement], pattern: &str, wheres: &[CustomWhere]) {
     let mut scored: Vec<(u32, &RawElement)> = elements
         .iter()
         .map(|e| (fuzzy_score(e, pattern), e))
         .filter(|(s, _)| *s > 0)
+        // `--where` custom-field predicates (GH #39) — ANDed with the fuzzy match.
+        .filter(|(_, e)| wheres.iter().all(|w| custom_field_matches(e, w)))
         .collect();
 
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.qualified_name.cmp(&b.1.qualified_name)));
@@ -832,10 +1301,10 @@ pub fn cmd_find(elements: &[RawElement], pattern: &str) {
     println!("|---|---|---|---|");
     for (score, elem) in &scored {
         let type_str = tl(elem.frontmatter.element_type.as_ref());
-        // Prefer title or id as excerpt, fall back to doc
+        // Prefer name or id as excerpt, fall back to doc
         let excerpt = elem
             .frontmatter
-            .title
+            .name
             .as_deref()
             .map(|t| t.to_string())
             .or_else(|| {
@@ -923,7 +1392,7 @@ pub fn cmd_trace(
     let fm = &elem.frontmatter;
 
     let id = fm.id.as_deref().unwrap_or(&elem.qualified_name);
-    let title = fm.title.as_deref().unwrap_or("(no title)");
+    let title = fm.name.as_deref().unwrap_or("(no name)");
     let status = fm.status.as_deref().unwrap_or("—");
     let req_domain = fm.req_domain.as_deref().unwrap_or("—");
     let sil = fm.sil_level.map(|v| v.to_string()).unwrap_or("—".into());
@@ -947,7 +1416,7 @@ pub fn cmd_trace(
         for parent_ref in parents {
             if let Some(p) = resolve(elements, resolver, parent_ref) {
                 let p_id = p.frontmatter.id.as_deref().unwrap_or(&p.qualified_name);
-                let p_title = p.frontmatter.title.as_deref().unwrap_or("—");
+                let p_title = p.frontmatter.name.as_deref().unwrap_or("—");
                 let p_status = p.frontmatter.status.as_deref().unwrap_or("—");
                 println!("| {} | {} | {} |", p_id, p_title, p_status);
             } else {
@@ -963,7 +1432,7 @@ pub fn cmd_trace(
         println!();
         if let Some(adr) = resolve(elements, resolver, adr_ref) {
             let adr_id = adr.frontmatter.id.as_deref().unwrap_or(&adr.qualified_name);
-            let adr_title = adr.frontmatter.title.as_deref().unwrap_or("—");
+            let adr_title = adr.frontmatter.name.as_deref().unwrap_or("—");
             let adr_status = adr.frontmatter.status.as_deref().unwrap_or("—");
             println!("- **{}** — {} (`{}`)", adr_id, adr_title, adr_status);
         } else {
@@ -978,7 +1447,7 @@ pub fn cmd_trace(
         println!();
         if let Some(sg) = resolve(elements, resolver, sg_ref) {
             let sg_id = sg.frontmatter.id.as_deref().unwrap_or(&sg.qualified_name);
-            let sg_title = sg.frontmatter.title.as_deref().unwrap_or("—");
+            let sg_title = sg.frontmatter.name.as_deref().unwrap_or("—");
             let asil = sg.frontmatter.asil_level.as_deref()
                 .or_else(|| sg.frontmatter.sil_level.map(|_| "SIL").unwrap_or_default().into())
                 .unwrap_or("—");
@@ -992,12 +1461,12 @@ pub fn cmd_trace(
     }
 
     // ── Security Goal (derivedFromSecurityGoal) ──────────────────────────
-    if let Some(ref csg_ref) = fm.derived_from_security_goal {
-        println!("## Security Goal (`derivedFromSecurityGoal`)");
+    if let Some(ref csg_ref) = fm.derived_from_cybersecurity_goal {
+        println!("## Security Goal (`derivedFromCybersecurityGoal`)");
         println!();
         if let Some(csg) = resolve(elements, resolver, csg_ref) {
             let csg_id = csg.frontmatter.id.as_deref().unwrap_or(&csg.qualified_name);
-            let csg_title = csg.frontmatter.title.as_deref().unwrap_or("—");
+            let csg_title = csg.frontmatter.name.as_deref().unwrap_or("—");
             let cal = csg.frontmatter.cal_level.as_deref().unwrap_or("—");
             let prop = csg.frontmatter.security_property.as_deref().unwrap_or("—");
             println!("- **{}** — {} (`{}` · {})", csg_id, csg_title, cal, prop);
@@ -1017,7 +1486,7 @@ pub fn cmd_trace(
         sorted_children.sort();
         for cid in &sorted_children {
             if let Some(c) = resolve(elements, resolver, cid) {
-                let c_title = c.frontmatter.title.as_deref().unwrap_or("—");
+                let c_title = c.frontmatter.name.as_deref().unwrap_or("—");
                 let c_status = c.frontmatter.status.as_deref().unwrap_or("—");
                 let c_domain = c.frontmatter.req_domain.as_deref().unwrap_or("—");
                 println!("| {} | {} | {} | {} |", cid, c_title, c_status, c_domain);
@@ -1093,6 +1562,32 @@ pub fn cmd_trace(
                 println!("| {} | {} | {} | {} |", annotated, name, level, scenarios);
             } else {
                 println!("| {} | (not found) | — | — |", tc_id);
+            }
+        }
+        println!();
+    }
+
+    // ── Refined by (MagicGrid «refine», REQ-TRS-MG-001) ───────────────────
+    let refiners = val.refined_by.get(id).cloned().unwrap_or_default();
+    if refiners.is_empty() {
+        println!("## Refined by");
+        println!();
+        println!("_(none)_");
+        println!();
+    } else {
+        println!("## Refined by");
+        println!();
+        println!("| Use Case | Type | Status |");
+        println!("|---|---|---|");
+        let mut sorted_r = refiners.clone();
+        sorted_r.sort();
+        for uc_ref in &sorted_r {
+            if let Some(uc) = resolve(elements, resolver, uc_ref) {
+                let ty = tl(uc.frontmatter.element_type.as_ref());
+                let st = uc.frontmatter.status.as_deref().unwrap_or("—");
+                println!("| {} | {} | {} |", uc_ref, ty, st);
+            } else {
+                println!("| {} | (not found) | — |", uc_ref);
             }
         }
         println!();
@@ -1207,7 +1702,7 @@ pub fn cmd_why(
     for req_ref in &satisfies {
         if let Some(req) = resolve(elements, resolver, req_ref) {
             let id = req.frontmatter.id.as_deref().unwrap_or(&req.qualified_name);
-            let title = req.frontmatter.title.as_deref().unwrap_or("—");
+            let title = req.frontmatter.name.as_deref().unwrap_or("—");
             let status = req.frontmatter.status.as_deref().unwrap_or("—");
             let rd = req.frontmatter.req_domain.as_deref().unwrap_or("—");
             let sil = req.frontmatter.sil_level.map(|v| v.to_string()).unwrap_or("—".into());
@@ -1263,7 +1758,7 @@ pub fn cmd_who_verifies(
         return;
     };
     let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
-    let title = elem.frontmatter.title.as_deref().unwrap_or("(no title)");
+    let title = elem.frontmatter.name.as_deref().unwrap_or("(no name)");
 
     println!("# Verification: {}", id);
     println!();
@@ -1371,7 +1866,11 @@ pub fn cmd_refs(elements: &[RawElement], resolver: &Resolver, key: &str) {
     // (configuration-agnostic TestCases — no appliesWhen — run in every config).
     let mut runs_in: Vec<String> = Vec::new();
     if elem.frontmatter.element_type.as_ref() == Some(&ElementType::Configuration) {
-        let sel = elem.frontmatter.feature_selections();
+        let feat_alias = syscribe_model::variability::feature_id_to_qname(elements);
+        let sel = syscribe_model::variability::canon_selection(
+            &elem.frontmatter.feature_selections(),
+            &feat_alias,
+        );
         let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
         for other in elements {
             if other.frontmatter.element_type.as_ref() != Some(&ElementType::TestCase) {
@@ -1382,7 +1881,11 @@ pub fn cmd_refs(elements: &[RawElement], resolver: &Resolver, key: &str) {
                 .applies_when
                 .as_ref()
                 .and_then(|aw| syscribe_model::variability::applies_when_expr(aw).ok().flatten())
-            {
+                .map(|e| {
+                    e.canonicalize(&|q: &str| {
+                        syscribe_model::variability::canon_feature_ref(q, &feat_alias)
+                    })
+                }) {
                 None => true,
                 Some(expr) => expr.eval(&selected),
             };
@@ -1523,8 +2026,11 @@ pub fn profile_promoted<'a>(
 /// analyses (void/dead/core/false-optional/configuration-validity). Exit `0` when
 /// there are no error-severity findings, `1` otherwise. Dormant (exit 0 with a
 /// notice) when no FeatureDef.
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_feature_check(
     elements: &[RawElement],
+    config: &syscribe_model::config::ValidateConfig,
+    resolver: &Resolver,
     json: bool,
     deep: bool,
     count: bool,
@@ -1547,8 +2053,9 @@ pub fn cmd_feature_check(
 
     let mut findings = feature_model::check_feature_model(elements);
     // Parameter-binding validation (E203–E206/E222/W017) is shared with `validate`
-    // so a product line checked holistically also gets range/binding enforcement (GH #14).
-    findings.extend(syscribe_model::validator::parameter_binding_findings(elements));
+    // so a product line checked holistically also gets range/binding enforcement
+    // (GH #14), including the HPLE transitive-lookup extension (REQ-TRS-HPLE-002).
+    findings.extend(syscribe_model::validator::parameter_binding_findings(elements, config, resolver));
     let deep_rep = if deep {
         Some(feature_model::check_feature_model_deep(elements))
     } else {
@@ -1572,7 +2079,7 @@ pub fn cmd_feature_check(
     let warn_refs: Vec<&syscribe_model::validator::Finding> = findings.iter().filter(|f| f.severity == Severity::Warning).collect();
     let info_refs: Vec<&syscribe_model::validator::Finding> = findings.iter().filter(|f| f.severity == Severity::Info).collect();
     let denied = gate.denied(&warn_refs, &info_refs);
-    let over_max = gate.max_warnings.map_or(false, |m| warn_refs.len() > m);
+    let over_max = gate.max_warnings.is_some_and(|m| warn_refs.len() > m);
     let gate_tripped = !denied.is_empty() || over_max;
 
     let sev = |s: &Severity| match s {
@@ -1770,7 +2277,7 @@ pub fn cmd_validate(
     let result = validator::validate_with_config(elements, config);
 
     let findings: Vec<_> = result.findings.iter()
-        .filter(|f| file_filter.map_or(true, |ff| f.file.contains(ff)))
+        .filter(|f| file_filter.is_none_or(|ff| f.file.contains(ff)))
         .collect();
 
     let errors: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Error).copied().collect();
@@ -1789,7 +2296,7 @@ pub fn cmd_validate(
             }
         }
     }
-    let over_max = gate.max_warnings.map_or(false, |m| warnings.len() > m);
+    let over_max = gate.max_warnings.is_some_and(|m| warnings.len() > m);
     let gate_tripped = !denied.is_empty() || over_max;
 
     // Exit code: errors dominate (1), then gated warnings (2), else clean (0).
@@ -1893,7 +2400,7 @@ fn print_findings_report(
     let warnings: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Warning).collect();
     let infos: Vec<_> = findings.iter().filter(|f| f.severity == Severity::Info).collect();
     let denied = gate.denied(&warnings, &infos);
-    let over_max = gate.max_warnings.map_or(false, |m| warnings.len() > m);
+    let over_max = gate.max_warnings.is_some_and(|m| warnings.len() > m);
     let exit_code = if !errors.is_empty() {
         1
     } else if !denied.is_empty() || over_max {
@@ -1970,7 +2477,7 @@ pub fn cmd_validate_all_configs(
         .iter()
         .filter(|e| e.frontmatter.element_type.as_ref() == Some(&ElementType::Configuration))
         .collect();
-    configs.sort_by(|a, b| cfg_id(a).cmp(&cfg_id(b)));
+    configs.sort_by_key(|a| cfg_id(a));
 
     let mut any_error = false;
     let mut rows: Vec<(String, usize, usize)> = Vec::new();
@@ -2117,36 +2624,52 @@ pub fn cmd_check_ref(elements: &[RawElement], resolver: &Resolver, key: &str) {
     }
 }
 
-pub fn cmd_next_id(elements: &[RawElement], prefix: &str) {
+/// Next free stable id for `prefix`, e.g. `next_id_value(.., "REQ-FX")` → `REQ-FX-004`
+/// when `REQ-FX-001`/`REQ-FX-003` exist. Reused by the CLI `next-id` command and the
+/// MCP `next_id` tool so both compute identically.
+pub fn next_id_value(elements: &[RawElement], prefix: &str) -> String {
     let prefix_with_dash = format!("{}-", prefix.trim_end_matches('-'));
     let mut max_n: u32 = 0;
-    let mut found_any = false;
-
     for e in elements {
         if let Some(id) = e.frontmatter.id.as_deref() {
             if let Some(suffix) = id.strip_prefix(&prefix_with_dash) {
                 if let Ok(n) = suffix.parse::<u32>() {
-                    found_any = true;
-                    if n > max_n { max_n = n; }
+                    if n > max_n {
+                        max_n = n;
+                    }
                 }
             }
         }
     }
+    format!("{}{:03}", prefix_with_dash, max_n + 1)
+}
 
-    let next = max_n + 1;
-    println!("{}{:03}", prefix_with_dash, next);
+pub fn cmd_next_id(elements: &[RawElement], prefix: &str) {
+    let prefix_with_dash = format!("{}-", prefix.trim_end_matches('-'));
+    let found_any = elements.iter().any(|e| {
+        e.frontmatter
+            .id
+            .as_deref()
+            .and_then(|id| id.strip_prefix(&prefix_with_dash))
+            .is_some_and(|suffix| suffix.parse::<u32>().is_ok())
+    });
+
+    println!("{}", next_id_value(elements, prefix));
 
     if !found_any {
         eprintln!("(no existing IDs with prefix '{}' — starting from 001)", prefix_with_dash);
     }
 }
 
-pub fn cmd_template(type_name: &str) {
+/// The skeleton frontmatter+body for a known element type, or `None` for an
+/// unknown type (and for `FMEAEntry`, which is synthesised from a `FMEASheet`).
+/// Reused by the CLI `template` command and the MCP `template` tool.
+pub fn template_str(type_name: &str) -> Option<&'static str> {
     let out = match type_name.to_lowercase().as_str() {
         "requirement" => r#"---
 type: Requirement
 id: REQ-PREFIX-001
-title: "The system shall ..."
+name: "The system shall ..."
 status: draft
 requirementKind: system
 reqDomain: system
@@ -2157,6 +2680,7 @@ verificationMethod: test
 # derivedFrom:
 #   - REQ-PARENT-001
 # breakdownAdr: ADR-XXX-001
+# decompositionKind: independent   # ASIL D / SIL 4 decomposition: independent | redundant | diverse
 # derivedFromSafetyGoal: SG-PREFIX-001
 # derivedFromSecurityGoal: CSG-PREFIX-001
 ---
@@ -2170,9 +2694,11 @@ Why this requirement exists.
         "testcase" => r#"---
 type: TestCase
 id: TC-PREFIX-001
-title: "Verify that ..."
+name: "Verify that ..."
 status: draft
 testLevel: L5
+# securityTestMethod: fuzz   # optional (ISO/SAE 21434 §13.3): fuzz | penetration_test |
+#                            #   security_regression | vulnerability_scan | threat_modeling (W809 if other)
 coverageTarget: statement
 verifies:
   - REQ-PREFIX-001
@@ -2198,10 +2724,31 @@ Feature: ...
 > Tip: run `syscribe scaffold-gherkin TC-PREFIX-001 --fix` to auto-insert any
 > `Scenario:` blocks missing for the `testFunctions[].scenario` entries above.
 "#,
+        "testplan" => r#"---
+type: TestPlan
+id: TP-PREFIX-001
+name: "..."
+status: draft
+scope: integration   # unit|smoke|integration|hil|certification|security|regression
+# configurations: [CONF-PREFIX-001]   # the product variant(s); omit = config-agnostic
+# demonstrates:                        # optional: goals/requirements this plan evidences
+#   - SG-PREFIX-001
+testCases:                             # explicit members (TC-*)
+  - TC-PREFIX-001
+# selection:                           # optional additive query, unioned with testCases
+#   testLevels: [L3, L4]
+#   domains: [software]
+#   tags: [integration]
+---
+
+Objectives, entry/exit criteria, test environment and responsibilities.
+
+Inspect with `syscribe -m model/ testplan TP-PREFIX-001`.
+"#,
         "adr" => r#"---
 type: ADR
 id: ADR-PREFIX-001
-title: "Decision title"
+name: "Decision title"
 status: proposed
 ---
 
@@ -2216,6 +2763,106 @@ What was decided.
 ## Consequences
 
 What are the results of this decision?
+"#,
+        "planningitem" => r#"---
+type: PlanningItem
+id: PI-PREFIX-001
+name: "Short description of the work"
+status: todo               # todo | in_progress | blocked | done
+itemType: task              # bug | task | feature (optional)
+# A top-level item (no parent:) MUST set achieves: (E713/E714/E715).
+achieves:
+  - REQ-PREFIX-001
+# A child item sets parent: instead of achieves: (single-parent tree, E712 cycle check).
+# parent: PI-PREFIX-001
+# blockedBy:                # what this item is waiting on; permissively resolved like evidence.ref
+#   - PI-PREFIX-002
+# assignedTo: jdoe           # single Unix-style username (E723; optionally checked against [users] in .syscribe.toml)
+# evidence:                 # required (non-waived, resolving) on a leaf item claiming status: done (E719)
+#   - ref: TC-PREFIX-001
+#   - path: src/some_file.rs
+#     rationale: "Why this entry is waived instead of resolving"
+---
+
+Describe the work item. Inspect with `syscribe -m model/ show PI-PREFIX-001`.
+"#,
+        "zone" => r#"---
+type: Zone
+id: ZN-PREFIX-001
+name: "Control Zone"
+status: approved          # draft | review | approved | deprecated
+targetSL: 3               # required Security Level 1-4 (IEC 62443-3-3)
+# achievedSL: 2           # assessed SL (W950 if below targetSL)
+members:                  # PartDef/Part qnames or stable IDs in this zone
+  - Logical::PLCController
+# rationale: "SL 3 due to potential for significant process disruption."
+---
+
+What this security zone groups and why this Security Level.
+"#,
+        "conduit" => r#"---
+type: Conduit
+id: CD-PREFIX-001
+name: "ControlToField"
+status: approved          # draft | review | approved | deprecated
+fromZone: ZN-PREFIX-001
+toZone: ZN-PREFIX-002
+# achievedSL: 3           # SL of the conduit's boundary controls (W951 if below either zone)
+# protocols: [Modbus/TCP, OPC-UA]
+# implementedBy: [SC-FIREWALL-001]   # SecurityControl ids / architecture qnames
+---
+
+The communication channel between the two zones and its boundary controls.
+"#,
+        "reviewrecord" => r#"---
+type: ReviewRecord
+id: RR-PREFIX-001
+name: "Software Architecture Review — Sprint N"
+status: closed          # open | closed | waived
+reviewType: design_review   # design_review | requirements_review | hazard_review |
+                            #   test_readiness_review | inspection | walk_through
+reviewDate: "2026-01-01"
+# reviewedBy: [alice, bob]
+# recordedAt: "https://github.com/<org>/<repo>/pull/<n>"   # thin pointer to the review
+reviews:                # ≥1 element qnames / stable IDs covered by this review
+  - REQ-PREFIX-001
+# items:
+#   - id: RID-001
+#     description: "Action item description."
+#     disposition: closed   # open | closed | not_applicable
+#     closedBy: REQ-PREFIX-002
+---
+
+Summary of the review and its outcome (discussion lives in the linked `recordedAt` review).
+"#,
+        "tradestudy" => r#"---
+type: TradeStudy
+id: TRD-PREFIX-001
+name: "..."
+status: draft   # draft | review | complete
+# objective: REQ-PREFIX-001     # the Requirement this study informs
+# decision: ADR-PREFIX-001      # the ADR recording the selected alternative
+criteria:
+  - name: latency
+    weight: 0.5          # relative weight in [0,1]; need not sum to 1 (tool normalises)
+    direction: minimize  # maximize | minimize
+    unit: ms
+  - name: cost
+    weight: 0.5
+    direction: minimize
+    unit: USD
+alternatives:
+  - name: OptionA
+    # element: Physical::OptionA   # optional modeled element
+  - name: OptionB
+scores:
+  - { alternative: OptionA, criterion: latency, score: 10 }
+  - { alternative: OptionA, criterion: cost,    score: 5 }
+  - { alternative: OptionB, criterion: latency, score: 20 }
+  - { alternative: OptionB, criterion: cost,    score: 3 }
+---
+
+What this trade study evaluates and why.
 "#,
         "partdef" => r#"---
 type: PartDef
@@ -2305,6 +2952,7 @@ name: MyInterfaceDef
 #     type: Port
 #     typedBy: Interfaces::MyPortDef
 #     direction: in
+# implementedBy: include/my_interface.h   # path to header/IDL/source that defines this contract
 ---
 
 Description of this interface definition.
@@ -2461,15 +3109,74 @@ Description of this package.
 "#,
         "featuredef" => r#"---
 type: FeatureDef
+id: FEAT-MYFEATURE-001
 name: MyFeatureDef
 groupKind: optional
 # cardinality: "1"
 # parentFeature: Features::ParentFeatureDef
 # excludes:
 #   - Features::ConflictingFeatureDef
+# parameters:
+#   - name: myParam
+#     type: integer
+#     range: "1..100"
+#     default: 10
+#     buildVar: MY_PARAM   # emitted by build-config when feature is selected
+# buildExports:            # optional: build variables driven by this feature
+#   - var: ENABLE_MYFEATURE
+#     whenSelected: 1      # value when selected (default: 1)
+#     whenDeselected: 0    # omit this line to suppress the var when deselected
 ---
 
 Description of this feature definition.
+"#,
+        "featuremodel" => r#"---
+type: FeatureModel
+name: Features
+# Whole feature model authored as one flat sheet (REQ-TRS-FM-005), exploded
+# into ordinary FeatureDef elements — an alternative to one file per feature.
+# Each entry's `name:` is a DOT-separated path relative to this sheet, not a
+# single basic name: "Platform.CortexM" explodes to qname
+# Features::Platform::CortexM (the exploded element's own `name:` becomes just
+# "CortexM" — the leaf). An ancestor path prefix needs no entry of its own.
+# `id:` is optional here (unlike a plain per-file FeatureDef, still mandatory
+# there) — omitted, it's derived from the dotted name (e.g. FEAT-PLATFORM-
+# CORTEXM below); give an entry an explicit id: only where it needs to survive
+# a rename.
+featureTree:
+  - name: Platform
+    mandatory: true          # every product has a platform...
+    groupKind: alternative   # ...and picks exactly one child (XOR)
+    doc: "Optional prose — becomes this entry's Markdown body."
+  - name: Platform.CortexM
+    groupKind: optional
+  - name: Platform.RiscV
+    groupKind: optional
+  - name: Wdt
+    id: FEAT-WDT-LEGACY      # explicit id: overrides derivation
+    groupKind: optional
+    parameters:
+      - { name: timeoutMs, type: ScalarValues::Integer, range: "10..=5000" }
+
+# Cross-tree requires/excludes edges, kept as one reviewable section instead
+# of scattered across featureTree: entries (inline requires:/excludes: on an
+# entry above still works too — this is additive). `feature`/`requires`/
+# `excludes` resolve the same way: containing "::" = absolute qname; starting
+# with "FEAT" = stable id; otherwise a dotted path relative to this sheet.
+crossTreeConstraints:
+  - feature: Wdt
+    requires: [Platform.CortexM]
+
+# Cross-feature numeric constraints (§9.7) now belong directly on this sheet
+# too, instead of only on a plain Package _index.md:
+# parameterConstraints:
+#   - id: PC-EXAMPLE
+#     expression: "Features::Wdt.timeoutMs <= 5000"
+#     appliesWhen: Features::Wdt
+#     severity: error
+---
+
+Description of this feature model.
 "#,
         "itemdef" => r#"---
 type: ItemDef
@@ -2495,6 +3202,7 @@ Description of this item usage.
 type: Interface
 name: myInterface
 typedBy: Interfaces::MyInterfaceDef
+# implementedBy: src/my_interface.c   # path to source artifact implementing this interface
 ---
 
 Description of this interface usage.
@@ -2521,7 +3229,7 @@ Description of this attribute definition.
         "configuration" => r#"---
 type: Configuration
 id: CONF-PREFIX-001
-title: "My variant configuration"
+name: "My variant configuration"
 status: draft
 featureModel: Features::MyFeatureDef
 # features: a map of <FeatureDef qualified name>: true/false (§9.8).
@@ -2529,6 +3237,11 @@ featureModel: Features::MyFeatureDef
 features:
   Features::FeatureA: true
   Features::FeatureB: false
+# parameterBindings:          # bind FeatureDef parameter values for this variant
+#   Features::MyFeature.myParam: 42
+# buildOverrides:             # optional: config-level build variable overrides
+#   PRODUCT_VARIANT: "premium"  # applied last by build-config; wins on collision
+#   VERSION_STRING: "2.0.0"
 ---
 
 Description of this configuration.
@@ -2574,6 +3287,10 @@ type: Diagram
 name: MyDiagram
 diagramKind: IBD
 subject: SomePackage::SomeElement
+# svgMode: companion      # for Syscribe native SVG rendering
+# svgFile: ./MyDiagram.svg
+# pumlMode: companion      # for PlantUML source generation (syscribe plantuml)
+# pumlFile: ./MyDiagram.puml
 shapes:
   - id: shape-a
     ref: SomePackage::PartA
@@ -2581,6 +3298,10 @@ edges: []
 ---
 
 Describe the purpose and scope of this diagram.
+
+<!-- When using pumlMode: companion, add an img tag pointing to the anticipated SVG:
+<img src="./MyDiagram.svg" alt="MyDiagram" width="100%"/>
+-->
 "#,
         "view" => r#"---
 type: View
@@ -2658,7 +3379,7 @@ typedBy: Enumerations::MyEnumerationDef
         "faulttree" => r#"---
 type: FaultTree
 id: FT-PREFIX-001
-title: "Fault tree for [undesired top event]"
+name: "Fault tree for [undesired top event]"
 status: draft
 topEvent: SG-PREFIX-001     # SafetyGoal this tree analyses
 # missionTime: "1e9 h"
@@ -2681,7 +3402,7 @@ Describe the analysis scope and methodology.
         "faulttreegate" => r#"---
 type: FaultTreeGate
 id: FTG-PREFIX-001
-title: "OR gate — [description]"
+name: "OR gate — [description]"
 gateType: OR                # AND | OR | XOR | NOT | inhibit
 inputs:
   - FTG-PREFIX-002          # child gate (id or qname)
@@ -2695,7 +3416,7 @@ inputs:
         "faulttreeevent" => r#"---
 type: FaultTreeEvent
 id: FTE-PREFIX-001
-title: "[Component] [failure description]"
+name: "[Component] [failure description]"
 eventKind: basic            # basic | undeveloped | house
 # ref: Package::Component   # model element this failure belongs to
 # failureRate: 1.0e-9       # failures per hour (basic events)
@@ -2708,7 +3429,7 @@ eventKind: basic            # basic | undeveloped | house
         "attacktree" => r#"---
 type: AttackTree
 id: AT-PREFIX-001
-title: "Attack tree for [ThreatScenario]"
+name: "Attack tree for [ThreatScenario]"
 status: draft
 threatRef: TS-PREFIX-001     # ThreatScenario this tree substantiates (E917)
 ---
@@ -2730,7 +3451,7 @@ Describe the attack path analysis scope (ISO/SAE 21434 §15.7).
         "attacktreegate" => r#"---
 type: AttackTreeGate
 id: ATG-PREFIX-001
-title: "OR gate — [description]"
+name: "OR gate — [description]"
 gateType: OR                # AND (sequential path) | OR (alternatives)
 inputs:
   - ATG-PREFIX-002          # child gate (id or qname)
@@ -2744,7 +3465,7 @@ inputs:
         "attackstep" => r#"---
 type: AttackStep
 id: ATS-PREFIX-001
-title: "[Attacker action / sub-goal]"
+name: "[Attacker action / sub-goal]"
 attackFeasibility: medium   # high | medium | low | very_low
 ---
 
@@ -2754,7 +3475,7 @@ attackFeasibility: medium   # high | medium | low | very_low
         "fmeasheet" => r#"---
 type: FMEASheet
 id: FMEA-PREFIX-001
-title: "FMEA — [system or component name]"
+name: "FMEA — [system or component name]"
 status: draft
 entries:
   - id: FM-PREFIX-001
@@ -2762,10 +3483,10 @@ entries:
     failureMode: "Loss of output signal"
     effect: "No command issued"
     cause: "Software exception in main loop"
-    severity: 9             # 1–10
+    fmeaSeverity: 9         # 1–10
     occurrence: 3           # 1–10
     detection: 4            # 1–10
-    # rpn: 108              # computed automatically if omitted
+    # rpn: 108              # computed automatically as S×O×D if omitted
     recommendedAction: "Add watchdog monitor"
     # satisfies: REQ-PREFIX-001
   - id: FM-PREFIX-002
@@ -2773,7 +3494,7 @@ entries:
     failureMode: "Stuck-at-high output"
     effect: "False positive reading"
     cause: "Hardware fault"
-    severity: 7
+    fmeaSeverity: 7
     occurrence: 2
     detection: 6
     recommendedAction: "Add redundant sensor cross-check"
@@ -2783,38 +3504,35 @@ entries:
 
 Describe the system boundary and assumptions for this FMEA.
 "#,
-        "fmeaentry" => {
-            eprintln!("FMEAEntry elements are synthesised from FMEASheet entries — use `template FMEASheet` instead.");
-            std::process::exit(1);
-        }
+        "fmeaentry" => return None,
         "tarasheet" => r#"---
 type: TARASheet
 id: TARA-PREFIX-001
-title: "TARA — [system or asset name]"
+name: "TARA — [system or asset name]"
 status: draft
 damageTable:
   - id: DS-PREFIX-001
-    title: "Unauthorized [action] enables [damage]"
+    name: "Unauthorized [action] enables [damage]"
     damageSeverity: severe    # severe | major | moderate | negligible
     impactCategories:
       - safety                # safety | financial | operational | privacy
 threatTable:
   - id: TS-PREFIX-001
-    title: "Attacker [action] via [attack surface]"
+    name: "Attacker [action] via [attack surface]"
     attackFeasibility: medium # high | medium | low | very_low
     attackVector: network     # network | adjacent | local | physical
     damageScenarios:
       - DS-PREFIX-001
 goalTable:
   - id: CSG-PREFIX-001
-    title: "Ensure [security property] of [asset]"
+    name: "Ensure [security property] of [asset]"
     calLevel: CAL3            # CAL1 | CAL2 | CAL3 | CAL4
     securityProperty: integrity # confidentiality | integrity | availability | authenticity
     threatScenarios:
       - TS-PREFIX-001
 controlTable:
   - id: SC-PREFIX-001
-    title: "Implement [control mechanism]"
+    name: "Implement [control mechanism]"
     controlType: prevention   # prevention | detection | response | recovery
     implementsGoals:
       - CSG-PREFIX-001
@@ -2831,7 +3549,7 @@ Reference the threat modelling approach used (e.g. STRIDE, PASTA, TARA per ISO/S
         "hazardousevent" => r#"---
 type: HazardousEvent
 id: HE-PREFIX-001
-title: "Loss of [function] during [operating scenario]"
+name: "Loss of [function] during [operating scenario]"
 status: draft
 # ── ISO 26262 HARA parameters ──────────────────────────────────────────────
 # severity: S3         # S0 no injury | S1 light | S2 severe | S3 life-threatening
@@ -2855,7 +3573,7 @@ Why this event was identified in the HARA.
         "safetygoal" => r#"---
 type: SafetyGoal
 id: SG-PREFIX-001
-title: "Prevent [hazard] to avoid [harm]"
+name: "Prevent [hazard] to avoid [harm]"
 status: draft
 # ── Integrity level — choose one standard ─────────────────────────────────
 asilLevel: D           # ISO 26262: A | B | C | D
@@ -2874,14 +3592,29 @@ The system shall avoid [hazard] in all driving situations.
 
 Why this safety goal derives from the listed hazardous events.
 "#,
+        "asset" => r#"---
+type: Asset
+id: ASSET-PREFIX-001
+name: "What is being protected"
+status: draft
+cybersecurityProperties:  # confidentiality | integrity | availability | authenticity
+  - integrity
+assetOwner: Pkg::Subpkg::Component   # optional: owning architecture element (qname/id)
+relatedSafetyGoal: SG-PREFIX-001     # optional: SafetyGoal ref for safety<->security co-engineering
+---
+
+Describe the asset (ISO/SAE 21434 §15.3) and why its cybersecurity properties matter.
+"#,
         "damagescenario" => r#"---
 type: DamageScenario
 id: DS-PREFIX-001
-title: "Unauthorized [action] enables [damage]"
+name: "Unauthorized [action] enables [damage]"
 status: draft
 damageSeverity: severe    # severe | major | moderate | negligible
 impactCategories:
   - safety                # safety | financial | operational | privacy
+assets:                   # optional: Asset(s) this scenario damages (§15.3 -> §15.4 trace)
+  - ASSET-PREFIX-001
 ---
 
 Describe what damage could occur and to whom.
@@ -2889,7 +3622,7 @@ Describe what damage could occur and to whom.
         "threatscenario" => r#"---
 type: ThreatScenario
 id: TS-PREFIX-001
-title: "Attacker [action] via [attack surface]"
+name: "Attacker [action] via [attack surface]"
 status: draft
 attackFeasibility: medium  # high | medium | low | very_low
 attackVector: network      # network | adjacent | local | physical
@@ -2902,7 +3635,7 @@ Describe how the threat could be realized and which damage scenarios it enables.
         "cybersecuritygoal" => r#"---
 type: CybersecurityGoal
 id: CSG-PREFIX-001
-title: "Ensure [security property] of [asset]"
+name: "Ensure [security property] of [asset]"
 status: draft
 calLevel: CAL3            # CAL1 | CAL2 | CAL3 | CAL4
 securityProperty: integrity # confidentiality | integrity | availability | authenticity
@@ -2915,7 +3648,7 @@ The [asset] shall maintain [security property] against the identified threat sce
         "securitycontrol" => r#"---
 type: SecurityControl
 id: SC-PREFIX-001
-title: "Implement [control mechanism]"
+name: "Implement [control mechanism]"
 status: draft
 controlType: prevention   # prevention | detection | response | recovery
 implementsGoals:
@@ -2940,7 +3673,7 @@ allocatedFrom: SC-PREFIX-001   # this component implements this security control
         "confirmationmeasure" => r#"---
 type: ConfirmationMeasure
 id: CM-PREFIX-001
-title: "Independent functional-safety assessment of [work product]"
+name: "Independent functional-safety assessment of [work product]"
 status: planned          # planned | in_progress | completed
 measureType: functional_safety_assessment
 # measureType options:
@@ -2960,7 +3693,7 @@ a CAL4 CybersecurityGoal requires an I3 `cybersecurity_assessment` (else W039).
         "vulnerabilityreport" => r#"---
 type: VulnerabilityReport
 id: VR-PREFIX-001
-title: "Stack buffer overflow in [component]"
+name: "Stack buffer overflow in [component]"
 status: open              # open | mitigated | accepted | resolved
 # cvssScore: 8.1
 # cveId: CVE-2024-12345
@@ -2985,7 +3718,7 @@ How the vulnerability is being addressed.
         "argument" => r#"---
 type: Argument
 id: ARG-PREFIX-001
-title: "Argue that [claim]"
+name: "Argue that [claim]"
 status: draft
 argumentType: strategy   # claim | strategy | solution
 supports: SG-PREFIX-001  # the SafetyGoal or parent Argument this argues for
@@ -3000,17 +3733,30 @@ evidence discharges it. Render the full tree with `syscribe safety-case`.
         "assumptionofuse" => r#"---
 type: AssumptionOfUse
 id: AOU-PREFIX-001
-title: "Integrator provides [application condition]"
+name: "Integrator provides [application condition]"
 status: draft
-appliesTo: SG-PREFIX-001  # the SafetyGoal / Argument / Requirement this SRAC constrains
+appliesTo:
+  - SG-PREFIX-001  # SafetyGoal / Argument / Requirement this SRAC constrains
 ---
 
 A safety-related application condition (SRAC): a constraint the integrator must
 honour for the referenced goal/argument/requirement to hold.
 "#,
-        other => {
-            eprintln!("Unknown type '{}'. Known types:", other);
-            eprintln!("  Native elements:  Requirement, TestCase, ADR");
+        _ => return None,
+    };
+    Some(out)
+}
+
+pub fn cmd_template(type_name: &str) {
+    if type_name.eq_ignore_ascii_case("fmeaentry") {
+        eprintln!("FMEAEntry elements are synthesised from FMEASheet entries — use `template FMEASheet` instead.");
+        std::process::exit(1);
+    }
+    match template_str(type_name) {
+        Some(out) => print!("{}", out),
+        None => {
+            eprintln!("Unknown type '{}'. Known types:", type_name);
+            eprintln!("  Native elements:  Requirement, TestCase, TestPlan, ADR, PlanningItem");
             eprintln!("  Structural:       PartDef, Part, ItemDef, Item");
             eprintln!("  Interfaces:       PortDef, Port, InterfaceDef, Interface");
             eprintln!("  Connections:      ConnectionDef, Connection");
@@ -3028,10 +3774,10 @@ honour for the referenced goal/argument/requirement to hold.
             eprintln!("  Views:            ViewDef, View, ViewpointDef, Diagram");
             eprintln!("  Metadata:         MetadataDef, Metadata");
             eprintln!("  Packages:         Package, LibraryPackage, Namespace");
-            eprintln!("  PLE:              FeatureDef, Configuration");
+            eprintln!("  PLE:              FeatureDef, FeatureModel, Configuration");
             eprintln!("  Misc:             Dependency");
             eprintln!("  Safety (HARA):    HazardousEvent, SafetyGoal");
-            eprintln!("  Security (TARA):  DamageScenario, ThreatScenario, CybersecurityGoal,");
+            eprintln!("  Security (TARA):  Asset, DamageScenario, ThreatScenario, CybersecurityGoal,");
             eprintln!("                    SecurityControl, VulnerabilityReport, TARASheet");
             eprintln!("  FTA:              FaultTree, FaultTreeGate, FaultTreeEvent");
             eprintln!("  FMEA:             FMEASheet");
@@ -3040,8 +3786,7 @@ honour for the referenced goal/argument/requirement to hold.
             eprintln!("  Safety case (GSN): Argument, AssumptionOfUse");
             std::process::exit(1);
         }
-    };
-    print!("{}", out);
+    }
 }
 
 pub fn print_help() {
@@ -3054,7 +3799,7 @@ pub fn print_help() {
     println!("  model/                         Default fallback");
     println!();
     println!("Commands:");
-    println!("  (none)                         Full validation report (default)");
+    println!("  (none) / report                Full validation report (default)");
     println!("  validate [--json] [--file <f>] Validation findings only (errors + warnings)");
     println!("           [--deny <CODES>]      Treat the listed warning codes as gate failures (exit 2)");
     println!("           [--max-warnings <N>]  Fail (exit 2) when warnings exceed N");
@@ -3082,6 +3827,11 @@ pub fn print_help() {
     println!("                                 A per-config + overall coverage-% footer is printed (coverage object in --json).");
     println!("                                 With no feature model, falls back to a flat requirement/testcase view.");
     println!("  matrix --features [--json]     Feature × Configuration selection grid (cell ✓ where selected true)");
+    println!("  matrix --allocations [--json]  Allocation source × target matrix; rollup of unallocated sources /");
+    println!("                                 unused targets; logical→physical partition when mg_layer is present.");
+    println!("  magicgrid [--json]             MagicGrid B/W/S × 1-4 cell report over mg_cell; flags empty cells.");
+    println!("  trade-study [--json]           MoE-weighted trade study: mg_moe rows × Configuration columns, each");
+    println!("       [--config <id|qname> ...] cell VALUE (SCORE); rollup marks WINNER / FAIL. --config restricts columns.");
     println!("  features [--json]              Feature-model overview: every FeatureDef with groupKind, requires/excludes,");
     println!("                                 parameters and a 'selected in N/M' rollup. Notice + exit 0 with no feature model.");
     println!("  feature <qname|name> [--json]  Single-feature card: Gates (elements gating on it), Selected in (configs),");
@@ -3098,6 +3848,10 @@ pub fn print_help() {
     println!("                                 --count / --enumerate report the number of valid configurations.");
     println!("  configure <Configuration> [--json]  Assisted configuration: from a partial selection, report");
     println!("                                 satisfiability + forced/free features (exit 1 if contradictory).");
+    println!("  build-config --config <id>     Materialise a configuration's selection as build flags. --format <fmt>");
+    println!("       [--format <fmt>] [--prefix <p>] [--no-validate]  (default json); --prefix names the output; --no-validate");
+    println!("  build-config --all-configs     skips the per-variant validation. --all-configs emits every Configuration.");
+    println!("       [--format <fmt>] [--prefix <p>] [--no-validate]");
     println!("  diff --config <A> --config <B> Elements active in one configuration but not the other");
     println!("  audit [--json] [--profile <p>] Safety-readiness dashboard: requirement status split (overall +");
     println!("                                 per package), SIL/ASIL distribution, per-configuration coverage %,");
@@ -3120,6 +3874,8 @@ pub fn print_help() {
     println!("  next-id <id-prefix>            Print the next available stable ID for a prefix");
     println!("  template <type>                Print a ready-to-fill frontmatter skeleton for a type");
     println!("  scaffold-gherkin <TC> [--fix]  Generate/align Gherkin Scenario blocks from testFunctions");
+    println!("  applies-when <qname|id>        Show / set / clear an element's appliesWhen: gate. No flag = read-only");
+    println!("       [--set \"<expr>\" | --clear] [--dry-run] [--json]  (own + effective); --set writes, --clear removes.");
     println!("  move <src> <dest> [--dry-run]  Move an element/package to a new qname, rewriting all references");
     println!("  trace <qname|req-id>           Full traceability slice for a requirement");
     println!("        [--linked-only]          Ignore ingested results (default annotates verifying TCs with [pass]/[fail]/[unknown])");
@@ -3134,6 +3890,9 @@ pub fn print_help() {
     println!("  who-verifies <req-id>          Which test cases cover a requirement");
     println!("  verification-depth [--sil <v>] [--status <s>] [--min-levels N] [--json]");
     println!("                                 Per-requirement distinct verification levels + depth flag (gate with --min-levels)");
+    println!("                                 (composes with the --plan/--config lenses)");
+    println!("  testplan [<TP-id>] [--json]    TestPlan surface: list every TestPlan, or detail one (resolved members,");
+    println!("                                 in-scope requirements, per-config coverage grid, rolled-up verdict).");
     println!("  refs <qname|id>                What elements reference this element");
     println!("                                 (for a Configuration: also the TestCases that run in it)");
     println!("  co-analysis [--json]           Safety↔security co-engineering view (ISO 26262 ⇄ ISO/SAE 21434):");
@@ -3152,6 +3911,71 @@ pub fn print_help() {
     println!("                                 solution) that support it, their evidence (Requirements/TestCases with");
     println!("                                 ingested verdict), the AssumptionOfUse (SRAC) nodes, plus the implicit");
     println!("                                 SafetyGoal→Requirement→TestCase fold-in (works without Argument nodes).");
+    println!("  fmea report [--fmea-sheet <id>] [--json]");
+    println!("                                 FMEA worksheet rollup: per FMEAEntry the S/O/D ratings, computed RPN, and");
+    println!("                                 actions; --fmea-sheet restricts to one sheet, --json emits the document.");
+    println!("  fault-tree render <FaultTree-id>");
+    println!("                                 Render a FaultTree as an indented gate/event tree (AND/OR, λ, DC).");
+    println!();
+    println!("Architecture analysis:");
+    println!("  n2 [<qname>] [--depth N]       N² interface matrix (§16): in-scope PartDef/Part on the diagonal, the");
+    println!("     [--format text|html|json]   interfaces directed R→C off-diagonal. No qname = whole model; a qname =");
+    println!("     [--interfaces-only]         that composite's subpart types, expanded --depth levels (default 1).");
+    println!("     [--allocations]             --allocations adds allocatedTo edges; --interfaces-only drops empty parts.");
+    println!("  impact <qname|id>              Change-impact traversal (§17): every reachable node, its hop distance,");
+    println!("     [--direction downstream|upstream|both]  and the connecting edge kind. downstream = reverse links,");
+    println!("     [--depth N] [--kinds <csv>] upstream = forward links, both = union. --depth bounds hops; cycle-safe.");
+    println!("     [--format text|json|dot]");
+    println!("  behavioral-coverage [<scope>]  How completely active TestCases exercise behavioral elements (§20).");
+    println!("     [--depth N] [--uncovered-only]  --include-planned adds draft/review/approved tests in a column;");
+    println!("     [--include-planned]         --uncovered-only filters; --format text|json with a coverage %.");
+    println!("     [--format text|json]");
+    println!();
+    println!("IEC 62443 / security & supply chain:");
+    println!("  zones [--coverage] [--json]    Zone elements (§13) with targetSL/achievedSL, members, SL-gap status.");
+    println!("                                 --coverage adds a Zone × SecurityControl cross-table.");
+    println!("  conduits [--json]              Conduit elements with from/to zones, achievedSL, and SL-boundary check.");
+    println!("  sbom [--format cyclonedx|spdx] Software Bill of Materials (§18) from implementedBy: links. --include-tests");
+    println!("       [--config <C>] [--scope <qname>]  adds TestCase.sourceFile components; --config projects a variant;");
+    println!("       [--include-tests] [--output <f>]  --output writes a file (default stdout).");
+    println!("  export-reqif [--output <f>]    ReqIF 1.2 export (§21) of Requirement elements + packages for DOORS Next /");
+    println!("       [--scope <qname>] [--config <C>]  Jama / Polarion. --include-tests adds TEST_CASE + VERIFIED_BY;");
+    println!("       [--include-tests] [--zip]   --zip writes .reqifz; --output sets the path.");
+    println!();
+    println!("Reviews & multi-repo:");
+    println!("  reviews [<qname>] [--open-only] ReviewRecord surface (§19): list reviews + coverage. <qname> filters to");
+    println!("       [--coverage] [--json]       reviews covering an element; --open-only = open action items;");
+    println!("                                 --coverage = native-Requirement review-coverage cross-table.");
+    println!("  review <RR-id> [--json]        Show one ReviewRecord in full.");
+    println!("  repos [list] [--json]          Multi-repo composition (§14): list configured peer repos (path, ref,");
+    println!("  repos status [--json]          on-disk + sync status). status exits 2 on ref drift; sync runs git fetch +");
+    println!("  repos sync [--all | <alias>]   checkout <ref> for pinned repos (--all or a single alias).");
+    println!();
+    println!("Diagrams:");
+    println!("  render <diagram_path>          Render a Diagram element to stdout (Mermaid or SVG per diagramKind).");
+    println!("  diagram list [--type <T>] [--namespace <NS>]");
+    println!("                                 List candidate elements for diagram generation (type / namespace filters).");
+    println!("  diagram render <qname>         Render one element's diagram. --view full|ports|features|compact|name|");
+    println!("       [--output <f>] [--view <preset>]  requirement; --include-ports/--include-features <csv>; --min-width N.");
+    println!("  diagram measure <qnames>       Print computed box dimensions for a comma-separated list of qnames.");
+    println!("  diagram compose <layout.json|qname>  Compose a multi-element SVG from a layout file or Diagram element.");
+    println!("       [--output <f>] [--kind bdd|ibd|arch] [--emit-placement]");
+    println!("  diagram layout <placement.json|->    Resolve a placement file into a final layout (--compose pipes to SVG).");
+    println!("       [--output <f>] [--compose] [--kind bdd|ibd|arch] [--svg <f>]");
+    println!("  diagram seq <qname> [--output <f>]   Render a Sequence Diagram element to SVG.");
+    println!("  diagram req <root> [--depth N] Render a requirement-breakdown tree. --show-verify adds TestCases,");
+    println!("       [--show-verify] [--show-satisfy] [--output <f>]  --show-satisfy adds satisfying architecture.");
+    println!("  plantuml [<qname>] [--output <f>|-] [--dry-run]");
+    println!("                                 Generate PlantUML .puml from Diagram elements (batch, or single qname).");
+    println!("  plantuml render [--jar <path>] [--dry-run]");
+    println!("                                 Render companion .puml files to .svg via PlantUML (--jar / PLANTUML_JAR / PATH).");
+    println!();
+    println!("Documentation & extension hygiene:");
+    println!("  lint-docs <path>... [--json]   Scan external .md/.svg for stale element references (W099–W102).");
+    println!("  scripts list [--json]          Enumerate registered Rhai extension commands/checks.");
+    println!("  scripts run <command> [--json] Invoke a registered extension command and print its result.");
+    println!("  scripts validate [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors] [--json]");
+    println!("                                 Run every registered check (separate from the built-in validate).");
     println!();
     println!("Variability (§9, opt-in — dormant unless a FeatureDef is linked):");
     println!("  appliesWhen: <expr>            On any element/TestCase: a boolean expression over FeatureDef QNames");
@@ -3175,7 +3999,8 @@ pub fn print_help() {
     println!();
     println!("Options:");
     println!("  -m, --model <path>             Model root directory");
-    println!("  --agent-instructions           Print the LLM authoring prompt");
+    println!("  --agent-instructions [topic]   Print the LLM authoring prompt; topic 'magicgrid' teaches MagicGrid modeling");
+    println!("  --version, -V                  Print the tool version (also `syscribe version`)");
     println!("  --help, -h                     Show this help");
     println!();
     println!("Examples:");
@@ -3204,4 +4029,161 @@ pub fn print_help() {
     println!("  SYSCRIBE_MODEL=model/ syscribe validate");
     println!();
     println!("Detailed help: `syscribe help <command>` or `syscribe <command> --help` (e.g. `syscribe help audit`).");
+}
+
+#[cfg(test)]
+mod custom_where_tests {
+    use super::*;
+
+    fn elem_with(fields: &[(&str, serde_yaml::Value)]) -> RawElement {
+        let mut fm = syscribe_model::element::RawFrontmatter::default();
+        for (k, v) in fields {
+            fm.custom_fields.insert(k.to_string(), v.clone());
+        }
+        RawElement {
+            qualified_name: "Test::Elem".to_string(),
+            file_path: "Test/Elem.md".to_string(),
+            frontmatter: fm,
+            doc: String::new(),
+            parse_issue: None,
+            derived: std::collections::HashMap::new(),
+            derive_findings: Vec::new(),
+        }
+    }
+
+    fn s(v: &str) -> serde_yaml::Value {
+        serde_yaml::Value::String(v.to_string())
+    }
+    fn list(vs: &[&str]) -> serde_yaml::Value {
+        serde_yaml::Value::Sequence(vs.iter().map(|x| s(x)).collect())
+    }
+
+    #[test]
+    fn yaml_scalar_string_collapses_multiline_mapping_fallback() {
+        // A non-scalar entry (e.g. a PlanningItem-shaped evidence: mapping)
+        // must render as a single line -- callers embed this in a `|`-delimited
+        // markdown table cell, where a raw newline breaks the row.
+        let mut m = serde_yaml::Mapping::new();
+        m.insert(s("ref"), s("NotAScalar"));
+        m.insert(s("rationale"), s("tracked externally"));
+        let rendered = yaml_scalar_string(&serde_yaml::Value::Mapping(m));
+        assert!(!rendered.contains('\n'), "rendered value must not contain a raw newline: {:?}", rendered);
+        assert!(rendered.contains("ref: NotAScalar"), "rendered value should still be informative: {:?}", rendered);
+        assert!(rendered.contains("rationale"), "rendered value should still be informative: {:?}", rendered);
+    }
+
+    #[test]
+    fn fuzzy_score_doc_cap_survives_unicode_boundary() {
+        // A multi-byte char (é = 2 bytes) straddling the 2000-byte doc cap must
+        // not panic when the slice boundary lands mid-character.
+        let mut e = elem_with(&[]);
+        // 1999 ASCII bytes, then "é" (bytes 1999..2001) so byte 2000 is mid-char.
+        e.doc = "a".repeat(1999) + "ément trailing content";
+        assert!(!e.doc.is_char_boundary(2000));
+        // Must not panic; pattern absent → no doc-body hit.
+        let _ = fuzzy_score(&e, "zzz-not-present");
+        // Content before the cap is still searchable.
+        assert_eq!(fuzzy_score(&e, "aaaa"), 15);
+    }
+
+    #[test]
+    fn parse_precedence_longest_first() {
+        // `=~` wins over `=`
+        assert_eq!(
+            parse_custom_where("custom.k=~pat").unwrap(),
+            CustomWhere::Regex { key: "k".into(), pat: "pat".into() }
+        );
+        // `~=` wins over `=`
+        assert_eq!(
+            parse_custom_where("custom.k~=v").unwrap(),
+            CustomWhere::Member { key: "k".into(), val: "v".into() }
+        );
+        // bare `=`
+        assert_eq!(
+            parse_custom_where("custom.k=v").unwrap(),
+            CustomWhere::Eq { key: "k".into(), val: "v".into() }
+        );
+        // presence
+        assert_eq!(
+            parse_custom_where("custom.k").unwrap(),
+            CustomWhere::Present { key: "k".into() }
+        );
+    }
+
+    #[test]
+    fn parse_errors_on_bad_input() {
+        assert!(parse_custom_where("supplier=Bosch").is_err()); // missing custom. prefix
+        assert!(parse_custom_where("custom.=v").is_err()); // empty key
+        assert!(parse_custom_where("custom.").is_err()); // empty key, presence
+    }
+
+    #[test]
+    fn exact_scalar_and_list() {
+        let e = elem_with(&[("supplier", s("Bosch")), ("nums", list(&["A-1", "A-2"]))]);
+        let p = parse_custom_where("custom.supplier=Bosch").unwrap();
+        assert!(custom_field_matches(&e, &p));
+        let p = parse_custom_where("custom.supplier=Conti").unwrap();
+        assert!(!custom_field_matches(&e, &p));
+        // exact on a list: any element equals
+        let p = parse_custom_where("custom.nums=A-2").unwrap();
+        assert!(custom_field_matches(&e, &p));
+    }
+
+    #[test]
+    fn regex_and_substring_fallback() {
+        let e = elem_with(&[("cc", s("PWT-4471"))]);
+        // substring via regex
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.cc=~PWT").unwrap()));
+        // anchored regex
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.cc=~^PWT-\\d+$").unwrap()));
+        assert!(!custom_field_matches(&e, &parse_custom_where("custom.cc=~^XXX").unwrap()));
+        // invalid regex falls back to substring — literal "(" present? no, so false
+        assert!(!custom_field_matches(&e, &parse_custom_where("custom.cc=~(").unwrap()));
+    }
+
+    #[test]
+    fn member_list_and_scalar() {
+        let e = elem_with(&[("nums", list(&["A-1001", "A-1002"])), ("one", s("solo"))]);
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.nums~=A-1001").unwrap()));
+        assert!(!custom_field_matches(&e, &parse_custom_where("custom.nums~=A-9999").unwrap()));
+        // scalar membership = equality
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.one~=solo").unwrap()));
+    }
+
+    #[test]
+    fn presence_and_absence() {
+        let e = elem_with(&[("supplier", s("Bosch"))]);
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.supplier").unwrap()));
+        // absent field never matches, including presence
+        assert!(!custom_field_matches(&e, &parse_custom_where("custom.missing").unwrap()));
+        assert!(!custom_field_matches(&e, &parse_custom_where("custom.missing=x").unwrap()));
+    }
+
+    #[test]
+    fn number_scalar_renders_and_matches() {
+        let e = elem_with(&[("reviewCycle", serde_yaml::Value::Number(3.into()))]);
+        assert!(custom_field_matches(&e, &parse_custom_where("custom.reviewCycle=3").unwrap()));
+        assert_eq!(custom_field_display(&serde_yaml::Value::Number(3.into())), "3");
+    }
+}
+
+// Regression for #102: PlanningItem was a fully working native type (list/types/
+// validate all handled it) but template's dispatch had never been updated for it.
+#[cfg(test)]
+mod planning_item_template_tests {
+    use super::*;
+
+    #[test]
+    fn planning_item_has_a_template() {
+        let out = template_str("PlanningItem").expect("PlanningItem template");
+        assert!(out.contains("type: PlanningItem"));
+        assert!(out.contains("id: PI-"));
+        assert!(out.contains("status:"));
+    }
+
+    #[test]
+    fn planning_item_lookup_is_case_insensitive() {
+        assert!(template_str("planningitem").is_some());
+        assert!(template_str("PLANNINGITEM").is_some());
+    }
 }

@@ -1,9 +1,8 @@
 ---
 id: SG-SIL-002
 type: SafetyGoal
-name: Prevent signal clearance without verified conditions
 status: approved
-title: Prevent signal clearance unless all route conditions are verified
+name: Prevent signal clearance unless all route conditions are verified
 silLevel: 4
 safeState: Signal returns to most-restrictive aspect within one scan cycle
 ftti: 50ms

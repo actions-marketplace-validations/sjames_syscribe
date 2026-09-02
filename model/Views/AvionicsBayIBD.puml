@@ -1,0 +1,17 @@
+@startuml AvionicsBayIBD
+!include /home/sjames/playground/syscribe/.plantuml/sysml.iuml
+
+component "PowerDistributionUnit" as s_pdu [[https://github.com/sjames/syscribe/blob/main/model/UAV/Power/PowerDistributionUnit.md]]
+component "FlightController" as s_fc [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/FlightController.md]]
+component "PropulsionSystem" as s_prop [[https://github.com/sjames/syscribe/blob/main/model/UAV/Propulsion/PropulsionSystem.md]]
+component "IMU" as s_imu [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/IMU.md]]
+component "GPSReceiver" as s_gps [[https://github.com/sjames/syscribe/blob/main/model/UAV/Avionics/GPSReceiver.md]]
+component "GroundControlStation" as s_gcs [[https://github.com/sjames/syscribe/blob/main/model/GroundStation/GroundControlStation.md]]
+
+s_pdu --> s_fc : flow
+s_pdu --> s_imu : flow
+s_pdu --> s_gps : flow
+s_fc --> s_prop : flow
+s_fc --> s_gcs : flow
+
+@enduml

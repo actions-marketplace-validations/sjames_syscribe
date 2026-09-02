@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-ELEM-001
 type: Requirement
-name: Element Type Inventory
-title: Tool shall recognise all element types defined in §2
+name: Tool shall recognise all element types defined in §2
 status: draft
 reqDomain: software
 verificationMethod: test

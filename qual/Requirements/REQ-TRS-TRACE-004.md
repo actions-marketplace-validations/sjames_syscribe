@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-TRACE-004
 type: Requirement
-name: Leaf Requirement Unassigned Warning
-title: Tool shall emit W300 for an unassigned approved leaf Requirement
+name: Tool shall emit W300 for an unassigned approved leaf Requirement
 status: draft
 reqDomain: software
 verificationMethod: test

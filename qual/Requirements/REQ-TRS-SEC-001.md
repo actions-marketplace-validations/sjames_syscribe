@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-SEC-001
 type: Requirement
-name: Safety↔Security Co-Engineering (hazardRef, E844, W030, co-analysis)
-title: Tool shall cross-link damage/threat scenarios to hazards/safety goals and provide a co-analysis view
+name: Tool shall cross-link damage/threat scenarios to hazards/safety goals and provide a co-analysis view
 status: draft
 reqDomain: software
 verificationMethod: test

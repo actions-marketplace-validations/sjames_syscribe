@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-FMA-011
 type: Requirement
-name: DRAT Proof-Carrying Evidence for UNSAT Findings
-title: feature-check --deep shall optionally emit externally-checkable DRAT proofs for void and dead-feature findings
+name: feature-check --deep shall optionally emit externally-checkable DRAT proofs for void and dead-feature findings
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-MOVE-001
 type: Requirement
-name: Move Element or Package
-title: Tool shall move an element or package to a new qualified name
+name: Tool shall move an element or package to a new qualified name
 status: draft
 reqDomain: software
 verificationMethod: test

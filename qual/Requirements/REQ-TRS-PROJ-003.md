@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-PROJ-003
 type: Requirement
-name: Escaping-Reference Detection (Per-Configuration)
-title: validate --config shall flag references from active elements to elements inactive in the variant
+name: validate --config shall flag references from active elements to elements inactive in the variant
 status: draft
 reqDomain: software
 verificationMethod: test

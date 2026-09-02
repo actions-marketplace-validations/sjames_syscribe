@@ -1,8 +1,7 @@
 ---
 id: FT-MET-001
 type: FaultTree
-name: FT-MET-001
-title: Fault tree for SG-MET-001
+name: Fault tree for SG-MET-001
 topEvent: SG-MET-001
 status: approved
 ---

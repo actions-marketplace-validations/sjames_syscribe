@@ -84,6 +84,7 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe model/ tree [qname]` | Recursive namespace tree |
 | `syscribe model/ find <pattern>` | Fuzzy search by name / ID / content |
 | `syscribe model/ list <type> [scope] [--tag <t>]` | List elements of a type, optionally scoped; `--tag` filters by `tags:` |
+| `syscribe model/ ls\|find\|list … --where custom.<key>[op<val>]` | Filter by `custom_fields:` (`=` exact, `=~` regex/substring, `~=` list-membership, bare key = presence) |
 | `syscribe model/ types` | All element types present in the model with counts |
 | `syscribe model/ untyped` | List elements with no `type:` field set |
 | `syscribe model/ links <qname\|id>` | All outbound and inbound relationships |
@@ -121,6 +122,15 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe model/ co-analysis [--json]` | Safety↔security: which cyber threats can violate each SafetyGoal (via `hazardRef`) |
 | `syscribe model/ safety-case [<SG>] [--json]` | GSN goal→argument→evidence tree (Argument/AssumptionOfUse + implicit goal→req→test) |
 | `syscribe model/ connectivity <element> [--depth N] [--format text\|dot\|json]` | Element-rooted subgraph of elements + connections (model root = whole model) |
+| `syscribe model/ n2 [<qname>] [--depth N] [--format text\|html\|json] [--interfaces-only] [--allocations]` | N² interface matrix: parts on the diagonal, connecting interfaces in the cells |
+| `syscribe model/ impact <qname\|id> [--direction downstream\|upstream\|both] [--depth N] [--format text\|json\|dot] [--kinds <csv>]` | Change impact: every element reachable through the traceability graph, with hop distance + edge kind |
+| `syscribe model/ behavioral-coverage [<qname>] [--depth N] [--format text\|json] [--uncovered-only] [--include-planned]` | How completely active TestCases exercise ActionDef/StateDef behaviors (source/requirement/testFn/allocation paths) |
+| `syscribe model/ sbom [--format cyclonedx\|spdx] [--config <C>] [--output <f>] [--include-tests] [--scope <qname>]` | Software Bill of Materials from implementedBy: links (CycloneDX 1.6 / SPDX 2.3; registry URIs → PURLs) |
+| `syscribe model/ export-reqif [--output <f>] [--scope <qname>] [--config <C>] [--include-tests] [--zip]` | Export Requirements as a ReqIF 1.2 document (DOORS/Jama/Polarion interchange) |
+| `syscribe model/ zones [--coverage] [--json]` / `conduits [--json]` | IEC 62443 security zones (SL gap) and conduits (SL adequacy), with a Zone × SecurityControl coverage table |
+| `syscribe model/ repos [list\|status\|sync] [--json] [--all]` | Multi-repository composition (§14): list/sync peer repos from `[repos]` in `.syscribe.toml` |
+| `syscribe model/ reviews [<qname>] [--open-only] [--json]` / `review <RR-id>` / `reviews --coverage` | List/detail `ReviewRecord`s and their requirement coverage |
+| `syscribe model/ trade-study [<TRD-id>] [--json]` | List/score `TradeStudy` elements (normalised, weighted, ranked) |
 | `syscribe model/ extref <ref> [--json]` | Find elements by external reference (`extRef`) |
 | `syscribe model/ list <type> [--status <s>] [--sil <v>] [--has-wcet] [--json]` | (filters) status/integrity/WCET filters + JSON |
 | `syscribe model/ matrix [--gaps-only] [--status <s>] [--linked-only]` | (flags) drop covered rows; status filter; coverage-% footer; executed-evidence glyphs when results ingested |
@@ -197,7 +207,16 @@ Add `satisfies:` to architecture elements. Validate and fix any E312 (parent in 
 Write `Allocation` elements. Validate: fix E502/E503 (unresolved `allocatedFrom`/`allocatedTo`).
 
 **Batch 8 — Diagrams**
-Write `Diagram` elements after all model elements are in place. For Mermaid or embedded SVG diagrams, write the `.md` file directly. For `svgMode: companion` diagrams, use the 4-step CLI workflow: `diagram list` → `diagram measure` → author `*.layout.json` → `diagram compose --output <path>`, then commit both the `.md` and the generated `.svg`. Validate: fix E400, W402, W403, W408, W409.
+Write `Diagram` elements after all model elements are in place.
+
+- **Mermaid** — write the `.md` directly with a fenced ` ```mermaid ` block. Validate: fix E400, W408, W409.
+- **svgMode: companion** (composed SVG) — use the 4-step CLI workflow: `diagram list` → `diagram measure` → author `*.layout.json` → `diagram compose --output <path>`. Commit both `.md` and generated `.svg`.
+- **pumlMode: companion** (PlantUML) — preferred for BDD, IBD, StateMachine, Sequence, and Requirement diagrams. Set `pumlMode: companion` and `pumlFile: ./<Name>.puml`. Then run:
+  ```bash
+  syscribe -m model/ plantuml          # generates .puml files and injects ![name](./stem.svg) if absent
+  syscribe -m model/ plantuml render   # renders .puml → .svg (needs PLANTUML_JAR or plantuml on PATH)
+  ```
+  Commit the `.md` (with the auto-injected image link), the `.puml`, and the generated `.svg`. Validate: fix E403, E404, W413, W414.
 
 **Batch 9 — Resolve leaf PartDefs (closure pass)**
 After all architecture and requirement elements exist, verify that every leaf `PartDef`/`Part` is properly closed. See Part 7b for the full procedure. Validate: resolve all W300 (unassigned leaf requirements) and W301 (over-assigned leaf requirements).
@@ -336,7 +355,13 @@ One-line description of this package.
 | `Requirement` | native requirement | `Requirements/` |
 | `RequirementDef` | `requirement def` | `Requirements/` |
 | `TestCase` | native test case | `Verification/` |
+| `TestPlan` | native test plan (groups TestCases) | `TestPlans/` |
 | `ADR` | architecture decision | `Decisions/` |
+| `Baseline` | frozen, git-anchored release snapshot (BL-*; created by `baseline create`, not hand-authored) | `Baselines/` |
+| `ReviewRecord` | formal review event + traceability (RR-*) | `Reviews/` |
+| `TradeStudy` | weighted-criteria evaluation of alternatives (TRD-*) | `TradeStudies/` |
+| `Zone` | IEC 62443 security zone (ZN-*; `targetSL`, `members`) | `Security/Zones/` |
+| `Conduit` | IEC 62443 conduit between zones (CD-*; `fromZone`/`toZone`) | `Security/Zones/` |
 | `Allocation` | `allocation` | `Allocations/` |
 | `Diagram` | diagram | `Diagrams/` |
 | `HazardousEvent` | native hazard (HARA) | `Safety/HARA/` |
@@ -375,7 +400,8 @@ Key fields that apply to most element types:
 | Field | Notes |
 |---|---|
 | `type` | Required — one of the types in Part 2 |
-| `name` | Display name; defaults to filename stem if omitted |
+| `name` | The single human-readable label on **every** element type (`Requirement`, `TestCase`, `ADR`, `PartDef`, `Package`, `FeatureDef`, the safety/security types — all of them). For **name-identified** types (SysML structural types, `Package`, `Diagram`, `FeatureDef`) `name` is also the identity segment: it defaults to the filename stem and **must be a SysMLv2 basic name** `[A-Za-z_][A-Za-z0-9_]*` — letters/digits/`_`, no hyphens or spaces (use `_` or CamelCase: `Anti_Lock`, not `Anti-Lock`); a hyphen breaks `appliesWhen`/`parameterConstraints` references and non-basic names warn `W042`. For **id-identified** types (`Requirement`, `TestCase`, `TestPlan`, `Configuration`, `ADR`, `Baseline`, `ReviewRecord`, `TradeStudy`, `Zone`, `Conduit`, and the safety/security types) identity is the stable `id`, so `name` is **free prose** — spaces and punctuation allowed, `W042` does not apply — and is **required** on these types. |
+| `title` | **REMOVED — use `name`.** `title` is no longer a label field on any element; a stray `title:` is error `E025` ("rename it to `name`"). |
 | `supertype` | Specialisation link (`>` in SysML) |
 | `typedBy` | Type of a usage element (port, part, action, etc.) |
 | `isAbstract` | `true` for abstract definitions |
@@ -384,7 +410,25 @@ Key fields that apply to most element types:
 | `features` | Inline attributes or ports |
 | `connections` | Port bindings (on Part files) |
 | `satisfies` | List of `REQ-*` IDs this element satisfies |
-| `implementedBy` | Path(s) to the source code realising this Part/PartDef (string or list); missing local paths warn W023 |
+| `implementedBy` | Path(s) to the source artifact realising this Part/PartDef/Interface/InterfaceDef (string or list); missing local paths warn W023 |
+| `custom_fields` | Optional freeform user metadata (see below) |
+
+### `custom_fields:` — user-defined metadata
+
+Attach arbitrary metadata to any element under a `custom_fields:` map. Use this instead
+of inventing top-level keys (which are silently ignored).
+
+```yaml
+custom_fields:
+  supplier: Bosch
+  costCenter: PWT-4471
+  partNumbers: [A-1001, A-1002]   # lists of scalars allowed
+```
+
+- Keys are freeform; values must be a scalar or a list of scalars (a nested map warns `W041`).
+- Serialised in sorted order; read-only in the UI and `show`.
+- Query with `--where`: `syscribe model/ ls --where custom.supplier=Bosch` (also
+  `=~` regex/substring, `~=` list-membership, and bare `custom.key` presence).
 
 ### `domain:` field rules
 
@@ -400,8 +444,8 @@ Key fields that apply to most element types:
 
 | Field | Rule |
 |---|---|
-| `id` | Must match `^REQ(-[A-Z0-9]{2,12})+-[0-9]{3}$` — e.g. `REQ-SYS-001`, `REQ-AID-FC-001` |
-| `title` | Short human-readable description |
+| `id` | Must match `^REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}$` — e.g. `REQ-SYS-001`, `REQ-AID-FC-001` |
+| `name` | Short human-readable label — free prose (spaces/punctuation allowed) |
 | `status` | One of: `draft` · `review` · `approved` · `implemented` · `verified` |
 
 ### Optional fields
@@ -417,6 +461,7 @@ Key fields that apply to most element types:
 | `verificationMethod` | `test` · `inspection` · `analysis` · `demonstration` — required for ASIL B/C/D (W701). |
 | `derivedFrom` | List of parent Requirement `id`s — triggers §12 rules |
 | `breakdownAdr` | Qualified name of an `accepted` ADR — **required whenever `derivedFrom` is set** (E310); also required when integrity level is lower than the source (W808) |
+| `decompositionKind` | For an ASIL D / SIL 4 decomposition: `independent` · `redundant` · `diverse` (informational; shown in the `safety-case` report). The decomposition's siblings must satisfy **distinct** architecture elements (`E865`) and number **≥2** (`W860`). |
 
 ### Normative body rules
 
@@ -445,8 +490,8 @@ REQ-SYS-000  (parent — stakeholder goal, no derivedFrom, no reqDomain needed)
 
 | Field | Rule |
 |---|---|
-| `id` | Must match `^ADR(-[A-Z0-9]{2,12})+-[0-9]{3}$` |
-| `title` | Short description of the decision |
+| `id` | Must match `^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$` |
+| `name` | Short description of the decision — free prose |
 | `status` | `proposed` · `accepted` · `deprecated` · `superseded` |
 
 **ADR must be `accepted` before any Requirement can cite it in `breakdownAdr:`** (warning W303 if still `proposed`).
@@ -465,8 +510,8 @@ Body structure: `## Context`, `## Decision`, `## Consequences` (conventional —
 
 | Field | Rule |
 |---|---|
-| `id` | Must match `^TC(-[A-Z0-9]{2,12})+-[0-9]{3}$` |
-| `title` | Short description |
+| `id` | Must match `^TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}$` |
+| `name` | Short description — free prose |
 | `status` | `draft` · `review` · `approved` · `active` · `retired` |
 | `testLevel` | `L1` · `L2` · `L3` · `L4` · `L5` |
 | `verifies` | List of Requirement `id`s — **must not be empty** (error E013) |
@@ -480,6 +525,107 @@ Body structure: `## Context`, `## Decision`, `## Consequences` (conventional —
 **Getting the next ID:** `syscribe model/ next-id TC-AID-FC`
 
 **Template:** `syscribe model/ template TestCase`
+
+---
+
+## Part 6b — Native TestPlan (`type: TestPlan`)
+
+A `TestPlan` groups reusable `TestCase`s into the unit a team executes and reports
+against. It is a per-product artifact: typically one plan per `(configuration, scope)`.
+Place plans under `TestPlans/`.
+
+### Fields
+
+| Field | Rule |
+|---|---|
+| `id` | Required; must match `^TP(-[A-Z0-9]{2,12})+-[0-9]{3,8}$` |
+| `name` | Required — free prose label |
+| `status` | Required; `draft` · `review` · `approved` · `active` · `retired` |
+| `scope` | Optional; `unit` · `smoke` · `integration` · `hil` · `certification` · `security` · `regression` (other values warn `W610`). Distinguishes multiple plans over the same config. |
+| `configurations` | Optional; a `Configuration` id or list. Absent = applies to every configuration. Each must resolve (`E606`). |
+| `demonstrates` | Optional; goals/requirements this plan is evidence for (`E603` if unresolved). Not required. |
+| `testCases` | Optional; explicit `TC-*` members (`E601` if not a TestCase). |
+| `selection` | Optional additive query: `testLevels` (L1–L5), `domains` (system/hardware/software), `tags`. |
+
+Effective members = `testCases` ∪ `selection` matches. Membership of a config is still
+computed from each TestCase's own `appliesWhen:` — the plan only says which products it
+is *for*.
+
+### Tooling
+
+- `syscribe model/ testplan` — list plans (scope, configs, coverage %, verdict).
+- `syscribe model/ testplan TP-X [--json]` — per-plan detail.
+- `--plan TP-X` lens on `matrix`, `verification-depth`, `audit` (composes with `--config`).
+
+**Getting the next ID:** `syscribe model/ next-id TP-DELIVERY-INTEGRATION`
+
+**Template:** `syscribe model/ template TestPlan`
+
+---
+
+## Part 6c — ReviewRecord (`type: ReviewRecord`)
+
+A `ReviewRecord` (id `RR-*`) captures a **formal review event** (design / requirements /
+hazard / test-readiness review, inspection, walkthrough) and the model elements it covers —
+a thin, **baselined traceability anchor**. Keep it thin: put a `recordedAt:` URI to the
+external review (e.g. a GitHub PR) and the action-item dispositions in the model; the
+discussion stays in the review tool.
+
+```yaml
+---
+type: ReviewRecord
+id: RR-SW-ARCH-001
+name: Software Architecture Review — Sprint 12   # free prose
+status: closed                # open | closed | waived
+reviewType: design_review     # requirements_review | hazard_review | test_readiness_review | inspection | walk_through
+reviewDate: "2026-05-14"
+reviewedBy: [alice, bob]
+recordedAt: "https://github.com/org/repo/pull/42"   # thin pointer to the review
+reviews:                      # ≥1 covered elements (qnames or stable IDs)
+  - Logical::ABSController
+  - REQ-ABS-001
+items:
+  - { description: "Add watchdog requirement.", disposition: closed, closedBy: REQ-ABS-WD-001 }
+---
+```
+
+Validation: `E700` (required fields), `E701` (RR-* id), `E702`/`E703`/`E705` (status / reviewType /
+disposition enums), `E704` (unresolved `reviews:`), `W700` (closed review with an open item),
+`W704` (a non-draft Requirement covered by no review — dormant unless ReviewRecords exist).
+Commands: `reviews`, `review <RR-id>`, `reviews --coverage`. Template: `template ReviewRecord`.
+
+---
+
+## Part 6d — TradeStudy (`type: TradeStudy`)
+
+A `TradeStudy` (id `TRD-*`) records a **weighted-criteria evaluation** of design alternatives.
+The tool computes (never writes) min-max normalised scores, weighted totals, and rankings.
+
+```yaml
+---
+type: TradeStudy
+id: TRD-COMM-001
+name: Communication Bus Trade
+status: complete             # draft | review | complete
+objective: REQ-COMM-001      # the Requirement this study informs (optional)
+decision: ADR-COMM-BUS-001   # the ADR recording the choice (optional; W061 if complete and absent)
+criteria:
+  - { name: latency, weight: 0.6, direction: minimize, unit: ms }   # weight in [0,1]; tool normalises
+  - { name: cost,    weight: 0.4, direction: maximize, unit: Mbps }
+alternatives:
+  - { name: CAN-FD, element: Physical::CANFDBus }
+  - { name: TSN }
+scores:
+  - { alternative: CAN-FD, criterion: latency, score: 0.5 }
+  - { alternative: CAN-FD, criterion: cost,    score: 8 }
+  - { alternative: TSN,    criterion: latency, score: 0.1 }
+  - { alternative: TSN,    criterion: cost,    score: 1000 }
+---
+```
+
+Validation: `E869` (required), `E870` (TRD-* id), `E871`–`E873` (criteria), `E874`/`E875`
+(alternatives), `E876`/`E877` (scores), `W061`–`W064` (advisories). Command: `trade-study [<TRD-id>]`.
+Template: `template TradeStudy`.
 
 ---
 
@@ -591,11 +737,12 @@ Operations on a PortDef:
 
 ## Part 9 — Diagrams
 
-Every diagram is a `type: Diagram` element in `Diagrams/`. Three authoring approaches:
+Every diagram is a `type: Diagram` element in `Diagrams/`. Four authoring approaches:
 
-- **Mermaid** — for traceability trees, flow diagrams, sequence diagrams, simple state machines. Set `diagramKind: Mermaid`. Include a fenced ` ```mermaid ` block (error E400 if absent).
+- **PlantUML companion** (`pumlMode: companion`) — **preferred** for BDD, IBD, StateMachine, Sequence, and Requirement diagrams. Syscribe generates a `.puml` source file; PlantUML renders it to SVG. Each shape carries a clickable hyperlink back to its element in the web browser. Set `pumlMode: companion`, `pumlFile:`, and add an `<img>` tag in the body referencing the anticipated SVG. Run `syscribe plantuml` then `syscribe plantuml render`.
+- **Mermaid** — for traceability trees, flow diagrams, simple state machines. Set `diagramKind: Mermaid`. Include a fenced ` ```mermaid ` block (error E400 if absent).
 - **Composed SVG** (`syscribe diagram` CLI) — element-card architecture diagrams. Cards generated from live model data. Commit the generated SVG as a companion file.
-- **Embedded SVG** — hand-coded SVG using the symbol library, for precise SysML notation (BDD, IBD, StateMachine, Requirement).
+- **Embedded SVG** — hand-coded SVG using the symbol library, for precise SysML notation.
 
 ### Diagram element frontmatter
 
@@ -603,15 +750,19 @@ Every diagram is a `type: Diagram` element in `Diagrams/`. Three authoring appro
 ---
 type: Diagram
 name: UAVSystemBDD
-diagramKind: BDD            # BDD | IBD | StateMachine | Requirement | Mermaid
+diagramKind: BDD            # BDD | IBD | StateMachine | Sequence | Requirement | Mermaid
 subject: UAV::UAVSystem     # element this diagram depicts (W401 if it doesn't resolve)
-svgMode: inline             # required when embedding SVG in the body
+pumlMode: companion         # generate .puml via `syscribe plantuml`; render SVG via `syscribe plantuml render`
+pumlFile: ./UAVSystemBDD.puml
+# svgMode: inline           # alternative: embed SVG directly in body
 shapes:                     # shape-id → descriptor
   s-uav: {ref: "UAV::UAVSystem", kind: PartDef}
   s-fc:  {ref: "UAV::Avionics::FlightController", kind: Part, parent: s-uav}
 edges:
   e-comp: {source: s-uav, target: s-fc, kind: composition}
 ---
+
+![UAVSystemBDD](./UAVSystemBDD.svg)
 ```
 
 Shape `ref:` triggers W402 if it doesn't resolve. Edge `source`/`target` trigger W403 if they don't match a defined shape-id.
@@ -713,12 +864,16 @@ SVG conventions: root `<svg>` uses `xmlns:sysml="urn:syscribe:1.0"`. Each shape 
 | Code | Condition |
 |---|---|
 | E400 | `diagramKind: Mermaid` but no ` ```mermaid ` block |
+| E403 | `pumlMode` has an unrecognized value |
+| E404 | `pumlMode: companion` set but `diagramKind` is absent |
 | W400 | Diagram has no `diagramKind` |
 | W401 | `subject:` does not resolve |
 | W402 | Shape `ref:` does not resolve |
 | W403 | Edge `source`/`target` is not a defined shape-id |
 | W408 | Mermaid `%% ref:` annotation doesn't resolve |
 | W409 | Mermaid diagram has no `%% ref:` annotations |
+| W413 | `pumlMode: companion` but body has no `<img` tag |
+| W414 | `pumlMode: companion` but the `.puml` file does not exist yet |
 
 ---
 
@@ -730,9 +885,36 @@ Three building blocks:
 
 | Element / field | Role |
 |---|---|
-| `type: FeatureDef` | A node in the feature model (a selectable characteristic). `groupKind:` (`optional`/`alternative`/`or`) groups its children; `mandatory: true` makes it a mandatory member of its parent (combine with `groupKind: alternative` for a mandatory XOR group). |
-| `type: Configuration` | A named product variant. `id:` matches `CONF-*`; `featureModel:` names the feature package; `features:` is a **map** of `<FeatureDef QName>: true/false`. |
+| `type: FeatureDef` | A node in the feature model (a selectable characteristic). **Requires a mandatory `id:` matching `FEAT-*`** (`E201` if missing); labelled by `name`. `groupKind:` (`optional`/`alternative`/`or`) groups its children; `mandatory: true` makes it a mandatory member of its parent (combine with `groupKind: alternative` for a mandatory XOR group). |
+| `type: Configuration` | A named product variant. `id:` matches `CONF-*`; `featureModel:` names the feature package; `features:` is a **map** of `<FeatureDef QName>: true/false`. Optional `subConfigurations:` consolidates other, already-configured `Configuration`s — see below. |
 | `appliesWhen:` | On *any* element (including a `TestCase`): conditions it on a boolean expression over `FeatureDef` QNames. |
+
+**Single-file alternative — `type: FeatureModel` (§9.6a).** A `FeatureDef`-per-file layout doesn't scale to a large feature tree. Prefer one `type: FeatureModel` sheet with a **flat**, dot-named `featureTree:` list instead — it's exploded into ordinary `FeatureDef` elements before validation, so every other rule/command treats it identically:
+
+```yaml
+# Features/_index.md
+---
+type: FeatureModel
+name: Features
+featureTree:
+  - name: Platform
+    mandatory: true
+    groupKind: alternative
+  - name: Platform.CortexM      # dotted path relative to this sheet → Features::Platform::CortexM
+    groupKind: optional
+  - name: Wdt
+    groupKind: optional
+crossTreeConstraints:           # requires:/excludes: as one section (inline requires:/excludes: on an entry still works too)
+  - feature: Wdt
+    requires: [Platform.CortexM]
+parameterConstraints:           # §9.7 cross-feature numeric constraints belong directly on this sheet too
+  - id: PC-EXAMPLE
+    expression: "Features::Wdt.timeoutMs <= 5000"
+    severity: error
+---
+```
+
+An entry's `name:` is a dotted path, **not** a single basic name — the synthesized `FeatureDef`'s own `name:` becomes just the last segment. `id:` is optional here (unlike a plain per-file `FeatureDef`, where it's still mandatory) — omitted, it's derived from the entry's own dotted path (`Platform.CortexM` → `FEAT-PLATFORM-CORTEXM`); an explicit `id:` always wins. An entry with no `name:` (or an empty path segment) is `E231`; a duplicate resolved qname is `E232`; a derived (or hand-typed) id that collides with another id in the model is `E101`, and one that fails the `FEAT-*` pattern is `E006` — the same codes a hand-authored `FeatureDef` would get; a `crossTreeConstraints:` entry whose `feature:` isn't defined in this same sheet's `featureTree:` is `E233`; `featureTree:` on anything but `type: FeatureModel` is `W048`. `Configuration` needs no equivalent — it's already one file.
 
 **`appliesWhen:` forms** — a bare QName, a list (AND), or an expression with `and`/`or`/`not`/parentheses:
 
@@ -751,13 +933,106 @@ Every operand must resolve to a `FeatureDef` (else `E209`).
 
 If two configurations would have identical `features:` (e.g. emulator vs physical rig), model the distinguishing axis as its own feature (e.g. an `ExecEnv` alternative group) rather than reaching for a separate field.
 
-**Feature parameters (quantitative variability, §9.7).** A `FeatureDef` may declare typed `parameters:` (each `{name, type, range: "min..max" or "min..=max", enumValues, default, isFixed, isRequired, bindingTime}`); a `Configuration` binds them under `parameterBindings:` keyed by the dotted reference `<FeatureDef QName>.<param>`. Bindings are validated by `validate`: a binding for an unselected feature (`E203`), of a fixed parameter (`E204`), out of `range:` (`E205`), not in `enumValues:` (`E206`), or to an undeclared/legacy-`::` path (`E222`) is an error; a selected feature's required, default-less parameter left unbound warns (`W017`). Cross-feature `parameterConstraints` (on a package `_index.md`) are evaluated by `feature-check`: a violated comparison is `E221` (or `W025` if `severity: warning`). The optional `bindingTime:` records *when* a parameter is resolved — `compile` < `load` < `runtime` (ordered); an unknown value is `E230`, a parameter bound earlier than a `derivedFrom`/`bindTo` source it depends on is `E229` (`feature-check`), binding a `runtime` parameter in a `Configuration` warns `W027`, and `W017` is suppressed for unbound `runtime` parameters.
+**Feature parameters (quantitative variability, §9.7).** A `FeatureDef` may declare typed `parameters:` (each `{name, type, range: "min..max" or "min..=max", enumValues, default, isFixed, isRequired, bindingTime, buildVar}`); a `Configuration` binds them under `parameterBindings:` keyed by the dotted reference `<FeatureDef QName>.<param>`. Bindings are validated by `validate`: a binding for an unselected feature (`E203`), of a fixed parameter (`E204`), out of `range:` (`E205`), not in `enumValues:` (`E206`), or to an undeclared/legacy-`::` path (`E222`) is an error; a selected feature's required, default-less parameter left unbound warns (`W017`). Cross-feature `parameterConstraints` (on a package `_index.md`) are evaluated by `feature-check`: a violated comparison is `E221` (or `W025` if `severity: warning`). The optional `bindingTime:` records *when* a parameter is resolved — `compile` < `load` < `runtime` (ordered); an unknown value is `E230`, a parameter bound earlier than a `derivedFrom`/`bindTo` source it depends on is `E229` (`feature-check`), binding a `runtime` parameter in a `Configuration` warns `W027`, and `W017` is suppressed for unbound `runtime` parameters.
+
+**Build-system integration (§9.9, `build-config`).** Add `buildExports:` to a `FeatureDef` to declare which build variables it contributes and what value to assign when the feature is selected or deselected. Add `buildVar:` to a parameter to map its bound value directly into a build variable. Use `buildOverrides:` on a `Configuration` to set a variable unconditionally (last-writer-wins, resolves `E050` conflicts). Run `syscribe -m model/ build-config --config CONF-X --format cmake` (or `c-header`/`makefile`/`env`/`json`/`kconfig`) to generate the artifact; `--all-configs` produces a JSON array for CI matrix use. Example:
+
+```yaml
+# Features/ABS.md
+type: FeatureDef
+id: FEAT-ABS
+name: ABS
+buildExports:
+  - var: ENABLE_ABS
+    whenSelected: 1
+    whenDeselected: 0
+parameters:
+  - name: threshold
+    type: ScalarValues::Real
+    range: "0..100"
+    default: 30
+    buildVar: ABS_THRESHOLD
+```
+
+```yaml
+# Configs/CONF-PREMIUM-001.md
+type: Configuration
+id: CONF-PREMIUM-001
+name: Premium
+featureModel: Features
+features:
+  Features::ABS: true
+parameterBindings:
+  Features::ABS.threshold: 45
+buildOverrides:
+  DEBUG_BUILD: 0
+```
 
 **Holistic checks — run `feature-check` (not part of `validate`).** `syscribe feature-check` validates the feature model as a whole: `requires:`/`excludes:` resolution (`E212`) and satisfaction per configuration (`E219`/`E220`), dead/always-on optional features (`W011`/`W012`), circular `derivedFrom:` (`E207`), `bindTo:` propagation outside the component `range:` (`E202`), and cross-feature `parameterConstraints` declared on a package `_index.md` — unresolved paths (`E213`) and `appliesWhen:` features used in no configuration (`W014`).
 
 **Whole-space analysis — `feature-check --deep`.** Adds SAT-backed reasoning over a propositional encoding of the feature model (Boolean layer only; deterministic, no external solver; comfortably ~500 features): **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), **invalid configurations** under full group/cardinality semantics (`E225`), **core** features, a minimal conflict-set explanation, and **diagnoses** (minimal correction sets) for void models. Companion commands: `--count`/`--enumerate` report the valid-configuration space, and `configure <Configuration>` completes a partial selection (forced/free features). Use these to prove the feature model itself is sound and to drive configuration, beyond linting authored configs. (Numeric/parameter SMT reasoning and DRAT proofs are not yet implemented.)
 
 **Configuration lens (`--config`).** The model is a 150% superset; `--config <CONF|features>` projects it onto one variant and runs `validate`/`list`/`export` over the active elements only. `validate --config` certifies a variant and flags **escaping references** (an active element pointing at one inactive in that variant: structural `E226` / traceability `W019`); `feature-check --deep` additionally proves no structural reference can escape in *any* valid configuration (`E227`). `validate --all-configs` gates every stored variant; `diff --config A --config B` shows what differs. All inert when no feature model is present.
+
+**Hierarchical product-line composition — `subConfigurations:` (§14.7, `ADR-SYS-HPLE-001`).** A `Configuration` may consolidate one or more other, already-configured `Configuration`s — reachable locally or, in the common case, via a `[repos]`-mounted lower-tier product-line repo (§14) — into a single higher-tier product (an OEM vehicle line built from a battery-pack line, itself built from a cell-chemistry line). Each `subConfigurations:` entry must resolve to a real `Configuration` (`E516` dangling, `E517` wrong-type) that is itself internally valid before it can be consolidated (`E518`). `parameterBindings:` is reused unchanged — a dotted key resolves transitively through the consolidated subtree at any depth, using the parameter's ordinary, already-mounted qname, no new addressing syntax — but must target a parameter that's genuinely open: selected by the tier that owns it (`E519`, the cross-tier form of `E203`) and not already closed by a nearer tier on the path (`E523`, no double-binding). A parameter left open at an intermediate tier is not a defect — it is exactly how staged, multi-party configuration works — so a still-open required parameter anywhere in the subtree is only ever the opt-in, `--deny`-gateable `W513`, never a hard error. **A lower tier carries zero awareness of whoever might consolidate it** — a descendant `FeatureDef` parameter that needs an external value declares this exactly as it would in an ordinary single-model `Configuration` (`isRequired: true`, no `default`), with no field naming its consolidator; `bindTo:` (component→system propagation) is explicitly not this mechanism and never crosses a `subConfigurations:` boundary. See `examples/hple-multitier/` for a complete 3-tier worked example.
+
+---
+
+## Part 9c — MagicGrid Overlay (opt-in)
+
+**Opt-in overlay.** The MagicGrid MBSE method (problem black-box **B** / white-box **W** / solution **S** rows × Requirements **1** / Behaviour **2** / Structure **3** / Parameters **4** columns) is supported with **no change to the base format**: all data rides on **`mg_`-prefixed `custom_fields:`** (flat scalars) plus the base `actors:` field, and all MagicGrid-specific validation is **gated behind a profile**. Skip this entirely unless building a MagicGrid model.
+
+**Profile gate.** Declare the profile once in `<model_root>/.syscribe.toml`, then run `validate --profile magicgrid`:
+
+```toml
+[profiles.magicgrid]
+magicgrid = true
+promote = ["W307"]   # optional: gate "use case with no refines:"
+```
+
+The `MG###` checks fire only under that profile. The reports (`magicgrid`, `trade-study`, `matrix --allocations`) are read-only and work regardless of profile.
+
+**Overlay fields** (all on `custom_fields:`):
+
+| Field | On | Meaning |
+|---|---|---|
+| `mg_cell: <coord>` | any element | grid coordinate, one of `B1`–`B4`/`W1`–`W4`/`S1`–`S4`; pillar must match the element type (`MG020`/`MG021`) |
+| `mg_external: true` | `Part`/`PartDef` | an actor outside the system boundary (B3) |
+| `mg_soi: true` | `Part`/`PartDef` | the single System of Interest block (B3); at most one (`MG060`–`MG062`) |
+| `mg_moe: true` + `mg_moe_measures`/`mg_moe_direction` (`maximize`/`minimize`)/`mg_moe_threshold`/`mg_moe_objective`/`mg_moe_weight`/`mg_moe_unit` | `CalculationDef`/`AnalysisCase` | a Measure of Effectiveness (B4) (`MG030`–`MG033`) |
+| `mg_mop: true` + `mg_mop_refines` (the MoE it refines)/`mg_mop_unit` | `CalculationDef`/`ConstraintDef`/`AnalysisCase` | a Measure of Performance (W4/S4); inverse index `mopRefinedBy` on the MoE (`MG050`–`MG052`) |
+| `mg_layer: logical \| physical` | `Part`/`PartDef` | W3 logical vs S3 physical; bridge them only with an `Allocation` (`MG040`–`MG042`) |
+| `mg_variant: true` | `Configuration` | a parametric variant — relaxes the `featureModel:` requirement (`E201`); differentiated by `parameterBindings:` alone (`MG070`) |
+
+**Base-format `refines:`.** A `UseCaseDef`/`UseCase` (or `ActionDef`/`Action`/`StateDef`/`State`) declares `refines:` pointing at the `Requirement`/`RequirementDef` it elaborates — an unresolved/wrong-type operand is `E316` (always checked, no profile needed); a non-`draft` `UseCaseDef` with no `refines:` warns `W307`. The reverse index `refinedBy` is computed on each requirement.
+
+**Reports** (read-only): `syscribe model/ magicgrid` (B/W/S × 1-4 cell grid, empty-cell hints, plus a `System of interest:` line when one `mg_soi` is set); `syscribe model/ trade-study` (MoE-weighted scoring of every `Configuration`, WINNER/FAIL rollup); `syscribe model/ matrix --allocations` (allocation source × target matrix with a logical→physical partition when `mg_layer` is present).
+
+---
+
+## Part 9d — Multi-Repository Composition (opt-in, §14)
+
+Large programs split a model across repositories. Declare peer repos in the model-root `.syscribe.toml` `[repos]` table and import their namespaces. **Single-repo models need none of this** — the whole feature is inert without `[repos]`.
+
+```toml
+# .syscribe.toml
+[repos]
+avionics = { path = "../avionics-model", root = "model/" }        # ⇒ W510 (no ref pin)
+brakes   = { path = "../brakes-subsystem", root = "model/", ref = "v2.1.0" }
+```
+
+A package `_index.md` mounts a peer sub-tree:
+
+```yaml
+type: Package
+name: Integration
+repoImports:
+  - repo: brakes        # alias from [repos]   (else E513)
+    qname: BrakeSystem  # element/package in that repo (else E514)
+    as: Brakes          # local mount name (defaults to last qname segment)
+```
+
+Cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:` references resolve against the local model first, then each repo in declaration order — by **global stable ID** (`REQ-*`, `TC-*`, …, unique across the whole composition) or qualified name. Rules: `E510` circular import, `E511` missing path (no ref), `E512` dangling cross-repo ref, `E513` unknown alias, `E514` unresolved import qname, `E515` duplicate stable ID, `W510` unpinned repo, `W511` peer `HEAD` drifted from its pinned `ref:`, `W512` submodule peer whose `ref:` disagrees with the parent's `.gitmodules` gitlink (gate a reproducible composition with `validate --deny W511 --deny W512`). Git submodules and `[repos]` are complementary — the submodule pins the checkout, `[repos]` adds cross-ref resolution and the drift/gitlink gates. CLI: `repos list|status|sync`.
 
 ---
 
@@ -819,11 +1094,11 @@ Use a single `TARASheet` file. The parser explodes it into individual `DamageSce
 ```yaml
 type: TARASheet
 id: TARA-SYS-001
-title: "TARA — CAN bus"
+name: "TARA — CAN bus"
 status: draft
 damageTable:
   - id: DS-SYS-001
-    title: "..."
+    name: "..."
     damageSeverity: severe
     impactCategories: [safety]
 threatTable:
@@ -923,9 +1198,9 @@ draft → review → approved → implemented → verified
 
 | Code | Cause | Fix |
 |---|---|---|
-| E004 | TestCase missing `id`, `title`, `status`, or `testLevel` | Add all four fields |
-| E004 | Requirement missing `title` or `status` | Add both fields |
-| E006 | `id` does not match the pattern for its type | Check regex: `REQ(-[A-Z0-9]{2,12})+-[0-9]{3}` |
+| E004 | TestCase missing `id`, `name`, `status`, or `testLevel` | Add all four fields |
+| E004 | Requirement missing `name` or `status` | Add both fields |
+| E006 | `id` does not match the pattern for its type | Check regex: `REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}` |
 | E007 | `status` value not in allowed enum | Check status table for each type |
 | E008 | `testLevel` not `L1`–`L5` | Use exactly `L1`–`L5` |
 | E009 | `silLevel` outside 1–4 | Use integer 1–4 |
@@ -944,7 +1219,7 @@ draft → review → approved → implemented → verified
 | E104 | `verifies:` target is not a native Requirement | Only point `verifies:` at `type: Requirement` |
 | E105 | `derivedFrom:` target is not a native Requirement | Only point `derivedFrom:` at `type: Requirement` |
 | E300 | ADR `id` does not match `ADR-*` pattern | Fix the ID |
-| E301 | ADR missing `id`, `title`, or `status` | Add all three fields |
+| E301 | ADR missing `id`, `name`, or `status` | Add all three fields |
 | E302 | `reqDomain` not `system`/`hardware`/`software` | Use one of the three values |
 | E303 | `domain` not `system`/`hardware`/`software` | Use one of the three values |
 | E304 | ADR `status` not valid | Use `proposed`, `accepted`, `deprecated`, or `superseded` |
@@ -966,6 +1241,8 @@ draft → review → approved → implemented → verified
 | W016 | `Configuration` parsed no feature selections (e.g. used `selections:`) | Use a `features:` map of `<FeatureDef>: true/false` (run `template Configuration`) |
 | E203–E206 / E222 | Bad `parameterBindings`: unselected feature / fixed param / out of range / not in enum / undeclared (or legacy-`::`) path | Bind only selected, configurable params with in-range, in-enum values keyed `<FeatureDef>.<param>` (dotted) |
 | W017 | Selected feature's required parameter left unbound | Bind it in `parameterBindings:` or give the parameter a `default:` |
+| E050 | Two selected features export the same `buildExports:` variable with conflicting values | Add a `buildOverrides:` entry on the `Configuration` to resolve the conflict |
+| W050 | Selected feature contributes no build variable (opt-in) | Add `buildExports:` or a parameter with `buildVar:`, or suppress with `--deny W050` |
 
 ---
 
@@ -1006,8 +1283,8 @@ model/
 
 ### For every Requirement (new or updated)
 
-- [ ] `id:` is globally unique (verified with `next-id`) and matches `^REQ(-[A-Z0-9]{2,12})+-[0-9]{3}$`
-- [ ] `title:` and `status:` are present
+- [ ] `id:` is globally unique (verified with `next-id`) and matches `^REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
+- [ ] `name:` and `status:` are present
 - [ ] Normative body is non-empty and contains `shall`
 - [ ] If `derivedFrom:` is set → `breakdownAdr:` is also set, pointing to an `accepted` ADR
 - [ ] If it is a leaf at `approved`/`implemented` → exactly one architecture element has it in `satisfies:`
@@ -1016,16 +1293,16 @@ model/
 
 ### For every TestCase (new or updated)
 
-- [ ] `id:` is globally unique and matches `^TC(-[A-Z0-9]{2,12})+-[0-9]{3}$`
-- [ ] `title:`, `status:`, `testLevel:` are present
+- [ ] `id:` is globally unique and matches `^TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
+- [ ] `name:`, `status:`, `testLevel:` are present
 - [ ] `verifies:` is non-empty and every ID resolves to a `type: Requirement` element (use `check-ref`)
 - [ ] Body contains a ` ```gherkin ` block whose first line is `Feature:`
 - [ ] Every `Scenario Outline:` has an `Examples:` table
 
 ### For every ADR (new or updated)
 
-- [ ] `id:` is globally unique and matches `^ADR(-[A-Z0-9]{2,12})+-[0-9]{3}$`
-- [ ] `title:` and `status:` are present
+- [ ] `id:` is globally unique and matches `^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
+- [ ] `name:` and `status:` are present
 - [ ] `status: accepted` before any Requirement cites it in `breakdownAdr:`
 
 ### Cross-cutting (Mode B only)
@@ -1038,7 +1315,7 @@ model/
 
 ### For every SafetyGoal (new or updated)
 
-- [ ] `id:` matches `^SG(-[A-Z0-9]{2,12})+-[0-9]{3}$`
+- [ ] `id:` matches `^SG(-[A-Z0-9]{2,12})+-[0-9]{3,8}$`
 - [ ] `hazardousEvents:` references at least one `HE-*` element (W806)
 - [ ] Exactly one integrity level is set: `asilLevel:`, `silLevel:`, or `plLevel:` — never more than one (W006)
 

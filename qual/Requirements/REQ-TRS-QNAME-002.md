@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-QNAME-002
 type: Requirement
-name: Package Name Override
-title: "Package name shall use name: from _index.md when present"
+name: "Package name shall use name: from _index.md when present"
 status: draft
 reqDomain: software
 verificationMethod: test

@@ -4,12 +4,13 @@
 
 Syscribe models a whole **product line** as one repository — the **150% model** — and projects it onto individual products (**100% models**) on demand. Everything in this guide is **opt-in**: a model with no `FeatureDef` behaves exactly as a single-product model, and none of these rules or commands change its output.
 
-The capability has four layers, each building on the last:
+The capability has four layers, each building on the last, plus an optional fifth for multi-repo product lines:
 
 1. **Feature model** — what can vary (`FeatureDef`, `Configuration`).
 2. **Conditioning** — which elements belong to which variants (`appliesWhen:`).
 3. **Analysis** — is the variability sound? (`feature-check`, `feature-check --deep`).
 4. **Projection** — view and validate one variant (`--config`).
+5. **Hierarchical composition** — consolidate other, already-configured product lines (`subConfigurations:`; opt-in, §5 below).
 
 ---
 
@@ -21,6 +22,7 @@ A **`FeatureDef`** is one node of the feature tree — a selectable characterist
 # Features/Platform/_index.md        (a mandatory XOR group)
 ---
 type: FeatureDef
+id: FEAT-PLATFORM-001       # mandatory stable id (E201 if missing)
 name: Platform
 mandatory: true             # membership: every product has a platform...
 groupKind: alternative      # ...and picks exactly one child (XOR)
@@ -28,6 +30,7 @@ groupKind: alternative      # ...and picks exactly one child (XOR)
 # Features/Platform/CortexM.md
 ---
 type: FeatureDef
+id: FEAT-CORTEXM-001
 name: CortexM
 groupKind: optional
 ---
@@ -46,7 +49,7 @@ A **`Configuration`** (id `CONF-*`) is a complete named product: a `features:` *
 ---
 type: Configuration
 id: CONF-MPS2-WDT-001
-title: "MPS2 board with watchdog"
+name: "MPS2 board with watchdog"
 status: approved
 featureModel: Features
 features:
@@ -57,6 +60,57 @@ features:
 ```
 
 > **Footgun guard (`W016`):** the selection block must be the `features:` **map**. A legacy `selections:` list is ignored and flagged — `syscribe show <CONF>` displays the parsed selections so you can see exactly what was read.
+
+### Single-file authoring — `featureTree:` (REQ-TRS-FM-005)
+
+A `FeatureDef`-per-file layout is heavyweight for a large or fast-iterating feature model. As an **additive, opt-in alternative**, a whole feature model can be authored in **one file** — `type: FeatureModel` — as a **flat** `featureTree:` list. The mandatory-XOR-group example above becomes:
+
+```yaml
+# Features/_index.md
+---
+type: FeatureModel
+name: Features
+featureTree:
+  - name: Platform
+    mandatory: true
+    groupKind: alternative
+  - name: Platform.CortexM      # dotted path relative to this sheet, not a single basic name
+    groupKind: optional
+  - name: Platform.RiscV
+    groupKind: optional
+  - name: Wdt
+    id: FEAT-WDT-LEGACY         # explicit id: still honored, e.g. to keep a pre-existing one stable
+    groupKind: optional
+---
+```
+
+Each entry's `name:` is a **dot-separated path relative to the sheet**, not a single basic name: `Platform.CortexM` explodes to qname `Features::Platform::CortexM` — exactly what the two-file layout above produces — and the synthesized `FeatureDef`'s own `name:` is rewritten to just the last segment (`CortexM`), same as a real file's leaf label. There's no nesting/`children:` in the YAML shape itself and no recursion: the list is flat, and an ancestor path prefix needs no entry of its own (`Platform.CortexM` works even without a standalone `Platform` entry — it just means no parent membership/grouping is enforced on it, exactly as an ancestor directory that isn't itself a `FeatureDef` implies no parent today). Every other `FeatureDef` field — `mandatory`, `groupKind`, `cardinality`, `parentFeature`, `contributesTo`, `parameters`, `buildExports`, inline `requires`/`excludes` — is carried through unchanged, and an optional `doc:` string on an entry becomes that `FeatureDef`'s Markdown body. Once exploded, these are ordinary `FeatureDef` elements — every consumer (`validate`, `feature-check`, `matrix`, `configure`, the web UI) sees the same thing either way, and the two forms can be mixed across a model (some packages per-file, others single-sheet).
+
+**`id:` is optional here** (REQ-TRS-FM-006) — unlike a plain per-file `FeatureDef`, where it stays mandatory (`E201`). Retyping a `FEAT-*` id on every entry of what can be a long flat list is exactly the friction this form should remove. When an entry omits `id:` (absent, `null`, or `""`), one is derived from its own dotted `name:`: segments uppercased, non-`[A-Z0-9]` characters stripped, joined with `-`, prefixed `FEAT-` — `Platform.CortexM` → `FEAT-PLATFORM-CORTEXM`. An explicit `id:` always wins. The derived id is assigned exactly as if hand-typed, so nothing new is checked for it: a segment that strips to fewer than 2 or more than 12 characters still fails the ordinary `FEAT-*` pattern check (`E006`), and a collision with another id anywhere in the model — hand-authored or itself derived — is still the ordinary duplicate-id check (`E101`). One trade-off worth having eyes open about: a derived id changes if the entry's `name:` is later renamed, so an `appliesWhen:`/`Configuration.features:`/`crossTreeConstraints:` reference that names the feature *by id* would need updating too — the same cost a rename already has on every qname-based reference to that feature. Give a feature an explicit `id:` if you need it to survive a rename.
+
+**Cross-tree constraints** can live inline (`requires:`/`excludes:` on a `featureTree:` entry, as always) or be pulled into a separate, more reviewable `crossTreeConstraints:` list on the same sheet:
+
+```yaml
+crossTreeConstraints:
+  - feature: Wdt
+    requires: [Platform.CortexM]
+  - feature: Platform.RiscV
+    excludes: [Wdt]
+```
+
+`feature`/`requires`/`excludes` values resolve the same way everywhere in this section: a value containing `::` is already an absolute qname; one starting with `FEAT` is a stable id; anything else is a dotted path relative to the sheet, resolved exactly like a `featureTree:` entry's `name:`. A `feature:` that doesn't resolve to a `FeatureDef` synthesized from *this sheet's own* `featureTree:` is `E233` — there's nothing local to attach the constraint to.
+
+**`parameterConstraints:`** (§9.7's cross-feature numeric constraints, normally on a `Package`/`LibraryPackage`/`Namespace` `_index.md`) can also be declared directly on the `FeatureModel` sheet — the natural single home for everything about this feature model:
+
+```yaml
+parameterConstraints:
+  - id: PC-AMP-MIN
+    expression: "Features::Topology.maxCpus >= 2"
+    appliesWhen: "Features::Cpu::CortexA and Features::Topology::Amp"
+    severity: error
+```
+
+New findings specific to this form: `E231` (an entry has no `name:`, isn't a mapping, or its dotted path has an empty segment — the entry is dropped), `E232` (two entries resolve to the same qname), `E233` (a `crossTreeConstraints:` entry is malformed or its `feature:` doesn't resolve within the sheet), `W048` (`featureTree:`/`crossTreeConstraints:` declared on anything other than `type: FeatureModel`, or `parameterConstraints:` on anything other than a `Package`/`LibraryPackage`/`Namespace`/`FeatureModel` — inert, ignored). `Configuration` needs no equivalent — it's already exactly one file, and addresses features purely by qname/id with no dependency on how the `FeatureDef` was authored.
 
 ---
 
@@ -229,6 +283,33 @@ syscribe -m model/ diff --config CONF-UAV-SURVEY-001 \
 
 ---
 
+## 5. Hierarchical composition — `subConfigurations:`
+
+`ADR-SYS-HPLE-001`. A `Configuration` can consolidate one or more other, already-configured `Configuration`s into its own — a product-line-of-product-lines: an OEM vehicle line built by picking one already-configured variant from each of several independently-developed, independently-versioned lower-tier lines (a battery-pack line, an infotainment line), each maintained by a different team or supplier, typically in its own repo (see the [Multi-Repository guide](multi-repo.md) for `[repos]`). "Tier" isn't a declared schema concept — it falls out structurally from whether a repo happens to import others.
+
+```yaml
+# vehicle/model/Configurations/CONF-VEHICLE-001.md
+type: Configuration
+id: CONF-VEHICLE-001
+featureModel: Features
+features: { Features: true }
+subConfigurations: CONF-BATTERY-PACK-001   # a Configuration in [repos.battery_pack], or local
+parameterBindings:
+  Features::Cell.manufacturingSiteCode: US  # reaches two tiers down, straight past battery-pack
+```
+
+Each `subConfigurations:` entry resolves like any other cross-reference — local first, then each loaded repo in declaration order — and must name a real `Configuration` (`E517` otherwise) that is itself internally valid: SAT-satisfiable and error-free (`E516` dangling, `E518` not internally valid; for a peer entry this genuinely loads and validates that repo's model, not just an existence check).
+
+**`parameterBindings:` reaches transitively.** The same field used within one model (§1 above) resolves against any `FeatureDef` reachable through `subConfigurations:`, at any depth, using the parameter's ordinary, already-mounted qname — no new addressing syntax. Its usual checks (`E204`/`E205`/`E206`/`E222`/`W027`) apply unchanged whether the target is local or transitively resolved.
+
+**Cross-tier binding legality.** A transitively-resolved binding must target a parameter that's genuinely open: selected by the tier that owns it (`E519` — the cross-tier form of `E203`, which stays scoped to a `Configuration`'s own local selection) and not already closed by a nearer tier on the path (`E523` — a parameter may be closed by exactly one tier along the chain, never twice).
+
+**Open-parameter completeness.** A selected, required, no-`default:` parameter left unbound anywhere in the consolidated subtree is `W513` — opt-in, silent by default, `--deny`-gateable, following the same posture as `W510`/`W023`/`W090`. It's **never** a hard error just because one tier's own isolated `validate` run still finds it open: an intermediate tier can't know whether it's the actual top of the hierarchy or will itself be consolidated further by something it's never seen. Only whichever repo is actually the point of final assembly can decide, via its own CI's `--deny W513`.
+
+**Zero upward awareness.** A lower tier requires no authoring change, field, or foreknowledge to be consolidated — a descendant parameter that needs an external value just declares `isRequired: true`, no `default:`, exactly as it would in an ordinary single-model `Configuration`. `bindTo:` (component→system propagation) is explicitly not this mechanism and never crosses a `subConfigurations:` boundary.
+
+See `examples/hple-multitier/` for a complete 3-tier worked example (vehicle ← battery-pack ← battery-cell), including the fully-closed and deliberately-incomplete (`W513`-demonstrating) cases.
+
 ## Qualification angle
 
 Safety standards certify a **product**, not a superset. The 150% model is the reusable asset; `validate --config <C>` is the per-variant evidence — *this product's* requirements are covered by *this product's* tests and satisfied by *this product's* architecture. `validate --all-configs` makes that a CI gate across the family.
@@ -237,4 +318,6 @@ Safety standards certify a **product**, not a superset. The 150% model is the re
 
 - [CLI Reference](../cli/index.md) — all flags and examples
 - [Rule Reference](../validation/rules.md) — every code (E2xx PLE, projection, deep)
-- Format spec §9 (`syscribe spec validation`, `syscribe spec fields`)
+- Format spec §9 (`syscribe spec validation`, `syscribe spec fields`), §14.7 for `subConfigurations:`
+- [Multi-Repository guide](multi-repo.md) — the `[repos]`/`repoImports:` mechanism `subConfigurations:` builds on
+- `examples/hple-multitier/` — 3-tier hierarchical composition worked example

@@ -27,8 +27,17 @@ cargo run --package syscribe -- -m model/
 # Print the LLM model generation prompt
 cargo run --package syscribe -- --agent-instructions
 
+# Print the tool version (also -V, or `version`)
+cargo run --package syscribe -- --version
+
 # Start the web server
 cargo run --package syscribe-server -- -m model/
+
+# PlantUML companion diagrams
+./target/debug/syscribe -m model/ plantuml               # generate all .puml companion files
+./target/debug/syscribe -m model/ plantuml render        # render .puml → .svg (needs plantuml on PATH or PLANTUML_JAR set)
+./target/debug/syscribe -m model/ plantuml render --jar /path/to/plantuml.jar
+./target/debug/syscribe -m model/ plantuml render --dry-run   # preview which files would be rendered
 
 # Variability / product-line commands (opt-in; see docs/model-guide/variability.md)
 ./target/debug/syscribe -m model/ matrix                 # Requirement × Configuration coverage grid
@@ -38,9 +47,38 @@ cargo run --package syscribe-server -- -m model/
 ./target/debug/syscribe -m model/ validate --config CONF-X     # validate one projected variant
 ./target/debug/syscribe -m model/ validate --all-configs       # CI gate over every Configuration
 ./target/debug/syscribe -m model/ diff --config CONF-A --config CONF-B
+
+# Multi-repository composition (opt-in; see docs/model-guide/multi-repo.md)
+./target/debug/syscribe -m model/ repos list             # configured peer repos + on-disk/sync status
+./target/debug/syscribe -m model/ repos status           # whether each pinned repo is at its ref (exit 2 on drift)
+./target/debug/syscribe -m model/ repos sync --all       # git fetch + checkout <ref> for pinned repos
+./target/debug/syscribe -m model/ validate --deny W511 --deny W512   # gate CI on ref drift / submodule gitlink
+
+# Suspect links (opt-in content baselines; see docs/design/suspect-links.md)
+./target/debug/syscribe -m model/ suspect list                       # suspect + unbaselined trace links
+./target/debug/syscribe -m model/ suspect accept <src> <tgt>         # baseline one reviewed link
+./target/debug/syscribe -m model/ suspect accept --all               # re-baseline every suspect link (review)
+./target/debug/syscribe -m model/ suspect accept --all-unbaselined   # onboarding: baseline every un-baselined link
+./target/debug/syscribe -m model/ validate --deny W090               # gate CI on suspect (stale) links
 ```
 
 The feature-model SAT engine is `batsat` (vendored, MIT, pure Rust — `ADR-FM-002`); the in-tree clause IR + brute-force oracle live in `crates/syscribe-model/src/{solver,projection,feature_model}.rs`.
+
+Single-file feature-model authoring (§9.6a, `REQ-TRS-FM-005`) is an additive alternative to the `FeatureDef`-per-file/directory layout: a `type: FeatureModel` sheet carries the whole tree as a **flat** `featureTree:` list, exploded by the walker (`crates/syscribe-model/src/walker.rs`'s `explode_feature_model_trees`) into ordinary `FeatureDef` `RawElement`s before validation — every downstream consumer sees the same kind of element either way, and the two forms may be mixed within one model. An entry's `name:` is a **dot-separated path relative to the sheet** (`Platform.CortexM`), not a single basic name; splitting on `.` and joining with `::` under the sheet's qname reproduces exactly the qname a directory layout would produce, and the synthesized element's own `name:` is rewritten to just the leaf segment. There is no nesting/recursion in the YAML shape — the list is flat, and an ancestor path prefix needs no entry of its own. An optional `crossTreeConstraints:` list on the same sheet keeps `requires:`/`excludes:` edges in one reviewable section instead of scattered across entries (inline `requires:`/`excludes:` still works too); `parameterConstraints:` (§9.7) is also accepted directly on a `FeatureModel` sheet, not only on a `Package`/`LibraryPackage`/`Namespace` `_index.md`. New codes: `E231` (entry has no `name:`/malformed path), `E232` (duplicate resolved qname), `E233` (`crossTreeConstraints:` malformed or its `feature:` doesn't resolve within the sheet), `W048` (`featureTree:`/`crossTreeConstraints:` on a non-`FeatureModel` type, or `parameterConstraints:` on a type that doesn't support it). `Configuration` needs no equivalent — already one file, addressing features purely by qname/id. `id:` on a `featureTree:` entry is optional (`REQ-TRS-FM-006`, unlike a plain per-file `FeatureDef`, where `E201` still requires one): omitted, it's derived from the entry's own dotted `name:` (segments uppercased, non-`[A-Z0-9]` stripped, joined `-`, prefixed `FEAT-` — `Platform.CortexM` → `FEAT-PLATFORM-CORTEXM`), assigned exactly as if hand-typed so `E006`/`E101` already cover a grammar-invalid or colliding derived id with no new code; an explicit `id:` always wins.
+
+Multi-repo composition (§14) is config-driven: `[repos]` in `.syscribe.toml` + `repoImports:` on a package `_index.md`. The loader (`crates/syscribe-model/src/config.rs`) walks each peer, indexes qnames/stable-IDs, and precomputes git ref/gitlink state (`RefState`); the validator emits `E510`–`E515`/`W510`–`W512` only when `[repos]` is configured.
+
+Hierarchical product-line composition (§14.7, `ADR-SYS-HPLE-001`) lets a `Configuration` consolidate other, already-configured `Configuration`s via an optional `subConfigurations:` field — reachable locally or, in the common case, through a `[repos]`-mounted lower-tier product-line repo, at any depth. Each entry must resolve to a real, internally-valid `Configuration` (`E516` dangling, `E517` wrong-type, `E518` not internally valid — for a peer entry this genuinely loads and validates that repo's model via `sub_configuration_findings` in `crates/syscribe-model/src/validator.rs`, not just an existence check). `parameterBindings:` is reused unchanged, resolving transitively through the subtree at any depth via `collect_reachable_feature_params`; a cross-tier binding must target a parameter the owning tier actually selects (`E519`, the cross-tier `E203`) and that no nearer tier already closed (`E523`); a still-open required parameter anywhere in the subtree is the opt-in, `--deny`-gateable `W513` (`open_parameter_findings`), never a hard error. A lower tier carries zero awareness of whoever consolidates it — `bindTo:` never crosses a `subConfigurations:` boundary. Worked example: `examples/hple-multitier/`.
+
+Release baselines (`ADR-SYS-BASELINE-001`; `crates/syscribe-model/src/baseline.rs`) freeze a scope of the model into a git-anchored, content-hashed snapshot. `baseline create` seals a `frozenScope` (whole-model / package subtree / type·status·tag filters; `Baseline` elements excluded), writes a `type: Baseline` element (`BL-*`) under `model/Baselines/` and a lean JSON manifest under `<git-root>/baselines/` (both configurable via a `[baselines]` `element_dir`/`manifest_dir` table in `.syscribe.toml`), and captures the HEAD commit. Validation recomputes the aggregate vs the seal, status-graded: `released` drift `E520`, `approved` `W520`, `draft` silent, `superseded` skipped; seal↔manifest tamper `E521`, unresolved `supersedes` `E522`. `baseline verify`/`diff`/`list`/`show` round it out; a `frozenScope.config` clause freezes a projected PLE variant (drift re-projects); output locations are configurable via `[baselines]` in `.syscribe.toml`. The full-content seal reuses the suspect hashing via a shared `element_hash(elem, exclusions)`. MCP exposes read-only `baseline_list`/`baseline_diff`/`baseline_verify` (sealing is a CLI/CI action, not an MCP write tool).
+
+Suspect links (`ADR-SYS-SUSLINK-001`; `crates/syscribe-model/src/suspect.rs`) detect when a trace-link target changed since review. The source stores a `traceBaselines:` map (target id → `blake3:<hex>` of the target's normative projection — body + normative frontmatter, excluding editorial fields). Validation recomputes and compares; a mismatch is `W090`. Opt-in/additive: unbaselined links stay silent in `validate` and are surfaced only by `suspect list`. Baselines are captured/refreshed with `suspect accept` (single link or `--all` over the suspect set); `suspect accept --all-unbaselined` is the one-time onboarding switch that baselines every link with no baseline yet without ever overwriting an existing one. The MCP server exposes `suspect_list` (read) and the guarded `suspect_accept` (write, dry-run/delta/commit; clearing a link shows its W090 under `resolvedWarnings`).
+
+Native `PlanningItem` (`ADR-SYS-PLANITEM-001`; `PI-*`, `type: PlanningItem`) is the model's own representation of the day-to-day work of getting from `Requirement` to satisfied/verified — a durable, versioned analogue of a Jira epic/story/task or GitHub issue hierarchy, structurally part of the traceability graph rather than living in an external tracker. Strict single-parent tree (`parent:`, at most one — not a DAG, with cycle detection `E712`); a top-level item (no `parent:`) must set `achieves:` (one or more `Requirement`s, `E713`/`E714`/`E715` — deliberately not `satisfies:`, which stays scoped to architecture semantics). `status`/`itemType` reuse GitHub's own vocabulary verbatim (`E708`/`E709`). `evidence:` is duck-typed `ref:`/`path:` entries with a per-entry waiving `rationale:`; a leaf item (no children) claiming `status: done` needs at least one non-waived, resolving entry or it's `E719` (harder than the analogous `Requirement` rule `W300`, a warning — claiming done with no proof is a correctness defect). `blockedBy:` (`REQ-TRS-PLANITEM-007`, an ADR addendum) names one or more elements it's waiting on — permissively resolved like `evidence.ref:`, not restricted to `PlanningItem` — with dangling (`E720`) and cycle (`E721`) checks, plus `W308` if it's non-empty while `status` isn't `blocked` (likely stale); graded the opposite way from `evidence:`/`E719` — `status: blocked` with no `blockedBy:` raises nothing, since being blocked needs no proof. `assignedTo:` (`REQ-TRS-PLANITEM-008`, an ADR addendum) names a single Unix-style username (`^[a-z_][a-z0-9_-]{0,31}$`, always checked — `E723`), optionally checked against a `[users]` roster (`<username> = "<display name>"`) in `.syscribe.toml` when non-empty (`E722`; a malformed roster key is `W309`, mirroring `[ids.prefixes]`/`W046`); `show` prints the resolved display name. No dedicated CLI subcommand or MCP tool yet — queried via `list`/`show`/`ls`/`find`, written via the generic MCP `create_element`/`update_element`/etc. tools for free. This repo's own `model/Planning/` uses it to track its own feature work (first real, non-`examples/` use); see `examples/planning-item/` for the dedicated worked example.
+
+Foreign-format ingestion via stdio-subprocess plugins (`ADR-SYS-PLUGIN-002`; `crates/syscribe-model/src/plugins/`) lets a package `_index.md` declare `foreignFormat: <alias>`, handing its whole directory subtree to an external process named by `[plugins.<alias>]` in `.syscribe.toml` — any language, no embedded-runtime toolchain, unlike the never-shipped sandboxed-WASM design it supersedes (`ADR-SYS-PLUGIN-001`, designed but parked on an unmerged branch). Syscribe spawns the process, writes one JSON request (`packageDir`/`modelRoot`, always absolute) to its stdin, and reads one `{elements, diagnostics}` JSON envelope from stdout; elements merge into the graph the same way the FMEA/TARA row-explosion passes do, replacing the package's native content entirely. No sandbox — a plugin is a plain OS subprocess with full access, the same trust level already accepted for `[plantuml] jar`/the `[remote]` `sh -c` hook; `timeout_ms` (wall-clock kill) is the only enforced safety net. New codes `E550`/`E551`/`W550`–`W553`, plus the origin-agnostic `E108` (duplicate qualified name, any origin — a latent `Resolver` gap this feature surfaced and closed). A plugin-emitted element carries the same cross-reference fields a hand-authored one does; `satisfies:`/`derivedFrom:`/`allocatedTo:`/`typedBy:`/`supertype:` already resolved bidirectionally with the native model with zero extra work (never origin-gated), but `verifies:`'s `E104` target-legality check needed the same widening `REQ-TRS-SYSMLV2-004` gave native SysMLv2 ingestion — a native `TestCase` can now `verifies:` a plugin-synthesized element of a fixed requirement/architecture-shaped kind, tracked via `crate::plugins::synthesized_qnames`, never a hand-authored element of the same kind outside a `foreignFormat:` package. `syscribe plugins run <alias> --dry-run` invokes one plugin live and prints its raw envelope, no merge/no validation. See `docs/model-guide/stdio-plugins.md` and `examples/stdio-plugins/toy-python/` for the full protocol and a worked example.
+
+Annotated-source ingestion (`ADR-SYS-ANNOTATE-001`; `crates/syscribe-model/src/annotations.rs`) is the in-process counterpart to stdio plugins, for ordinary source code rather than a genuinely custom notation: a package `_index.md` declares `annotationFormat: <label>` plus inline `marker:` (a regex)/`include:`/`exclude:` (globs) — no `.syscribe.toml` indirection, since these carry no operator-trust decision worth centralizing. Syscribe scans every matched file for comment blocks starting with `marker:`; contiguous comment lines sharing the marker's own comment-prefix fold into one block (stopping at another marker, so adjacent markers never merge), and the block is parsed with the exact same `RawFrontmatter` schema every native `.md` file's frontmatter uses — no second grammar. `doc:` is the one exception: not a `RawFrontmatter` field, extracted before deserialization and becomes the element's doc body (left in place it would land in the `extra` catch-all and spuriously raise `W047`). Identity (`id:` if present, else `name:`) is mandatory and explicit, never derived from file/line (which drift on unrelated edits); `implementedBy:` auto-fills from the marker's own source location when unset (`W563`), closing §12.8's trace leg for free. Same full-subtree-takeover and merge posture as `foreignFormat:`, mutually exclusive with it and with `sysmlSubmodel:` on the same package (`W562`). New codes `E560`/`E561`/`W560`–`W563`; `verifies:`'s `E104` widening extended a third time via `crate::annotations::synthesized_qnames` (`Resolver::is_verify_target` now takes three independent provenance sets). `syscribe annotations scan <qname-or-label> --dry-run` scans one package in isolation, no merge/no validation. See `docs/model-guide/annotated-source.md` and `examples/annotated-source/c-firmware/` for the full contract and a worked example.
 
 ---
 
@@ -65,7 +103,9 @@ Each model element is a `.md` file. The **directory path** encodes namespace/own
 | `interface def` / `interface` | `.md` file, `type: InterfaceDef` / `Interface` |
 | — (native Requirement) | `.md` file, `type: Requirement` — dedicated handler, REQ-* id |
 | — (native TestCase) | `.md` file, `type: TestCase` — dedicated handler, TC-* id |
+| — (native TestPlan) | `.md` file, `type: TestPlan` — dedicated handler, TP-* id; groups TestCases by configuration/scope |
 | — (Architecture Decision Record) | `.md` file, `type: ADR` — dedicated handler, ADR-* id |
+| — (native PlanningItem) | `.md` file, `type: PlanningItem` — dedicated handler, PI-* id; single-parent work-item tree tracking a `Requirement`'s `achieves:`, no dedicated CLI subcommand |
 | `allocation` | `.md` file, `type: Allocation` |
 | `view def` / `view` | `.md` file, `type: ViewDef` / `View` |
 
@@ -76,6 +116,7 @@ Each model element is a `.md` file. The **directory path** encodes namespace/own
 id: <qualified-name>          # auto-derived from path if omitted
 type: <SysML element type>    # required
 name: <display name>          # defaults to filename stem
+extRef: <string or list>      # external reference(s) (e.g. DNG:4521)
 supertype: <qualified-name>   # specialization (':>')
 subsets: [<qualified-name>]   # subsetting ('::>')
 redefines: <qualified-name>   # redefinition
@@ -118,23 +159,53 @@ supertype: VehicleSystem::Chassis
 subsets: [Interfaces::PowerInterface]
 ```
 
+### Name Scheme
+
+Element **identity segments** (the file/directory stem, which becomes the last qualified-name segment for name-identified types) follow the SysMLv2 **basic-name** grammar: `^[A-Za-z_][A-Za-z0-9_]*$` — letters, digits and `_`, not starting with a digit. **No hyphens or spaces** (a hyphen is the subtraction operator in `appliesWhen`/`parameterConstraints` expressions, so a hyphenated name cannot be referenced there). A non-basic identity segment raises warning `W042`; rename using `_` or CamelCase (`Anti-Lock` → `Anti_Lock`/`AntiLock`). Stable ids (below) are exempt — they legitimately contain `-`. For **id-identified types** the identity segment is the `id`, so `W042` governs the `id`, **not** the free-text `name` (which may contain spaces and punctuation).
+
+### Label field: `name` is the single universal label
+
+Every element type — `Requirement`, `TestCase`, `ADR`, `PartDef`, `Package`, `FeatureDef`, the safety/security types, **everything** — uses **`name`** as its one human-readable label (SysMLv2 `declaredName`). There is no longer a per-identity-class split.
+
+- **`name`** is the label on all types. It is **optional in general** but **required** on every type that previously required a label (the native and safety/security id-identified types — see "ID Scheme" below). For id-identified types `name` is **free prose** (spaces and punctuation allowed; `W042` does **not** apply). For name-identified types `name` is **both** the label **and** the identity segment, so the basic-name grammar (`W042`) applies to it.
+- **`id`** (the stable shortName) remains the **identity** of the id-identified types — files stay `<id>.md` and cross-references (`verifies:`, `derivedFrom:`, …) resolve by id. The `id` axis and the `name` (label) axis are independent.
+- **`title` is removed.** It is no longer a recognized label field on any element. Declaring `title:` on **any** element raises error **`E025`** ("the `title` field is removed — rename it to `name`"), type-independently. Error **`E024`** (formerly: `name` on an id-identified type) is **retired** — `name` is now the correct, required label on those types, so a `Requirement` carrying `id` + `name` validates clean.
+
+`FeatureDef` is name-identified (its `name` is its label *and* qualified-name segment) and **also** carries a **mandatory** stable `id` (`FEAT-*`, its shortName; a feature with no `id` is error `E201`). Under the unified rule it carries `name` (label) + `id` (shortName) and no `title`.
+
 ### ID Scheme
 
 SysML elements (`PartDef`, `Port`, etc.) use `id` auto-derived from the file path if omitted. `Requirement` and `TestCase` carry a **stable opaque identifier** that must be explicitly set and never changes.
 
-**Requirement ID pattern** — `^REQ(-[A-Z0-9]{2,12})+-[0-9]{3}$`
-- Prefix `REQ`, one or more uppercase-alphanumeric segments (2–12 chars), three-digit suffix.
-- Examples: `REQ-SCHED-001`, `REQ-SCHED-BITMAP-001`, `REQ-PORT-CTX-001`
+**Requirement ID pattern** — `^REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
+- Prefix `REQ`, zero or more uppercase-alphanumeric category segments (2–12 chars each, optional), 3–8 digit numeric suffix (default cap 8; configurable via `[ids] max_digits`, minimum 3). A bare `REQ-<digits>` with no category segment is valid.
+- Examples: `REQ-001`, `REQ-SCHED-001`, `REQ-SCHED-BITMAP-001`, `REQ-PORT-CTX-001`
 
-**TestCase ID pattern** — `^TC(-[A-Z0-9]{2,12})+-[0-9]{3}$`
+**TestCase ID pattern** — `^TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
 - Same segment rules, prefix `TC`. Test level is not encoded in the ID (lives in `testLevel:`).
-- Examples: `TC-SCHED-BITMAP-001`, `TC-SYNC-SEM-002`
+- Examples: `TC-001`, `TC-SCHED-BITMAP-001`, `TC-SYNC-SEM-002`
 
-**ADR ID pattern** — `^ADR(-[A-Z0-9]{2,12})+-[0-9]{3}$`
+**ADR ID pattern** — `^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
 - Same segment rules, prefix `ADR`. Statuses: `proposed | accepted | deprecated | superseded`.
-- Examples: `ADR-SYS-001`, `ADR-SW-SCHED-001`
+- Examples: `ADR-001`, `ADR-SYS-001`, `ADR-SW-SCHED-001`
+
+**FeatureDef ID pattern** — `^FEAT(-[A-Z0-9]{2,12})+$`
+- Prefix `FEAT`, **mandatory** on every `FeatureDef` (a feature with no `id` is `E201`). Unlike other stable ids, a feature id **need not** end in a number — `FEAT-ABS` and `FEAT-ABS-001` are both valid. The feature stays name-identified (label/qname = `name`); the id is a stable reference usable in `appliesWhen:` and `Configuration` `features:` keys interchangeably with the qname.
+
+`Configuration` (`CONF-*`) is id-identified: its identity is its `id`, files are `<id>.md`, and its label is a free-prose `name`.
+- Examples: `FEAT-ABS`, `FEAT-QUADROTOR`, `FEAT-DATALINK-LORA`, `FEAT-CAM-4K`, `FEAT-ABS-001`
+
+**Baseline ID pattern** — `^BL(-[A-Z0-9]{2,12})+$`
+- Prefix `BL`, id-identified (`type: Baseline`; release snapshots, `ADR-SYS-BASELINE-001`). Like `FeatureDef`, a baseline id **need not** end in a number, so a release-style id such as `BL-2026-07` is valid. The `id` is the model identity and is **distinct** from the version-control tag string carried in `gitTag:` (e.g. `gitTag: REL-2026-07`). Files live under `model/Baselines/`.
+- Examples: `BL-2026-07`, `BL-QUARTERLY-001`, `BL-SAFETY-REL-03`
+
+**PlanningItem ID pattern** — `^PI(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
+- Same segment rules as `Requirement`/`TestCase`/`ADR`, prefix `PI`. `type: PlanningItem`, native work-item tracking (`ADR-SYS-PLANITEM-001`) — see below.
+- Examples: `PI-001`, `PI-HPLE-001`, `PI-RTH-IMPL-SW-002`
 
 Both the `id` field and the qualified name (path-derived) are valid cross-reference targets in `verifies:` and `derivedFrom:`.
+
+**Configurable additional prefixes** — every id-identified type accepts its built-in prefix (`REQ`, `TC`, `ADR`, … `FEAT`); a project may declare **extra** prefixes per type in the `[ids.prefixes]` table of `.syscribe.toml`, keyed by element-type name. They are **additive** (the built-in always stays valid) and **pure identity** (they affect only id validation/resolution). Each prefix must match `^[A-Z][A-Z0-9]{1,11}$`; a malformed or unknown-type entry raises warning `W046` and is ignored. Example: `[ids.prefixes]` with `Requirement = ["STK", "SYS"]` makes `STK-SCHED-001` and `SYS-SCHED-001` valid `Requirement` ids alongside `REQ-SCHED-001`. (REQ-TRS-ID-007.)
 
 ---
 

@@ -4,6 +4,8 @@ name: UAVSystemBDD
 diagramKind: BDD
 svgMode: companion
 svgFile: ./UAVSystemBDD.svg
+pumlMode: companion
+pumlFile: ./UAVSystemBDD.puml
 subject: UAV::UAVSystem
 shapes:
   s-uavsystem: {ref: "UAV::UAVSystem", kind: PartDef}
@@ -19,8 +21,9 @@ edges:
   e-avionics: {ref: "UAV::UAVSystem", source: s-uavsystem, target: s-avionics, kind: composition}
   e-power: {ref: "UAV::UAVSystem", source: s-uavsystem, target: s-power, kind: composition}
   e-payload: {ref: "UAV::UAVSystem", source: s-uavsystem, target: s-payload, kind: composition}
+  e-gcs: {ref: "UAV::UAVSystem", source: s-uavsystem, target: s-gcs, kind: usage}
 ---
 
 Block Definition Diagram showing the top-level structural decomposition of the UAVSystem into its constituent subsystem definitions.
 
-<img src="./UAVSystemBDD.svg" alt="UAV System Block Definition Diagram" width="100%"/>
+![UAVSystemBDD](./UAVSystemBDD.svg)

@@ -6,16 +6,24 @@ on:
     paths:
       - "crates/**"
       - "qual/**"
+      - "model/**"
+      - "model_sil/**"
+      - "model_auto/**"
+      - "model_mg/**"
       - ".github/workflows/qual.yml"
   pull_request:
     paths:
       - "crates/**"
       - "qual/**"
+      - "model/**"
+      - "model_sil/**"
+      - "model_auto/**"
+      - "model_mg/**"
   workflow_dispatch:
 
 jobs:
   qualify:
-    name: TCL2 qualification suite (73 TCs)
+    name: Model validation + TCL2 qualification suite
     runs-on: ubuntu-latest
 
     steps:
@@ -28,11 +36,58 @@ jobs:
       - name: Build syscribe
         run: cargo build --package syscribe
 
-      - name: Validate TRS model (qual/ self-check)
+      - name: Install Graphviz
+        run: sudo apt-get install -y graphviz
+
+      - name: Download PlantUML JAR
         run: |
-          ./target/debug/syscribe -m qual/ > qual-self-check.md
-          echo "Exit code: $?"
-          grep -E "Errors|Warnings" qual-self-check.md | head -3
+          wget -qL https://github.com/plantuml/plantuml/releases/latest/download/plantuml.jar \
+            -O plantuml.jar
+          java -jar plantuml.jar -version
+
+      - name: Generate PlantUML companion files and render SVGs
+        env:
+          PLANTUML_JAR: ${{ github.workspace }}/plantuml.jar
+        run: |
+          # Regenerate all .puml source files from model elements
+          ./target/debug/syscribe -m model/ plantuml
+          # Render every companion .puml → .svg
+          ./target/debug/syscribe -m model/ plantuml render
+
+      - name: Validate all models (gating — fails on any validation error)
+        run: |
+          # Per-model validation invocations. Each entry is "<model_dir>|<extra args to `validate`>".
+          # Add a model, or attach model-specific flags, by editing this list — no other change needed.
+          # MagicGrid models need their profile so the MG### structural rules run and W307 is
+          # promoted to a gate failure (model_mg/.syscribe.toml → [profiles.magicgrid]).
+          MODELS=(
+            "model|"
+            "model_auto|"
+            "model_mg|--profile magicgrid"
+            "model_sil|"
+            "qual|"
+          )
+          fail=0
+          for entry in "${MODELS[@]}"; do
+            m="${entry%%|*}"
+            args="${entry#*|}"
+            echo "::group::validate $m ${args}"
+            # $args is intentionally unquoted so multi-word flags split into argv.
+            # shellcheck disable=SC2086
+            if ./target/debug/syscribe -m "$m" validate $args > "validate-$m.md"; then
+              warns=$(grep -cE '^\| W' "validate-$m.md" || true)
+              echo "✓ $m: 0 errors, ${warns} warnings (args: ${args:-none})"
+            else
+              errs=$(grep -cE '^\| E' "validate-$m.md" || true)
+              echo "::error title=Model validation::$m has $errs validation error(s) (args: ${args:-none})"
+              grep -E '^\| E' "validate-$m.md" | head -50 || true
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          # Keep the full qual/ report as a self-check artifact.
+          ./target/debug/syscribe -m qual/ > qual-self-check.md || true
+          exit $fail
 
       - name: Run qualification test suite
         run: bash qual/tests/run_qual.sh --no-build
@@ -50,3 +105,10 @@ jobs:
         with:
           name: TRS-self-check-${{ github.sha }}
           path: qual-self-check.md
+
+      - name: Upload per-model validation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: model-validation-${{ github.sha }}
+          path: validate-*.md

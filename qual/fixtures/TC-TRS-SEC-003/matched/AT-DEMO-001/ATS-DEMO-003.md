@@ -1,8 +1,7 @@
 ---
 id: ATS-DEMO-003
 type: AttackStep
-name: ATS-DEMO-003
-title: Replay a previously captured authenticated torque-request frame
+name: Replay a previously captured authenticated torque-request frame
 attackFeasibility: medium
 ---
 

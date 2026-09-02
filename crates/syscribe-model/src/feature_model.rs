@@ -171,6 +171,44 @@ fn eval_constraint(expr: &str, resolve: &dyn Fn(&str) -> Option<f64>) -> Option<
     })
 }
 
+/// Evaluate the right-hand side of an assignment-style expression to a number.
+///
+/// Drops any `LHS =` prefix (e.g. `out = endurance` → `endurance`) — but not the
+/// comparison operators `==`/`<=`/`>=`/`!=` — and evaluates the remainder via the
+/// arithmetic evaluator, resolving each variable token through `resolve`. Returns
+/// `None` if any reference is unresolved or the expression cannot be parsed.
+///
+/// Used by the MoE trade study (REQ-TRS-MG-007) to compute a MoE host element's
+/// `expression:` under a configuration's `parameterBindings`.
+pub fn eval_expr_rhs(expr: &str, resolve: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
+    let rhs = split_assignment_rhs(expr).unwrap_or(expr);
+    eval_arith(rhs, resolve)
+}
+
+/// Return the slice after a single `=` that is an assignment (not part of a
+/// comparison operator `==`/`<=`/`>=`/`!=`). Returns `None` if there is no such
+/// assignment `=`.
+fn split_assignment_rhs(expr: &str) -> Option<&str> {
+    let bytes = expr.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'=' {
+            let prev = if i > 0 { bytes[i - 1] } else { 0 };
+            let next = if i + 1 < bytes.len() { bytes[i + 1] } else { 0 };
+            let is_cmp = next == b'='
+                || prev == b'='
+                || prev == b'<'
+                || prev == b'>'
+                || prev == b'!';
+            if !is_cmp {
+                return Some(&expr[i + 1..]);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Recursive-descent arithmetic over `+ - * /`, parentheses, numeric literals and
 /// parameter references. Returns `None` if any reference is unresolved.
 fn eval_arith(s: &str, resolve: &dyn Fn(&str) -> Option<f64>) -> Option<f64> {
@@ -323,16 +361,28 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     let configs: Vec<&RawElement> =
         elements.iter().filter(|e| is(e, ElementType::Configuration)).collect();
     let fnames: HashSet<&str> = fdefs.iter().map(|e| e.qualified_name.as_str()).collect();
+    // Feature id→qname alias map: a Configuration may key its `features:` selection
+    // (and an element its `appliesWhen:`) by a FeatureDef's FEAT-* stable id, which
+    // is normalized here to the canonical qname key space (REQ-TRS-ID-006).
+    let feat_alias = crate::variability::feature_id_to_qname(elements);
+    let sel_of = |cfg: &RawElement| {
+        crate::variability::canon_selection(&cfg.frontmatter.feature_selections(), &feat_alias)
+    };
 
     // ── E212: requires/excludes entries resolve to a FeatureDef ──────────────
+    // A requires:/excludes: entry may be a FEAT-* stable id (e.g. via
+    // crossTreeConstraints:, REQ-TRS-FM-005) rather than a qname — canonicalize
+    // through the same id→qname alias `appliesWhen:`/`Configuration.features:`
+    // already use (REQ-TRS-ID-006) before resolving and storing.
     let mut req: HashMap<&str, Vec<String>> = HashMap::new();
     let mut exc: HashMap<&str, Vec<String>> = HashMap::new();
     for fd in &fdefs {
         let mut requires = Vec::new();
         if let Some(r) = &fd.frontmatter.requires {
-            requires = strings_from_seq(r);
+            requires = strings_from_seq(r).into_iter().map(|r| crate::variability::canon_feature_ref(&r, &feat_alias)).collect();
         }
-        let excludes = fd.frontmatter.excludes.clone().unwrap_or_default();
+        let excludes: Vec<String> = fd.frontmatter.excludes.clone().unwrap_or_default()
+            .into_iter().map(|x| crate::variability::canon_feature_ref(&x, &feat_alias)).collect();
         for r in requires.iter().chain(excludes.iter()) {
             if !fnames.contains(r.as_str()) {
                 f.push(err("E212", &fd.file_path,
@@ -346,7 +396,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     // ── E219/E220 (per Configuration) + selection counts for W011/W012 ───────
     let mut sel_count: HashMap<&str, usize> = HashMap::new();
     for cfg in &configs {
-        let sel = cfg.frontmatter.feature_selections();
+        let sel = sel_of(cfg);
         let is_sel = |q: &str| sel.get(q).copied().unwrap_or(false);
         for fd in &fdefs {
             let q = fd.qualified_name.as_str();
@@ -501,7 +551,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     }
     let mut selected_anywhere: HashSet<String> = HashSet::new();
     for cfg in &configs {
-        for (k, v) in cfg.frontmatter.feature_selections() {
+        for (k, v) in sel_of(cfg) {
             if v {
                 selected_anywhere.insert(k);
             }
@@ -510,12 +560,16 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     for pkg in elements.iter().filter(|e| {
         matches!(
             e.frontmatter.element_type,
-            Some(ElementType::Package) | Some(ElementType::LibraryPackage) | Some(ElementType::Namespace)
+            Some(ElementType::Package)
+                | Some(ElementType::LibraryPackage)
+                | Some(ElementType::Namespace)
+                // REQ-TRS-FM-005: a single-file `FeatureModel` sheet is the
+                // feature model's own home for `parameterConstraints:`, not
+                // just a `Package` `_index.md`.
+                | Some(ElementType::FeatureModel)
         )
     }) {
-        let Some(serde_yaml::Value::Sequence(cons)) =
-            pkg.frontmatter.extra.get("parameterConstraints")
-        else {
+        let Some(cons) = pkg.frontmatter.parameter_constraints.as_deref() else {
             continue;
         };
         for c in cons {
@@ -555,9 +609,11 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
             }
 
             // appliesWhen: parse with the boolean grammar (and/or/not), not as a literal.
+            // Operands keyed by a FEAT-* id are normalized to the FeatureDef qname.
             let aw_expr = m
                 .get(serde_yaml::Value::String("appliesWhen".into()))
-                .and_then(|aw| crate::variability::applies_when_expr(aw).ok().flatten());
+                .and_then(|aw| crate::variability::applies_when_expr(aw).ok().flatten())
+                .map(|e| e.canonicalize(&|q: &str| crate::variability::canon_feature_ref(q, &feat_alias)));
             // W014: each operand feature must be selected in some Configuration.
             if let Some(e) = &aw_expr {
                 for feat in e.operands() {
@@ -579,7 +635,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
                 .and_then(|v| v.as_str())
                 == Some("warning");
             for cfg in &configs {
-                let sel = cfg.frontmatter.feature_selections();
+                let sel = sel_of(cfg);
                 let holds = match &aw_expr {
                     None => true,
                     Some(e) => e.eval(&|q| sel.get(q).copied().unwrap_or(false)),
@@ -622,12 +678,18 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     // ── W024: orphan FeatureDef ──────────────────────────────────────────────
     // A FeatureDef is an orphan when it is referenced by NO element's
     // `appliesWhen:` AND selected `true` by NO Configuration. feature-check-only.
+    // Operands keyed by a FEAT-* id are normalized to the FeatureDef qname
+    // before insertion, matching the sibling appliesWhen consumers above
+    // (W014's `aw_expr` and the deep-analysis `elem_aw`) — otherwise a bare-id
+    // `appliesWhen: FEAT-ROTOR` never matches `fd.qualified_name` and the
+    // FeatureDef is false-flagged as orphaned.
     let mut referenced_by_applies_when: HashSet<String> = HashSet::new();
     for e in elements {
         if let Some(aw) = &e.frontmatter.applies_when {
             if let Ok(Some(expr)) = crate::variability::applies_when_expr(aw) {
                 for op in expr.operands() {
-                    referenced_by_applies_when.insert(op);
+                    referenced_by_applies_when
+                        .insert(crate::variability::canon_feature_ref(&op, &feat_alias));
                 }
             }
         }
@@ -832,7 +894,7 @@ fn combinations(items: &[String], r: usize) -> Vec<Vec<String>> {
 fn group_card(gk: &str, card: Option<&str>, k: usize) -> (usize, Option<usize>) {
     if let Some(s) = card {
         if let Some((lo, hi)) = s.split_once("..") {
-            let m = lo.trim().parse::<usize>().unwrap_or(if gk == "alternative" { 1 } else { 1 });
+            let m = lo.trim().parse::<usize>().unwrap_or(1);
             let n = if hi.trim() == "*" {
                 None
             } else {
@@ -857,6 +919,20 @@ fn build_encoding(fdefs: &[&RawElement]) -> Encoding {
         fdefs.iter().map(|e| (e.qualified_name.as_str(), *e)).collect();
     let files: HashMap<String, String> =
         fdefs.iter().map(|e| (e.qualified_name.clone(), e.file_path.clone())).collect();
+    // A requires:/excludes: entry may be a FEAT-* stable id (e.g. via
+    // crossTreeConstraints:, REQ-TRS-FM-005) rather than a qname — canonicalize
+    // before matching against fdef_set, same alias `check_feature_model`'s
+    // E212 pass and `appliesWhen:`/`Configuration.features:` already use.
+    let feat_alias: HashMap<&str, &str> = fdefs
+        .iter()
+        .filter_map(|e| {
+            e.frontmatter
+                .id
+                .as_deref()
+                .filter(|id| crate::resolver::is_feat_id(id))
+                .map(|id| (id, e.qualified_name.as_str()))
+        })
+        .collect();
 
     let parent_of = |q: &str| -> Option<String> {
         let e = by_name[q];
@@ -962,23 +1038,25 @@ fn build_encoding(fdefs: &[&RawElement]) -> Encoding {
         }
 
         if let Some(r) = &e.frontmatter.requires {
-            for r in strings_from_seq(r) {
-                if fdef_set.contains(r.as_str()) {
+            for raw in strings_from_seq(r) {
+                let rq: &str = feat_alias.get(raw.as_str()).copied().unwrap_or(raw.as_str());
+                if fdef_set.contains(rq) {
                     cons.push(Constraint {
                         kind: CKind::Requires,
-                        label: format!("'{}' requires '{}'", n, r),
-                        clauses: vec![vec![nv(n), v(&r)]],
+                        label: format!("'{}' requires '{}'", n, rq),
+                        clauses: vec![vec![nv(n), v(rq)]],
                     });
                 }
             }
         }
         if let Some(x) = &e.frontmatter.excludes {
-            for x in x {
-                if fdef_set.contains(x.as_str()) {
+            for raw in x {
+                let xq: &str = feat_alias.get(raw.as_str()).copied().unwrap_or(raw.as_str());
+                if fdef_set.contains(xq) {
                     cons.push(Constraint {
                         kind: CKind::Excludes,
-                        label: format!("'{}' excludes '{}'", n, x),
-                        clauses: vec![vec![nv(n), nv(x)]],
+                        label: format!("'{}' excludes '{}'", n, xq),
+                        clauses: vec![vec![nv(n), nv(xq)]],
                     });
                 }
             }
@@ -1007,6 +1085,13 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     }
 
     let enc = build_encoding(&fdefs);
+    // Feature id→qname alias map: selections and appliesWhen operands keyed by a
+    // FeatureDef's FEAT-* stable id are normalized to the qname-keyed variable
+    // space the solver uses (REQ-TRS-ID-006).
+    let feat_alias = crate::variability::feature_id_to_qname(elements);
+    let sel_of = |cfg: &RawElement| {
+        crate::variability::canon_selection(&cfg.frontmatter.feature_selections(), &feat_alias)
+    };
     // One batsat solver primed with the full encoding, reused across all queries.
     let mut sat = crate::solver::Solver::from_cnf(&enc.cnf());
     let root_file = enc
@@ -1072,7 +1157,7 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     // Configuration validity under full semantics (E225), excluding the
     // requires/excludes obligations already reported as E219/E220.
     for cfg in elements.iter().filter(|e| is(e, ElementType::Configuration)) {
-        let sel = cfg.frontmatter.feature_selections();
+        let sel = sel_of(cfg);
         let assign: Vec<bool> = enc.names.iter().map(|n| sel.get(n).copied().unwrap_or(false)).collect();
         let mut violated: Vec<String> = Vec::new();
         for c in &enc.cons {
@@ -1099,8 +1184,13 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     }
 
     // Effective appliesWhen honours transitive package conditioning (REQ-TRS-VAR-006).
+    // Operands keyed by a FEAT-* id are normalized to the FeatureDef qname so they
+    // share the solver's qname-keyed variable space (REQ-TRS-ID-006).
     let pkgcond = crate::variability::package_conditions(elements);
-    let elem_aw = |e: &RawElement| crate::variability::effective_expr(e, &pkgcond);
+    let elem_aw = |e: &RawElement| {
+        crate::variability::effective_expr(e, &pkgcond)
+            .map(|x| x.canonicalize(&|q: &str| crate::variability::canon_feature_ref(q, &feat_alias)))
+    };
 
     // ── W021: dead elements (appliesWhen unsatisfiable under the feature model) ──
     for e in elements {
@@ -1171,15 +1261,15 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
             let mut active_somewhere = false;
             let mut covered_somewhere = false;
             for cfg in &configs {
-                let sel = cfg.frontmatter.feature_selections();
+                let sel = sel_of(cfg);
                 let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
-                let active = rexpr.as_ref().map_or(true, |e| e.eval(&selected));
+                let active = rexpr.as_ref().is_none_or(|e| e.eval(&selected));
                 if !active {
                     continue;
                 }
                 active_somewhere = true;
                 let covered = tcs.iter().any(|(texpr, ver)| {
-                    let runs = texpr.as_ref().map_or(true, |e| e.eval(&selected));
+                    let runs = texpr.as_ref().is_none_or(|e| e.eval(&selected));
                     runs && ver.iter().any(|v| rkeys.iter().any(|k| k == v))
                 });
                 if covered {
@@ -1289,9 +1379,12 @@ pub fn configure(elements: &[RawElement], conf: &str) -> ConfigureOutcome {
     };
 
     let enc = build_encoding(&fdefs);
+    let feat_alias = crate::variability::feature_id_to_qname(elements);
     let mut assumptions: Vec<Lit> = Vec::new();
     let mut fixed: HashSet<usize> = HashSet::new();
-    for (feat, val) in cfg.frontmatter.feature_selections() {
+    for (feat, val) in
+        crate::variability::canon_selection(&cfg.frontmatter.feature_selections(), &feat_alias)
+    {
         if let Some(&v) = enc.var_of.get(&feat) {
             assumptions.push(if val { Lit::pos(v) } else { Lit::neg(v) });
             fixed.insert(v);

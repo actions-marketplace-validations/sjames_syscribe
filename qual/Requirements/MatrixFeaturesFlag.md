@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-DISC-003
 type: Requirement
-name: matrix --features (Feature × Configuration Grid)
-title: Tool shall extend matrix with a --features flag printing a Feature × Configuration grid
+name: Tool shall extend matrix with a --features flag printing a Feature × Configuration grid
 status: draft
 reqDomain: software
 verificationMethod: test

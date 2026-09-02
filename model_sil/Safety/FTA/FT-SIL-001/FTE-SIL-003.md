@@ -1,9 +1,8 @@
 ---
 id: FTE-SIL-003
 type: FaultTreeEvent
-name: FTE-SIL-003
 eventKind: basic
-title: 2oo2 cross-comparison hardware failure — both channels produce matching erroneous outputs
+name: 2oo2 cross-comparison hardware failure — both channels produce matching erroneous outputs
 ref: System::Hardware::VitalProcessor
 failureRate: 2.0e-9
 probability: 2.0e-6

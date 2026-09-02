@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-TRACE-002
 type: Requirement
-name: Breakdown ADR Required
-title: "Tool shall emit E310 for a derived Requirement with no breakdownAdr:"
+name: "Tool shall emit E310 for a derived Requirement with no breakdownAdr:"
 status: draft
 reqDomain: software
 verificationMethod: test

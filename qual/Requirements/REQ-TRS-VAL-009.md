@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-VAL-009
 type: Requirement
-name: Allocation, View, and Documentation Validation Rules
-title: Tool shall enforce E500-E503, W500-W502, and W600-W601
+name: Tool shall enforce E500-E503, W500-W502, and W600-W601
 status: draft
 reqDomain: software
 verificationMethod: test

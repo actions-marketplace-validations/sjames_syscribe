@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-OUT-010
 type: Requirement
-name: Element-Rooted Connectivity Subgraph Export
-title: Tool shall export the transitive connectivity subgraph rooted at an element (text, JSON, DOT)
+name: Tool shall export the transitive connectivity subgraph rooted at an element (text, JSON, DOT)
 status: draft
 reqDomain: software
 verificationMethod: test

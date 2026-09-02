@@ -1,8 +1,7 @@
 ---
 id: REQ-TRS-OUT-006
 type: Requirement
-name: CI Severity Gating and Exit Code Contract
-title: Tool shall support configurable warning gating with a documented exit-code contract
+name: Tool shall support configurable warning gating with a documented exit-code contract
 status: draft
 reqDomain: software
 verificationMethod: test

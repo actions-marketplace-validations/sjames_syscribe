@@ -65,6 +65,7 @@
 | `View` | `view` | Usage of a ViewDef |
 | `Rendering` | `rendering` | Usage of a RenderingDef |
 | `TestCase` | *(native)* | Native test case — stable `TC-*` ID, Gherkin, lifecycle |
+| `TestPlan` | *(native)* | Native test plan — stable `TP-*` ID, groups TestCases by config/scope |
 | `FeatureDef` | *(PLE native)* | Feature model node (Product Line Engineering) |
 | `Configuration` | *(PLE native)* | Complete feature selection producing one product variant |
 
@@ -73,6 +74,9 @@
 | `type:` | Category | Description |
 |---|---|---|
 | `ADR` | Record | Architecture Decision Record — stable `ADR-*` ID |
+| `ReviewRecord` | Record | Formal review event + traceability anchor — stable `RR-*` ID |
+| `TradeStudy` | Record | Weighted-criteria evaluation of alternatives — stable `TRD-*` ID |
+| `PlanningItem` | Record | Native work-item tracking (§23) — stable `PI-*` ID; single-parent tree, `achieves:` a Requirement, `evidence:` proves `status: done` |
 | `Package` | Namespace | Named container; `_index.md` in a directory |
 | `LibraryPackage` | Namespace | Package marked as a model library |
 | `Namespace` | Namespace | Root namespace; `_index.md` at model root |
@@ -81,8 +85,10 @@
 
 ## Safety/security native types — see `syscribe spec safety`
 
-`HazardousEvent` (HE-*) · `SafetyGoal` (SG-*) · `DamageScenario` (DS-*) ·
-`ThreatScenario` (TS-*) · `CybersecurityGoal` (CSG-*) · `SecurityControl` (SC-*) ·
+`HazardousEvent` (HE-*) · `SafetyGoal` (SG-*) · `Asset` (ASSET-*) ·
+`DamageScenario` (DS-*) · `ThreatScenario` (TS-*) · `CybersecurityGoal` (CSG-*) ·
+`Zone` (ZN-*) · `Conduit` (CD-*) ·
+`SecurityControl` (SC-*) ·
 `VulnerabilityReport` (VR-*) · `TARASheet` (TARA-*) · `FaultTree` (FT-*) ·
 `FaultTreeGate` (FTG-*) · `FaultTreeEvent` (FTE-*) · `FMEASheet` (FMEA-*) ·
 `FMEAEntry` (row of an FMEASheet) · `AttackTree` (AT-*) ·
@@ -173,8 +179,8 @@ On architecture elements: `allocatedFrom: SC-001` (or list) references upstream 
 
 ```yaml
 type: Requirement
-id: REQ-UAV-FC-001           # required; REQ(-[A-Z0-9]{2,12})+-[0-9]{3}
-title: "..."                 # required
+id: REQ-UAV-FC-001           # required; REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}
+name: "..."                 # required
 status: approved             # draft | review | approved | implemented | verified
 reqDomain: software          # system | hardware | software
 asilLevel: B                 # A–D  OR  silLevel: 1–4  (not both — W006)
@@ -192,10 +198,12 @@ Body must contain at least one `shall` statement (W001 if absent).
 
 ```yaml
 type: TestCase
-id: TC-UAV-FC-001            # required; TC(-[A-Z0-9]{2,12})+-[0-9]{3}
-title: "..."                 # required
-status: active               # draft | active | retired
+id: TC-UAV-FC-001            # required; TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}
+name: "..."                 # required
+status: active               # draft | review | approved | active | retired
 testLevel: L2                # L1–L5
+securityTestMethod: fuzz     # optional (ISO/SAE 21434 §13.3): fuzz · penetration_test ·
+                             #   security_regression · vulnerability_scan · threat_modeling (else W809)
 verifies: [REQ-UAV-FC-001]
 sourceFile: tests/test_fc.py
 testFunctions:
@@ -208,8 +216,61 @@ Body must contain at least one ` ```gherkin ` fenced block (E011).
 
 ```yaml
 type: ADR
-id: ADR-SW-SCHED-001         # required; ADR(-[A-Z0-9]{2,12})+-[0-9]{3}
-title: "..."                 # required
+id: ADR-SW-SCHED-001         # required; ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}
+name: "..."                 # required
 status: accepted             # proposed | accepted | deprecated | superseded
 ```
 Body sections: `## Context`, `## Decision`, `## Consequences`.
+
+### native TestPlan
+
+```yaml
+type: TestPlan
+id: TP-DELIVERY-INTEGRATION-001   # required; TP(-[A-Z0-9]{2,12})+-[0-9]{3,8}
+name: "..."                      # required
+status: approved                  # draft | review | approved | active | retired
+scope: integration                # unit|smoke|integration|hil|certification|security|regression (W610 if other)
+configurations: [CONF-X-001]      # optional; product variant(s); absent = config-agnostic
+demonstrates: [SG-X-001]          # optional; goals/requirements this plan is evidence for
+testCases: [TC-X-001]             # explicit members
+selection:                        # optional additive query (unioned with testCases)
+  testLevels: [L3, L4]
+  domains: [software]
+  tags: [integration]
+```
+Effective members = `testCases` ∪ `selection` matches. Run `testplan` (list/detail/`--json`)
+and use the `--plan TP-X` lens on `matrix`/`verification-depth`/`audit`. Validation:
+`E600`–`E606`, `W610`–`W616` (duplicate id is `E101`).
+
+### native PlanningItem
+
+```yaml
+type: PlanningItem
+id: PI-RTH-IMPL-SW-002       # required; PI(-[A-Z0-9]{2,12})*-[0-9]{3,8}
+name: "..."                 # required
+status: in_progress          # required; todo | in_progress | blocked | done
+itemType: task                # optional; bug | task | feature
+parent: PI-RTH-IMPL-001       # optional; single scalar (strict single-parent tree, not a DAG)
+achieves: [REQ-RTH-002]       # required (non-empty) when parent: is absent (top-level)
+blockedBy: PI-RTH-DESIGN-001  # optional; any element, unrestricted by kind (like evidence.ref: below)
+assignedTo: alice             # optional; Unix-style username (^[a-z_][a-z0-9_-]{0,31}$), always format-checked
+evidence:
+  - ref: TC-RTH-BATT-001                          # any resolvable element, unrestricted by kind
+  - path: "repo:crates/syscribe/src/rth/mod.rs"    # local path checked to exist, or remote URI
+  - path: "docs/design/rth-timing.pdf"
+    rationale: "not yet committed; reviewed in RR-RTH-001"   # waives this one entry's own check
+```
+```toml
+# .syscribe.toml — optional [users] roster; assignedTo: is checked against it
+# only when non-empty (dormant otherwise). Maps username -> display name.
+[users]
+alice = "Alice Nakamura"
+```
+A **leaf** item (empty computed `children` — no other `PlanningItem` names it via `parent:`) at
+`status: done` needs at least one non-waived, resolving `evidence:` entry (`E719`); a non-empty
+`blockedBy:` while `status` isn't `blocked` warns (likely stale), but `status: blocked` with no
+`blockedBy:` raises nothing — being blocked needs no proof, unlike claiming done. `assignedTo:`
+must be username-shaped regardless of `[users]` (`E723`), and additionally a declared roster
+member when `[users]` is non-empty (`E722`); `show` prints the resolved display name. No dedicated
+CLI subcommand yet — use `list`/`show`/`ls`/`find`/`refs` (§23, `ADR-SYS-PLANITEM-001`). Validation:
+`E706`–`E717`, `E719`–`E723`, `W308`–`W309`.
