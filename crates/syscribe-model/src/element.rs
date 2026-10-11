@@ -2383,6 +2383,12 @@ tier_deref!(ColdFrontmatter, tier2, ColdFrontmatter2);
 tier_deref!(ColdFrontmatter2, tier3, ColdFrontmatter3);
 
 impl RawFrontmatter {
+    /// The ASIL / SIL is held as a whole-value placeholder (GH #268): unset in the base model because
+    /// its value is per Configuration, not because the element lacks one.
+    pub fn integrity_pending(&self) -> bool {
+        self.placeholder_fields.contains_key("asilLevel") || self.placeholder_fields.contains_key("silLevel")
+    }
+
     /// A requirement of a kind no architecture element can satisfy (`process`,
     /// `regulatory`, `deliverable`, GH #250): exempt from `W300`/`W302` and from the
     /// unsatisfied lists of `audit`, `stats` and the traceability diagram.

@@ -464,7 +464,10 @@ pub fn cmd_audit(
         if let Some(a) = &r.frontmatter.asil_level {
             *asil.entry(a.clone()).or_insert(0) += 1;
         }
-        if !has_sil && !has_asil {
+        if r.frontmatter.integrity_pending() && !has_sil && !has_asil {
+            // Held as a placeholder: per Configuration, neither QM nor missing (GH #268).
+            *asil.entry("(per configuration)".to_string()).or_insert(0) += 1;
+        } else if !has_sil && !has_asil {
             qm_none += 1;
         }
     }
