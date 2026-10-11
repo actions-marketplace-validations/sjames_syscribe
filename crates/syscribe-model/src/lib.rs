@@ -38,6 +38,7 @@ pub mod system;
 pub mod system_mut;
 pub mod system_run;
 pub mod system_scen;
+pub mod typecheck;
 pub mod plugins;
 pub mod projection;
 pub mod remote;
