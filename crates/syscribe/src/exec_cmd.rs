@@ -731,6 +731,9 @@ pub fn cmd_simulate(elems: &[RawElement], args: &[String], lens: &dyn Fn(Option<
                     for u in &rep.timers.uncovered {
                         coverage_text.push_str(&format!("    timer: {}\n", u.description));
                     }
+                    for r in &rep.requirements.uncovered {
+                        coverage_text.push_str(&format!("    requirement not verified by a passing scenario: {r}\n"));
+                    }
                     let mut pj = serde_json::to_value(&rep).expect("serialises");
                     pj["part"] = serde_json::json!(inst.name);
                     pj["basis"]["machine"] = serde_json::json!(label);
@@ -756,20 +759,7 @@ pub fn cmd_simulate(elems: &[RawElement], args: &[String], lens: &dyn Fn(Option<
             }
             // Requirements verified by the scenario TestCases of this machine: verified when every scenario of
             // one verifying TestCase passed.
-            let mut reqs: Vec<(String, bool)> = Vec::new();
-            let mut tc_ids: Vec<&str> = mine.iter().map(|o| o.tc.as_str()).collect();
-            tc_ids.dedup();
-            for tc_id in tc_ids {
-                let all_pass = mine.iter().filter(|o| o.tc == tc_id).all(|o| o.v.status == Status::Pass);
-                let Some(tc) = active.iter().find(|e| e.frontmatter.id.as_deref() == Some(tc_id) || e.qualified_name == tc_id) else { continue };
-                for r in tc.frontmatter.verifies.iter().flatten() {
-                    let id = resolver.resolve_ref(active, r).map(|e| e.frontmatter.id.clone().unwrap_or_else(|| e.qualified_name.clone())).unwrap_or_else(|| r.clone());
-                    match reqs.iter_mut().find(|x| x.0 == id) {
-                        Some(x) => x.1 |= all_pass,
-                        None => reqs.push((id, all_pass)),
-                    }
-                }
-            }
+            let reqs = verified_requirements(active, &resolver, &mine.iter().map(|o| (o.tc.as_str(), o.v.status == Status::Pass)).collect::<Vec<_>>());
             if let Some(p) = act_prog {
                 let rep = syscribe_model::act_cov::report(p, &acov, mine.len(), config.clone(), &reqs);
                 let min_n = value("--min-nodes").and_then(|v| v.parse::<f64>().ok());
@@ -1022,14 +1012,14 @@ fn record_scenarios(
 /// Entry point for `mutate <StateDef|TestCase> [--min-score <pct>] [--json]` (GH #282): seed faults into the
 /// machine's IR and re-run its scenarios. Exit 0 · 1 usage · 2 below `--min-score`, or the scenarios do not
 /// pass on the unmutated machine.
-pub fn cmd_mutate(elems: &[RawElement], args: &[String]) -> i32 {
+pub fn cmd_mutate(elems: &[RawElement], args: &[String], model_root: &std::path::Path) -> i32 {
     use syscribe_model::element::ElementType;
     use syscribe_model::sm_scen::{extract_scenarios, subject_of};
     let flag = |f: &str| args.iter().any(|a| a == f);
     let value = |f: &str| args.windows(2).find(|w| w[0] == f).map(|w| w[1].clone());
-    let skip: Vec<usize> = args.iter().enumerate().filter(|(_, a)| *a == "--min-score").map(|(i, _)| i + 1).collect();
+    let skip: Vec<usize> = args.iter().enumerate().filter(|(_, a)| *a == "--min-score" || *a == "--part").map(|(i, _)| i + 1).collect();
     let Some(name) = args.iter().enumerate().find(|(i, a)| !a.starts_with("--") && !skip.contains(i)).map(|(_, a)| a.clone()) else {
-        eprintln!("Usage: syscribe --model <root> mutate <StateDef|TestCase> [--min-score <percent>] [--json]");
+        eprintln!("Usage: syscribe --model <root> mutate <StateDef|TestCase|composite> [--part <name>] [--min-score <percent>] [--json]");
         return 1;
     };
     let min = match value("--min-score").map(|v| v.parse::<f64>()) {
@@ -1045,7 +1035,8 @@ pub fn cmd_mutate(elems: &[RawElement], args: &[String]) -> i32 {
         eprintln!("error: no element '{name}'");
         return 1;
     };
-    let is_machine = |e: &RawElement| matches!(e.frontmatter.element_type, Some(ElementType::StateDef) | Some(ElementType::State) | Some(ElementType::ActionDef) | Some(ElementType::Action));
+    let is_composite = |e: &RawElement| matches!(e.frontmatter.element_type, Some(ElementType::Part) | Some(ElementType::PartDef));
+    let is_machine = |e: &RawElement| matches!(e.frontmatter.element_type, Some(ElementType::StateDef) | Some(ElementType::State) | Some(ElementType::ActionDef) | Some(ElementType::Action)) || is_composite(e);
     let (machine_q, tcs): (String, Vec<&RawElement>) = if matches!(target.frontmatter.element_type, Some(ElementType::TestCase)) {
         match subject_of(elems, target) {
             Ok(s) => (s.qualified_name.clone(), vec![target]),
@@ -1062,9 +1053,16 @@ pub fn cmd_mutate(elems: &[RawElement], args: &[String]) -> i32 {
             .collect();
         (target.qualified_name.clone(), tcs)
     } else {
-        eprintln!("error: '{name}' is neither a StateDef nor a TestCase");
+        eprintln!("error: '{name}' is neither a StateDef, a composite part nor a TestCase");
         return 1;
     };
+    if resolver.resolve_ref(elems, &machine_q).is_some_and(is_composite) {
+        return mutate_composite(elems, &machine_q, &tcs, min, value("--part").as_deref(), flag("--json"), model_root);
+    }
+    if value("--part").is_some() {
+        eprintln!("error: --part applies to a composite subject");
+        return 1;
+    }
     if tcs.iter().any(|tc| syscribe_model::plant_cfg::declares_plants(&tc.frontmatter)) {
         eprintln!("error: mutation analysis of scenarios that use plants is not supported yet (each mutant would need its own co-simulation)");
         return 1;
@@ -1615,4 +1613,74 @@ fn verified_requirements(active: &[RawElement], resolver: &syscribe_model::resol
         }
     }
     reqs
+}
+
+/// `mutate` of a composite: every part's machine is mutated and judged by the composite scenarios (REQ-TRS-SYSMUT-001).
+fn mutate_composite(elems: &[RawElement], composite: &str, tcs: &[&RawElement], min: Option<f64>, only_part: Option<&str>, json: bool, model_root: &std::path::Path) -> i32 {
+    use syscribe_model::sm_scen::extract_scenarios;
+    let scenarios: Vec<_> = tcs.iter().flat_map(|tc| extract_scenarios(&tc.doc)).collect();
+    if scenarios.is_empty() {
+        eprintln!("error: no scenarios to run against {composite}");
+        return 1;
+    }
+    let model = match syscribe_model::system_run::SystemModel::build_in(elems, composite, model_root) {
+        Ok(m) => m,
+        Err(errs) => {
+            for e in &errs {
+                eprintln!("error: {e}");
+            }
+            return if errs.iter().any(|e| e.contains("no FMI support") || e.contains("is not a composite with an executable")) { 1 } else { 2 };
+        }
+    };
+    if let Some(p) = only_part {
+        if !model.spec.instances.iter().enumerate().any(|(i, inst)| inst.name == p && model.machines[i].is_some()) {
+            let names: Vec<&str> = model.spec.instances.iter().enumerate().filter(|(i, _)| model.machines[*i].is_some()).map(|(_, i)| i.name.as_str()).collect();
+            eprintln!("error: '{p}' is not a part with a state machine of {composite} (parts: {})", names.join(", "));
+            return 1;
+        }
+    }
+    let report = match syscribe_model::system_mut::analyse(&model, &scenarios, &syscribe_model::sm_run::Options::default(), only_part) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return 2;
+        }
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report).expect("serialises"));
+    } else {
+        println!(
+            "mutation score {:.1}%  ({} killed, {} survived, {} equivalent-suspect) over {} scenario(s) on {} (hash {})",
+            report.score, report.killed, report.survived, report.equivalent_suspect, report.scenarios, report.composite, &report.hash[..12]
+        );
+        for p in &report.parts {
+            println!("{}: {:.1}%  ({} killed, {} survived, {} equivalent-suspect)", p.machine, p.score, p.killed, p.survived, p.equivalent_suspect);
+            for m in p.mutants.iter().filter(|m| m.fate == "survived") {
+                println!("  SURVIVED  {}  [{} at {}]{}", m.description, m.operator, m.origin.path, m.closest.as_ref().map(|c| format!("  (closest: {c})")).unwrap_or_default());
+            }
+            for m in p.mutants.iter().filter(|m| m.fate == "equivalentSuspect") {
+                println!("  uncovered {}  [{}]", m.description, m.operator);
+            }
+            if !p.uncovered.states.is_empty() {
+                println!("  states never entered: {}", p.uncovered.states.join(", "));
+            }
+            if p.killed + p.survived == 0 && p.equivalent_suspect > 0 {
+                println!("  note: no mutant of this part was judged; the scenarios never exercise it");
+            }
+        }
+    }
+    let mut exit = 0;
+    if let Some(min) = min {
+        for p in &report.parts {
+            if p.killed + p.survived == 0 && p.equivalent_suspect > 0 {
+                // nothing was judged: the scenarios never exercised the part, which a score of 100% would hide
+                eprintln!("mutation gate: {} had no mutant judged ({} equivalent-suspect: the scenarios never exercise this part)", p.machine, p.equivalent_suspect);
+                exit = 2;
+            } else if p.score + 1e-9 < min {
+                eprintln!("mutation gate: {} score {:.1}% is below the required {min}%", p.machine, p.score);
+                exit = 2;
+            }
+        }
+    }
+    exit
 }
