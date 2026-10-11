@@ -44,7 +44,7 @@ syscribe <command> --help  # the same page, e.g. `syscribe validate --help` (als
 
 **Command routing.** The top-level command line is parsed by a clap router whose subcommand registry is derived from the man-page list, so an **unknown command is rejected** with a clear error and a **non-zero** exit (`error: unrecognized subcommand '<name>'`), independent of whether a model directory is present. Each command's own flags are passed through to it unchanged.
 
-**Usage errors.** Invalid input is never silently replaced by a default. An option value outside its documented set (`impact --direction sideways`, `--format xml` on `impact`/`n2`/`behavioral-coverage`/`sbom`/`build-config`), a non-integer count (`n2 --depth abc`, `digest --limit x`, …), or an unknown option on the commands that check theirs — `validate`, `list`, `show`, `trace`, `why`, `who-verifies`, `impact`, `links`, `refs`, `export`, `find`, `ls`, `tree`, `extref`, `n2`, `behavioral-coverage`, `sbom`, `build-config`, `stats`, `digest`, `search-text`, `summarize`, `topics`, `clusters`, `verification-depth`, `trace-export` (plus `lint-docs`, `follow` and `connectivity`, which parse strictly themselves) — is a **usage error**: a message on stderr naming the option (and, for an enumerated option, its valid values), nothing on stdout, exit `1`. The option check runs before the model is loaded. Options are spelled `--opt <value>`; the inline `--opt=<value>` form is accepted only where a page documents it (`validate --deny=`/`--max-warnings=`, `--where=`, `lint-docs --deny=`).
+**Usage errors.** Invalid input is never silently replaced by a default. An option value outside its documented set (`impact --direction sideways`, `--format xml` on `impact`/`n2`/`behavioral-coverage`/`sbom`/`build-config`), a non-integer count (`n2 --depth abc`, `digest --limit x`, …), or an unknown option on the commands that check theirs — `validate`, `list`, `show`, `trace`, `why`, `who-verifies`, `impact`, `links`, `refs`, `export`, `find`, `ls`, `tree`, `extref`, `n2`, `behavioral-coverage`, `coverage`, `compliance`, `mechanisms`, `sbom`, `build-config`, `stats`, `digest`, `search-text`, `summarize`, `topics`, `clusters`, `verification-depth`, `trace-export` (plus `lint-docs`, `follow` and `connectivity`, which parse strictly themselves) — is a **usage error**: a message on stderr naming the option (and, for an enumerated option, its valid values), nothing on stdout, exit `1`. The option check runs before the model is loaded. Options are spelled `--opt <value>`; the inline `--opt=<value>` form is accepted only where a page documents it (`validate --deny=`/`--max-warnings=`, `--where=`, `lint-docs --deny=`).
 
 ---
 
@@ -232,8 +232,10 @@ See `syscribe help scripts` for the full read-only model API.
 
 `ingest-results` parses a test runner's output into the results sidecar (`<model_root>/.syscribe/results.json`), which lights up the **executed-evidence** views (`matrix`/`trace`/`testplan`/`safety-case` reflect *passed* vs merely *linked* coverage, and validation can enforce the **W010** "linked test never executed" check).
 
+`--config <CONF-id>` records the ingest as one Configuration's evidence (results stay under that configuration; global verdicts are untouched). A configuration is judged on the global results overlaid with its own — its own verdict wins — by every `matrix` column and, under `--config`, by `validate`, `audit`, `trace`, `safety-case` and `coverage tree`. See `syscribe help ingest-results`.
+
 ```bash
-syscribe -m model/ ingest-results <file> [--format cargo-json|junit|session-log]
+syscribe -m model/ ingest-results <file> [--format cargo-json|junit|session-log] [--run <id>] [--config <CONF-id>]
 ```
 
 - **`<file>`** — the results file (required, first positional).
@@ -537,6 +539,14 @@ Two ways to let a package's subtree come from something other than Syscribe Mark
 syscribe -m examples/stdio-plugins/toy-python/model/ plugins run toydsl --dry-run
 ```
 
+## ReqIF import (`import-reqif`)
+
+```
+syscribe -m <root> import-reqif <file.reqif> [--into <package>] [--id-prefix <PFX>] [--class <reqClass>] [--domain <reqDomain>] [--update] [--dry-run]
+```
+
+Creates one draft `Requirement` per SPEC-OBJECT (folders and test cases skipped), keeping the OEM identifier in `extRef: ["reqif:<id>"]`. Re-importing is idempotent; `--update` rewrites the name and body of already-imported requirements. A custom `--id-prefix` must be registered under `[ids.prefixes]`. CSV/Excel mapping is not implemented yet (GH #241). See `syscribe help import-reqif`.
+
 ## ReqIF export (`export-reqif`)
 
 ```bash
@@ -759,6 +769,40 @@ $ syscribe -m model/ find . --where custom.supplier                  # presence
 `=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
 
 ---
+
+## Safety mechanisms (`mechanisms`)
+
+```
+syscribe -m <root> mechanisms [--json] [--uncovered]
+```
+
+Lists each `SafetyMechanism` with what it covers, its coverages, reaction time, safe state and allocation; `--uncovered` lists the FMEA rows no mechanism covers. See `syscribe help mechanisms`.
+
+## Standards compliance (`compliance`)
+
+```
+syscribe -m <root> compliance --standard aspice|iso26262|iso21434 [--config <C>] [--json] [--fail-on-missing]
+```
+
+Per process area, the expected work product and how many matching elements are present and approved (`complete` / `partial` / `missing`). A `[standards.<name>]` table in `.syscribe.toml` replaces the built-in items (selectors: `type`, `reqClass`, `reqDomain`, `tag`, `testLevel`; strictly validated; retired/superseded elements are not counted). See `syscribe help compliance`.
+
+## Coverage roll-up (`coverage tree`)
+
+```
+syscribe -m <root> coverage tree <req> [--plan <TP-id>] [--config <id>] [--json]
+```
+
+Shows how well a requirement and every requirement derived below it is verified: per node the leaf counts (`leaves 1/3 active, 1 planned`), the number of direct verifying TestCases and a verdict glyph (`●` complete, `◐` partial, `○` nothing). Roll-up never replaces a parent's own test: a parent whose leaves are all verified but which has no direct test shows `◐`. `matrix --rollup [--json] [--tag] [--status] [--config]` lists the same roll-up for every requirement at once (own coverage, coverage below it, verdict, rule applied) with a per-`reqClass` footer. How a parent is judged complete is set by an optional `[coverage]` table in `.syscribe.toml` (`default` and ordered `[[coverage.rule]]` entries selecting by `reqClass`, `requirementKind`, `status`, `tag`, `asil`, `cal`, `sil`; `parent_rule` = `direct` | `rollup` | `both`, default `both`; a requirement without a `requirementKind` or `status` never matches that selector, and unknown kind/status values are errors; note a `status` rule can start to loosen a rated requirement when it moves to that status). Loosening an integrity-rated requirement (ASIL/CAL/SIL) is a configuration error. See `syscribe help coverage`. `--plan` / `--config` evaluate the tree on the plan / configuration lens (a root outside the lens exits `1`). Exit `1` when `<req>` does not resolve to a requirement (in the lens) or the policy is invalid.
+
+## Run history (`ingest-results --run`, `results`)
+
+```
+syscribe -m <root> ingest-results --format junit --run SW-0.9.0-rc3 report.xml
+syscribe -m <root> results runs [--json]
+syscribe -m <root> results diff <runA> <runB> [--json] [--fail-on-regression]
+```
+
+`results failures [--json]` lists the failing, skipped and flaky functions of the latest ingest with the retained JUnit message and time. After a function-level ingest a summary line reports how many `testFunctions` of active TestCases were missing from the report and how many were skipped. `--results-as-of <run>` (a global option, anywhere on the command line) makes the evidence-reading commands use a retained run's verdicts instead of the latest sidecar. `--run` additionally retains the ingest under a run identity in `.syscribe/results-history.json` (the `results.json` sidecar is unchanged); without it nothing is retained. `results diff` reports regressions (failing in B, not in A — including tests new in B), fixed, still failing and other changes; `--fail-on-regression` exits 1 on a regression. `trace` lists, under its "Verified by" table, each failing verifier's function with the retained JUnit message and time, and `safety-case` adds the same as "Failure details" (`failureDetails` in JSON). Per-configuration verdicts: `ingest-results --config CONF-X` keeps results per Configuration (see above); `results runs` shows the per-configuration counts, `results failures [--config C]` lists failures per configuration, and `results diff` names a changed test `<test> @ <config>`.
 
 ## Large-model overview & search (`stats`, `digest`, `search-text`, `summarize`, `topics`, `clusters`)
 
@@ -986,7 +1030,7 @@ $ syscribe -m model/ audit --all-configs       # gate every Configuration's vari
 
 **Variant scoping (`--config` / `--all-configs`).** Certification is scoped to a *variant*. `audit --config <CONF|features>` projects the entire dashboard — verdict, W306, orphans, coverage — onto the elements **active** in that configuration (per `appliesWhen`), exactly like `validate --config`; a requirement gated out of the variant no longer trips the verdict. `audit --all-configs` audits every stored `Configuration` and exits non-zero if any fails. (The same `--config` lens is available on `metrics`, `cyber-risk`, `co-analysis`, `verification-depth`, and `safety-case`.)
 
-The report (mirrored in `--json`) has seven sections:
+The report (mirrored in `--json`) has eight sections:
 
 1. **Requirement status split** — counts of native `Requirement`s by `status:` (`draft` / `review` / `approved` / `implemented` / `verified`), **overall** and **per top-level package** (the first `::` segment of the qualified name).
 2. **SIL / ASIL distribution** — counts by `silLevel` and by `asilLevel`, plus a `QM/none` bucket for requirements that declare neither.
@@ -994,28 +1038,29 @@ The report (mirrored in `--json`) has seven sections:
 4. **Orphans** — counts and ids of: requirements with no active verifying `TestCase`; requirements that no element `satisfies:`; `TestCase`s whose `verifies:` is empty or resolves to nothing; and requirements with neither `derivedFrom` nor `derivedChildren`.
 5. **Safety** — hazardous events; safety goals by integrity level (`ASIL x` / `SIL n` / `PL x`); goals with no derived requirement (`W805`), unreferenced hazards (`W800`), goals with no integrity level (`W801`); fault trees and events; FMEA sheets/rows with the max RPN, rows missing S/O/D (`W931`), `W903` and severity-priority (`W932`) gaps; the SPFM/LFM/PMHF hardware metrics per goal with a pass/fail/n-a result against the ASIL/SIL target; and freedom-from-interference gaps (`W034`).
 6. **Security** — assets, damage and threat scenarios, cybersecurity goals by CAL, security controls, goals not implemented by a control (`W802`) or with no derived requirement (`W804`), assets in no damage scenario (`W810`), vulnerability reports (total / open), attack trees, and IEC 62443 zones (with security-level gaps) and conduits.
-7. **Readiness verdict** — a single **PASS/FAIL** line that names *why* it failed.
+7. **Verification results** — present only when test results are ingested: active tests by verdict (pass / fail / unknown), safety goals by safety-case verdict (supported / incomplete / **failing**) and test plans by verdict. Under `--plan`, goals and plans are model-level and reported as `null`.
+8. **Readiness verdict** — a single **PASS/FAIL** line that names *why* it failed.
 
 ### Verdict policy and exit code
 
 | Exit code | Meaning |
 |---|---|
-| `0` | **PASS** — no `Error`-severity findings, no finding selected by the `[audit]` policy (default: `W306`, and `W033`/`W805` on an ASIL C/D goal), and (under `--profile`) nothing the profile promotes. |
-| `2` | **FAIL** — at least one `Error` finding, **or** at least one finding selected by the `[audit]` policy (default: `W306`, the unsatisfied-safety-mechanism gate; `W033`, a hardware safety metric below its target, and `W805`, a goal no requirement derives from, when the goal is ASIL C or D), **or** at least one finding promoted by `--profile <name>`. |
+| `0` | **PASS** — no `Error`-severity findings, no finding selected by the `[audit]` policy (default: `W306`, `W312`, and `W033`/`W805` on an ASIL C/D goal), no safety goal `failing` on ingested results, and (under `--profile`) nothing the profile promotes. |
+| `2` | **FAIL** — at least one `Error` finding, **or** at least one finding selected by the `[audit]` policy (default: `W306`, the unsatisfied-safety-mechanism gate; `W033`, a hardware safety metric below its target, and `W805`, a goal no requirement derives from, when the goal is ASIL C or D), **or** a safety goal is `failing` on ingested test results (not evaluated under `--plan`), **or** at least one finding promoted by `--profile <name>`. The default policy also selects `W312`, an approved/implemented requirement whose active verifier failed. |
 | `1` | The `--profile <name>` is undefined (or no `.syscribe.toml` exists). |
 
 The default policy always fails on errors, on `W306`, and on `W033`/`W805` for ASIL C/D goals (a model with an ASIL D goal whose metrics miss target or that no requirement derives from is not "ready"; this was a PASS before GH #216). **Configurable policy:** an `[audit]` table in `<model_root>/.syscribe.toml` replaces the defaults:
 
 ```toml
 [audit]
-fail_on = ["W306", "W800"]      # codes that fail the verdict at any integrity level (default ["W306"])
+fail_on = ["W306", "W800"]      # codes that fail the verdict at any integrity level (default ["W306", "W312"])
 
 [audit.fail_on_asil]            # code -> ASIL levels at which it fails (default W033/W805 at C and D)
 W033 = ["B", "C", "D"]
 W805 = ["D"]
 ```
 
-A present key replaces its default wholesale, so an empty `[audit.fail_on_asil]` table opts out of the ASIL-gated defaults and relaxes the audit to the previous behaviour. Error-severity findings always fail. A malformed entry is ignored and reported as `W934`. Passing `--profile <name>` loads `[profiles.<name>]` from `<model_root>/.syscribe.toml` and additionally fails the audit if any finding that profile promotes is present, using the same promotion semantics as `validate --profile`. The JSON document has the shape `{ statusSplit, integrityDistribution, coverage, orphans, safety, security, verdict: { pass, reasons } }`.
+A present key replaces its default wholesale, so an empty `[audit.fail_on_asil]` table opts out of the ASIL-gated defaults and relaxes the audit to the previous behaviour. Error-severity findings always fail. A malformed entry is ignored and reported as `W934`. Passing `--profile <name>` loads `[profiles.<name>]` from `<model_root>/.syscribe.toml` and additionally fails the audit if any finding that profile promotes is present, using the same promotion semantics as `validate --profile`. The JSON document has the shape `{ statusSplit, integrityDistribution, coverage, orphans, safety, security, verification, verdict: { pass, reasons } }` (`verification` is `null` without ingested results).
 
 ---
 
@@ -1039,7 +1084,7 @@ $ syscribe -m model/ testplan TP-TRS-MCP-001 --json
 
 ### `--plan TP-X` lens
 
-`matrix`, `verification-depth` and `audit` accept a `--plan TP-X` lens, symmetric to `--config`. On `matrix`/`verification-depth` it restricts the requirement rows to the plan's in-scope requirements and the TestCase universe to the plan's members. On `audit` it scopes the readiness verdict: validation runs over the **full** model (so no reference escaping the plan subset is mistaken for a defect) and only findings on the plan's in-scope elements count toward the verdict. It **composes** with `--config`, is dormant-safe, and exits `1` on an unknown plan id.
+`matrix`, `verification-depth`, `audit` and `coverage tree` accept a `--plan TP-X` lens, symmetric to `--config`. On `matrix`/`verification-depth` it restricts the requirement rows to the plan's in-scope requirements and the TestCase universe to the plan's members. On `audit` it scopes the readiness verdict: validation runs over the **full** model (so no reference escaping the plan subset is mistaken for a defect) and only findings on the plan's in-scope elements count toward the verdict. It **composes** with `--config`, is dormant-safe, and exits `1` on an unknown plan id.
 
 ```
 $ syscribe -m model/ matrix --plan TP-TRS-MCP-001
@@ -1154,23 +1199,25 @@ $ syscribe -m model_auto/ who-verifies REQ-ENG-SAFE-001
 
 ### Verification-depth & independence report
 
-`verification-depth` gives the fleet-wide view that `trace` shows one requirement at a time: for each requirement, the **distinct** `testLevel`s among its active verifying TestCases, a count, and a depth flag — `none` (no active test), `hil-only` (only L5), `single` (one level), or `ok` (≥2 levels). Diversity/independence of verification is a core SIL-4 expectation.
+`verification-depth` gives the fleet-wide view that `trace` shows one requirement at a time: for each requirement, the **distinct** `testLevel`s among its active verifying TestCases, a count, and a depth flag — `none` (no active test), `hil-only` (only L5), `single` (one level), or `ok` (≥2 levels). With test results ingested, a failing test and an automated test whose functions did not run do not count as a level (so a requirement whose only tests fail is `none`) and are listed in `Failing` / `Not run` columns. Diversity/independence of verification is a core SIL-4 expectation.
 
 ```
 $ syscribe -m model_sil/ verification-depth --sil 4
 
 # Verification depth (9 requirements)
 
-| Requirement | SIL/ASIL | Levels | Count | Flag |
-|---|---|---|---|---|
-| REQ-SIL-SAFE-001 | 4 | L4 | 1 | single |
-| REQ-SIL-SAFE-002 | 4 | L5 | 1 | hil-only |
-| REQ-SIL-SW-002 | 4 | L2 | 1 | single |
+Counts `active` TestCases only (draft, approved and retired ones do not count).
+
+| Requirement | SIL/ASIL | Levels | Count | Flag | Failing | Not run |
+|---|---|---|---|---|---|---|
+| REQ-SIL-SAFE-001 | 4 | L4 | 1 | single | — | — |
+| REQ-SIL-SAFE-002 | 4 | L5 | 1 | hil-only | — | — |
+| REQ-SIL-SW-002 | 4 | L2 | 1 | single | — | — |
 ...
 ```
 
 - **`--sil <v>` / `--status <s>`** filter the rows (same `--sil` semantics as `list`).
-- **`--json`** emits an array of `{id, silLevel, asilLevel, levels, count, flag}`.
+- **`--json`** emits an array of `{id, silLevel, asilLevel, levels, count, failing, notRun, flag}`.
 - **`--min-levels N`** turns it into a CI gate — exits non-zero when any reported requirement has fewer than `N` distinct verification levels. Combined with `--sil 4`, gates only that tier:
 
 ```
@@ -1288,8 +1335,9 @@ syscribe -m model/ suspect accept TC-UAV-CARGO-001 REQ-UAV-CARGO-001
 
 ```bash
 syscribe -m <root> baseline create --tag <tag> [--name <n>] [--approver <a>] [--frozen-scope <sel>] [--id <BL-id>] [--allow-dirty] [--require-reviewed]
-syscribe -m <root> baseline verify <BL-id> | --all
+syscribe -m <root> baseline verify <BL-id> | --all [--detail]
 syscribe -m <root> baseline diff <BL-A> <BL-B> [--detail]
+syscribe -m <root> baseline diff <BL> --current [--detail]
 syscribe -m <root> baseline list
 syscribe -m <root> baseline show <BL-id>
 ```

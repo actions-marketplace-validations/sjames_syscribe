@@ -152,7 +152,7 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ validate` | Validation findings only — errors and warnings |
 | `syscribe -m model/ validate --json` | Same, machine-readable JSON |
 | `syscribe -m model/ validate --file <path>` | Findings for a single file only |
-| `syscribe -m model/ template <type>` | Print a ready-to-fill frontmatter skeleton |
+| `syscribe -m model/ template <type> [--prefix P]` | Print a ready-to-fill frontmatter skeleton (`Requirement` defaults to the first `[ids.prefixes]` prefix; `--prefix` picks another) |
 | `syscribe -m model/ next-id <prefix>` | Print the next available stable ID (e.g. `REQ-AID-FC-002`) |
 | `syscribe -m model/ check-ref <qname\|id>` | Verify a cross-reference resolves before writing it |
 | `syscribe -m model/ path-for <qname\|id>` | Print the file path for an element |
@@ -281,8 +281,7 @@ Updated body.
 
 ```deprecate: model/Decisions/OldADR.md
 Change status: accepted → superseded
-Add field:     supersededBy: Decisions::NewADR
-No other changes.
+No other changes. (The link is stored on the NEW ADR as `supersedes: Decisions::OldADR`; `supersededBy` is computed.)
 ```
 ````
 
@@ -773,6 +772,8 @@ Remaining acceptable warnings after closure: W007 (unused definition types), W30
 
 ## Part 8 — Ports & Interfaces
 
+**Data records vs flowing items (`E123`).** A usage is typed by a definition of the matching kind: `Attribute` ← `AttributeDef`/`EnumerationDef`; `Item`/`Part` ← `ItemDef`/`PartDef`/…; `Port` ← `PortDef`; `Connection` ← `ConnectionDef`/`InterfaceDef`; `Interface` ← `InterfaceDef`; `Action` ← `ActionDef`; `State` ← `StateDef` (other usage kinds follow the same pairing; `Constraint`/`Calculation` also accept a `PartDef`/`ItemDef` context). Pick: a **data record or value type** (a CRC record, a decision, a request's fields) → `AttributeDef` + `type: Attribute`; something that **flows** between parts or is sent/received (signals, messages, material, a `send:`/`accept:` payload, a flow's type) → `ItemDef` + `type: Item`; a fixed set of literals → `EnumerationDef`. Do not "fix" `E123` on an `Attribute` typed by an `ItemDef` by changing the usage to `type: Item` unless the thing really flows — define the record as an `AttributeDef` instead.
+
 **Decision guide (model this right).** A `PortDef` is a reusable *kind* of connection point with directed features (`in`/`out`/`inout`); a `Port` is a usage of one on a part (in `features:`, `type: Port`, `typedBy:` the PortDef). An **`InterfaceDef` is a kind of `ConnectionDef` whose ends are ports** — use it for a reusable compatible pairing; a `ConnectionDef` connects arbitrary features/parts. Pick: expose a point → `Port`; reusable port pairing → `InterfaceDef`; arbitrary connection → `ConnectionDef`; wire two ports → a connection usage (`connections:` `from`/`to` feature chains, `typedBy:` the interface); move items → `flowConnections:`; equate features → `bindingConnections:`.
 
 **Conjugation:** the receiver is the **conjugate** of the sender — directions flip (`in`↔`out`; `inout` self-conjugate). Use a conjugate `PortDef` (`conjugates:`) for reuse, or `isConjugated: true` on the usage. Full guide: `syscribe spec types` and format spec §8.3.
@@ -1210,7 +1211,7 @@ draft → review → approved → implemented → verified
 **Update:** old Requirement — leave the file, do not change the ID; update `satisfies:` in architecture elements; retire old TestCase.
 
 ### Pattern F — Supersede an ADR
-**Create:** new ADR (`status: accepted`). **Deprecate:** old ADR (`status: superseded`). **Update:** any Requirement with `breakdownAdr:` pointing to the old ADR — update to the new one.
+**Create:** new ADR (`status: accepted`) with `supersedes: <old ADR>` (one reference or a list). **Deprecate:** old ADR (`status: superseded`; `W313` if you forget). The reverse `supersededBy` is computed and shown by `show`/`links`; `E320` unresolved/non-ADR target, `E321` cycle, `W314` a `breakdownAdr:` that still cites the superseded ADR. **Update:** any Requirement with `breakdownAdr:` pointing to the old ADR — update to the new one.
 
 ### Pattern G — Add a new architecture element
 **Create:** new PartDef/Part with correct `domain:` and `satisfies:`. **Check:** domain matches `reqDomain:` on satisfied requirements; add `Allocation` if it's software running on hardware.

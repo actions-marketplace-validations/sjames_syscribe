@@ -6,7 +6,7 @@ use crate::config::{load_plantuml_config, ValidateConfig};
 use crate::element::{ElementType, ParseIssue, RawElement};
 use crate::graph::EdgeKind;
 use crate::resolver::{
-    is_adr_id, is_asset_id, is_aou_id, is_arg_id, is_at_id, is_atg_id, is_ats_id, is_basic_name, is_cm_id,
+    is_adr_id, is_asset_id, is_aou_id, is_dfa_id, is_sm_id, is_te_id, is_arg_id, is_at_id, is_atg_id, is_ats_id, is_basic_name, is_cm_id,
     is_cd_id, is_conf_id, is_csg_id, is_ds_id, is_fm_id, is_fmea_id, is_ft_id, is_fte_id, is_ftg_id, is_he_id,
     is_zn_id,
     is_pi_id,
@@ -91,6 +91,9 @@ pub struct ValidationResult {
     /// by the target's stable id when present, else its qualified name; each
     /// source is labelled by its stable id else qname.
     pub allocated_from: HashMap<String, Vec<String>>,
+    /// Ids of parent requirements accepted as covered through their leaves by the `[coverage]`
+    /// `rollup` rule (GH #253) — the coverage report must not list them as missing an integration test.
+    pub rolled_up: std::collections::HashSet<String>,
 }
 
 impl ValidationResult {
@@ -168,6 +171,19 @@ struct StateEdge {
     legacy: bool,
 }
 
+/// Whether an element carries an ASIL or SIL — a whole-value placeholder in `asilLevel` / `silLevel`
+/// (GH #268) counts: the base model has the field unset only because its value is per configuration.
+fn has_integrity_level(fm: &crate::element::RawFrontmatter) -> bool {
+    fm.asil_level.is_some()
+        || fm.sil_level.is_some()
+        || fm.placeholder_fields.contains_key("asilLevel")
+        || fm.placeholder_fields.contains_key("silLevel")
+}
+
+/// The `requirementKind` vocabulary (E022). The last three are not architecture-allocatable.
+const REQUIREMENT_KINDS: &[&str] =
+    &["stakeholder", "system", "software", "hardware", "process", "regulatory", "deliverable"];
+
 /// Read a string-keyed field from a YAML mapping.
 /// Whether a `Diagram`'s rendering path carries its SVG inline in the body —
 /// the only case the SVG id-consistency rules `W406`/`W407` apply to
@@ -175,8 +191,9 @@ struct StateEdge {
 /// PlantUML companion (`pumlMode: companion` — the `.puml`/`.svg` companions
 /// are the source of truth), companion SVG (`svgMode: companion` or
 /// `svgFile:`), Mermaid / inline PlantUML (`diagramKind: Mermaid|PlantUML`),
-/// and a structured `layout:` diagram whose body has no ` ```svg ` block
-/// (the server renders its SVG from the manifest).
+/// a structured `layout:` diagram whose body has no ` ```svg ` block, and a
+/// manifest diagram (any `shapes:` list or mapping, per `vis::source_of`) with no ` ```svg ` block (the server
+/// renders its SVG from the manifest).
 fn diagram_has_inline_svg(fm: &crate::element::RawFrontmatter, doc: &str) -> bool {
     if fm.puml_mode.as_deref() == Some("companion") {
         return false;
@@ -191,6 +208,11 @@ fn diagram_has_inline_svg(fm: &crate::element::RawFrontmatter, doc: &str) -> boo
         return false;
     }
     if fm.layout.is_some() && !doc.contains("```svg") {
+        return false;
+    }
+    // A manifest diagram (any non-null `shapes:`, list or mapping form, the same rule as
+    // `vis::source_of`) is rendered from the manifest, so a body with no inline SVG has nothing to compare (GH #263).
+    if crate::vis::source_of(fm) == crate::vis::Source::Manifest && !doc.contains("```svg") {
         return false;
     }
     true
@@ -1882,11 +1904,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
 
             // W615: results-gated — an approved plan with a member whose ingested
-            // verdict is Fail/Missing. Only when a results sidecar is loaded.
+            // verdict is Fail/Missing. Only when a results sidecar is loaded. One
+            // finding per plan listing the affected functions (GH #260); each root
+            // cause is reported once, per TestCase, as W010.
             if status == "approved" {
                 if let Some(results) = &config.results {
                     use crate::results::FnVerdict;
                     let func_key = serde_yaml::Value::String("function".into());
+                    let mut bad: Vec<(String, String, &str)> = Vec::new();
                     for tc in &members {
                         let Some(fns) = &tc.frontmatter.test_functions else {
                             continue;
@@ -1895,25 +1920,44 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             if let serde_yaml::Value::Mapping(map) = tf {
                                 if let Some(serde_yaml::Value::String(func)) = map.get(&func_key) {
                                     let v = results.verdict_for(func);
-                                    if matches!(v, FnVerdict::Fail | FnVerdict::Missing) {
+                                    if matches!(v, FnVerdict::Fail | FnVerdict::Missing | FnVerdict::Flaky) {
                                         let tc_id = tc
                                             .frontmatter
                                             .id
                                             .as_deref()
                                             .unwrap_or(tc.qualified_name.as_str());
-                                        let what = if v == FnVerdict::Fail { "FAILED" } else { "was missing from" };
-                                        findings.push(warning(
-                                            "W615",
-                                            &file,
-                                            &format!(
-                                                "approved TestPlan member TestCase '{}' has test function '{}' that {} the ingested results",
-                                                tc_id, func, what
-                                            ),
-                                        ));
+                                        let what = match v {
+                                            FnVerdict::Fail => "FAILED",
+                                            FnVerdict::Flaky => "flaky",
+                                            _ => "missing",
+                                        };
+                                        bad.push((tc_id.to_string(), func.clone(), what));
                                     }
                                 }
                             }
                         }
+                    }
+                    if !bad.is_empty() {
+                        bad.sort();
+                        bad.dedup();
+                        const SHOWN: usize = 10;
+                        let list = bad
+                            .iter()
+                            .take(SHOWN)
+                            .map(|(t, f, w)| format!("{t} {f} ({w})"))
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        let more = if bad.len() > SHOWN { format!("; and {} more", bad.len() - SHOWN) } else { String::new() };
+                        findings.push(warning(
+                            "W615",
+                            &file,
+                            &format!(
+                                "approved TestPlan has {} member test function(s) that failed, were flaky or were missing from the ingested results: {}{}",
+                                bad.len(),
+                                list,
+                                more
+                            ),
+                        ));
                     }
                 }
             }
@@ -1998,9 +2042,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
         // E022: requirementKind enum
         if let Some(ref rk) = fm.requirement_kind {
-            const KINDS: &[&str] = &["stakeholder", "system", "software", "hardware"];
-            if !KINDS.contains(&rk.as_str()) {
-                findings.push(error("E022", &file, &format!("unknown requirementKind '{}' — must be stakeholder, system, software, or hardware", rk)));
+            if !REQUIREMENT_KINDS.contains(&rk.as_str()) {
+                findings.push(error("E022", &file, &format!("unknown requirementKind '{}' — must be one of {}", rk, REQUIREMENT_KINDS.join(", "))));
             }
         }
 
@@ -2200,7 +2243,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 }
             }
             // W801: SafetyGoal should carry an integrity level (asilLevel, silLevel, or plLevel)
-            if fm.asil_level.is_none() && fm.sil_level.is_none() && fm.pl_level.is_none() {
+            if !has_integrity_level(fm) && fm.pl_level.is_none() {
                 findings.push(warning("W801", &file, "SafetyGoal has no integrity level — set asilLevel (ISO 26262), silLevel (IEC 61508), or plLevel (ISO 13849-1)"));
             }
         }
@@ -2305,6 +2348,225 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // ── DependentFailureAnalysis (E890–E892, W890; ISO 26262-9 clause 7, GH #235) ──
+        if matches!(fm.element_type, Some(ElementType::DependentFailureAnalysis)) {
+            const DFA_STATUSES: &[&str] = &["draft", "review", "approved", "retired"];
+            const DFA_KINDS: &[&str] = &["power", "clock", "memory", "bus", "software", "other"];
+            for (field, present) in [("id", fm.id.is_some()), ("name", fm.name.is_some()), ("status", fm.status.is_some())] {
+                if !present {
+                    findings.push(error("E890", &file, &format!("`{field}` is required on DependentFailureAnalysis")));
+                }
+            }
+            if let Some(ref id) = fm.id {
+                if !is_dfa_id(id) {
+                    findings.push(error("E890", &file, &format!("`id` '{id}' does not match DFA-* pattern")));
+                }
+            }
+            if let Some(ref s) = fm.status {
+                if !DFA_STATUSES.contains(&s.as_str()) {
+                    findings.push(error("E890", &file, &format!("DependentFailureAnalysis.status '{s}' must be draft, review, approved or retired")));
+                }
+            }
+            let analyses = fm.analyses.as_deref().unwrap_or(&[]);
+            // At least two *distinct* elements (the same one by id and by qualified name counts once).
+            let distinct: std::collections::BTreeSet<String> = analyses
+                .iter()
+                .map(|r| resolver.resolve_ref(elements, r).map(|t| t.qualified_name.clone()).unwrap_or_else(|| r.clone()))
+                .collect();
+            if distinct.len() < 2 {
+                findings.push(error("E890", &file, "`analyses` must name at least two distinct elements argued independent"));
+            }
+            for r in analyses {
+                if resolver.resolve_ref(elements, r).is_none() {
+                    findings.push(error("E891", &file, &format!("DependentFailureAnalysis.analyses '{r}' does not resolve to any model element")));
+                }
+            }
+            let approved = fm.status.as_deref() == Some("approved");
+            if approved && fm.shared_resources.as_ref().is_none_or(|l| l.is_empty()) {
+                findings.push(warning("W890", &file, "approved DependentFailureAnalysis lists no `sharedResources` — an independence claim should name what the elements share (or why nothing is shared)"));
+            }
+            for (i, entry) in fm.shared_resources.iter().flatten().enumerate() {
+                let n = i + 1;
+                let Some(m) = entry.as_mapping() else {
+                    findings.push(error("E892", &file, &format!("sharedResources entry {n} must be a mapping")));
+                    continue;
+                };
+                let resource = yaml_field(m, "resource").and_then(|v| v.as_str()).map(str::trim).unwrap_or("");
+                if resource.is_empty() {
+                    findings.push(error("E892", &file, &format!("sharedResources entry {n} has no `resource`")));
+                }
+                if let Some(k) = yaml_field(m, "kind") {
+                    if !k.as_str().is_some_and(|k| DFA_KINDS.contains(&k)) {
+                        findings.push(error("E892", &file, &format!("sharedResources entry {n}: `kind` must be one of {}", DFA_KINDS.join(", "))));
+                    }
+                }
+                if let Some(c) = yaml_field(m, "couplingFactor") {
+                    if !c.as_f64().is_some_and(|c| (0.0..=1.0).contains(&c)) {
+                        findings.push(error("E892", &file, &format!("sharedResources entry {n}: `couplingFactor` must be a number between 0 and 1")));
+                    }
+                }
+                let mitigated = yaml_field(m, "mitigation").and_then(|v| v.as_str()).is_some_and(|s| !s.trim().is_empty());
+                if approved && !mitigated {
+                    findings.push(warning("W890", &file, &format!("approved DependentFailureAnalysis: shared resource '{}' has no `mitigation`", if resource.is_empty() { format!("#{n}") } else { resource.to_string() })));
+                }
+            }
+        }
+
+        // ── SafetyMechanism (E896, E897, W894; GH #236) ──
+        if matches!(fm.element_type, Some(ElementType::SafetyMechanism)) {
+            const SM_STATUSES: &[&str] = &["draft", "review", "approved", "retired"];
+            for (field, present) in [("id", fm.id.is_some()), ("name", fm.name.is_some()), ("status", fm.status.is_some())] {
+                if !present {
+                    findings.push(error("E896", &file, &format!("`{field}` is required on SafetyMechanism")));
+                }
+            }
+            if let Some(ref id) = fm.id {
+                if !is_sm_id(id) {
+                    findings.push(error("E896", &file, &format!("`id` '{id}' does not match SM-* pattern")));
+                }
+            }
+            if let Some(ref s) = fm.status {
+                if !SM_STATUSES.contains(&s.as_str()) {
+                    findings.push(error("E896", &file, &format!("SafetyMechanism.status '{s}' must be draft, review, approved or retired")));
+                }
+            }
+            // The coverages' 0..1 range is the generic E846 (all element types).
+            if let Some(rt) = fm.reaction_time.as_deref() {
+                if crate::asil::ftti_millis(rt).is_none() {
+                    findings.push(error("E896", &file, &format!("SafetyMechanism.reactionTime '{rt}' is not a duration (e.g. `20 ms`, `1.5 s`)")));
+                }
+            }
+            let goal_ftti = |g: &RawElement| -> Option<f64> {
+                let q = g.frontmatter.quantities.iter().flatten().filter_map(|e| e.as_mapping()).find(|m| yaml_field(m, "kind").and_then(|v| v.as_str()) == Some("ftti"));
+                if let Some(m) = q {
+                    let v = yaml_field(m, "value").and_then(|v| v.as_f64())?;
+                    let f = match yaml_field(m, "unit").and_then(|v| v.as_str())? { "s" => 1000.0, "ms" => 1.0, "us" => 0.001, "ns" => 1e-6, _ => return None };
+                    return Some(v * f);
+                }
+                g.frontmatter.ftti.as_deref().and_then(crate::asil::ftti_millis)
+            };
+            let reaction = fm.reaction_time.as_deref().and_then(crate::asil::ftti_millis);
+            // A draft or retired mechanism makes no commitment to check.
+            let draft = matches!(fm.status.as_deref(), Some("draft") | Some("retired"));
+            let mut seen_covers: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+            let mut over: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for r in fm.covers.iter().flatten().filter(|r| seen_covers.insert(r.as_str())) {
+                let Some(t) = resolver.resolve_ref(elements, r) else {
+                    findings.push(error("E897", &file, &format!("SafetyMechanism.covers '{r}' does not resolve to any model element")));
+                    continue;
+                };
+                let ok = matches!(
+                    t.frontmatter.element_type,
+                    Some(ElementType::FMEAEntry) | Some(ElementType::FaultTreeEvent) | Some(ElementType::SafetyGoal) | Some(ElementType::HazardousEvent)
+                ) || Resolver::is_native_requirement(t);
+                if !ok {
+                    findings.push(error("E897", &file, &format!("SafetyMechanism.covers '{r}' must be an FMEAEntry, FaultTreeEvent, Requirement, SafetyGoal or HazardousEvent")));
+                    continue;
+                }
+                if draft {
+                    continue;
+                }
+                // The goal whose FTTI bounds this coverage: the covered goal, or the goal a covered requirement derives from.
+                // (a covered requirement is followed up its `derivedFrom` chain to the first goal)
+                let goal = if matches!(t.frontmatter.element_type, Some(ElementType::SafetyGoal)) {
+                    Some(t)
+                } else {
+                    let mut cur = t;
+                    let mut hops = 0;
+                    loop {
+                        if let Some(g) = cur.frontmatter.derived_from_safety_goal.as_deref().and_then(|g| resolver.resolve_ref(elements, g)) {
+                            break Some(g);
+                        }
+                        hops += 1;
+                        match cur.frontmatter.derived_from.iter().flatten().filter_map(|p| resolver.resolve_ref(elements, p)).next() {
+                            Some(p) if hops < 16 => cur = p,
+                            _ => break None,
+                        }
+                    }
+                };
+                if let (Some(rt), Some(g)) = (reaction, goal) {
+                    if let Some(f) = goal_ftti(g) {
+                        if rt > f * (1.0 + 1e-9) {
+                            over.insert(format!("{} ({f} ms)", g.frontmatter.id.as_deref().unwrap_or(&g.qualified_name)));
+                        }
+                    }
+                }
+            }
+            for g in over {
+                findings.push(warning("W894", &file, &format!("reactionTime {} exceeds the FTTI of {g}", fm.reaction_time.as_deref().unwrap_or(""))));
+            }
+        }
+
+        // ── TestEnvironment (E893) and runsOn / requiresCapabilities (E894, W891, W892; GH #238) ──
+        if matches!(fm.element_type, Some(ElementType::TestEnvironment)) {
+            const TE_STATUSES: &[&str] = &["planned", "available", "retired"];
+            const TE_KINDS: &[&str] = &["hil", "bench", "chamber", "vehicle", "simulation", "other"];
+            const TE_CALIB: &[&str] = &["valid", "expired", "unknown"];
+            for (field, present) in [("id", fm.id.is_some()), ("name", fm.name.is_some()), ("status", fm.status.is_some())] {
+                if !present {
+                    findings.push(error("E893", &file, &format!("`{field}` is required on TestEnvironment")));
+                }
+            }
+            if let Some(ref id) = fm.id {
+                if !is_te_id(id) {
+                    findings.push(error("E893", &file, &format!("`id` '{id}' does not match TE-* pattern")));
+                }
+            }
+            for (field, val, allowed) in [
+                ("status", fm.status.as_deref(), TE_STATUSES),
+                ("environmentKind", fm.environment_kind.as_deref(), TE_KINDS),
+                ("calibrationStatus", fm.calibration_status.as_deref(), TE_CALIB),
+            ] {
+                if let Some(v) = val {
+                    if !allowed.contains(&v) {
+                        findings.push(error("E893", &file, &format!("TestEnvironment.{field} '{v}' must be one of {}", allowed.join(", "))));
+                    }
+                }
+            }
+            if let Some(ref due) = fm.calibration_due {
+                let b = due.as_bytes();
+                let shape = b.len() == 10
+                    && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() });
+                let ok = shape && {
+                    let (y, m, d): (u32, u32, u32) = (due[0..4].parse().unwrap_or(0), due[5..7].parse().unwrap_or(0), due[8..10].parse().unwrap_or(0));
+                    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+                    let dim = match m { 1 | 3 | 5 | 7 | 8 | 10 | 12 => 31, 4 | 6 | 9 | 11 => 30, 2 => if leap { 29 } else { 28 }, _ => 0 };
+                    d >= 1 && d <= dim
+                };
+                if !ok {
+                    findings.push(error("E893", &file, &format!("TestEnvironment.calibrationDue '{due}' must be a YYYY-MM-DD date")));
+                }
+            }
+        }
+        if matches!(fm.element_type, Some(ElementType::TestCase) | Some(ElementType::TestPlan)) && fm.runs_on.is_some() {
+            let mut offered: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            let draft = fm.status.as_deref() == Some("draft");
+            let mut seen_runs: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+            for r in fm.runs_on.iter().flatten().filter(|r| seen_runs.insert(r.as_str())) {
+                match resolver.resolve_ref(elements, r) {
+                    Some(t) if matches!(t.frontmatter.element_type, Some(ElementType::TestEnvironment)) => {
+                        offered.extend(t.frontmatter.capabilities.iter().flatten().map(|c| c.trim().to_ascii_lowercase()));
+                        let retired = t.frontmatter.status.as_deref() == Some("retired");
+                        let expired = t.frontmatter.calibration_status.as_deref() == Some("expired");
+                        if !draft && (retired || expired) {
+                            findings.push(warning("W892", &file, &format!(
+                                "runs on TestEnvironment '{r}' which is {}", if retired { "retired" } else { "past its calibration (calibrationStatus: expired)" })));
+                        }
+                    }
+                    Some(_) => findings.push(error("E894", &file, &format!("`runsOn` '{r}' is not a TestEnvironment"))),
+                    None => findings.push(error("E894", &file, &format!("`runsOn` '{r}' does not resolve to any model element"))),
+                }
+            }
+            let all_resolved = fm.runs_on.iter().flatten().all(|r| {
+                resolver.resolve_ref(elements, r).is_some_and(|t| matches!(t.frontmatter.element_type, Some(ElementType::TestEnvironment)))
+            });
+            for need in fm.requires_capabilities.iter().flatten().filter(|_| all_resolved && fm.runs_on.as_ref().is_some_and(|r| !r.is_empty())) {
+                if !offered.contains(&need.trim().to_ascii_lowercase()) {
+                    findings.push(warning("W891", &file, &format!("requires capability '{need}' which none of its `runsOn` environments offers")));
                 }
             }
         }
@@ -2471,7 +2733,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 }
             }
             // E851: confirms refs must resolve.
-            // E860: target must be SafetyGoal, CybersecurityGoal, HazardousEvent, or native Requirement (REQ-TRS-SEC-005).
+            // E860: target must be a SafetyGoal, CybersecurityGoal, HazardousEvent, Requirement, or an
+            // analysis / plan work product a confirmation review covers (REQ-TRS-SEC-005, REQ-TRS-CONFM-001, GH #233).
             if let Some(ref refs) = fm.confirms {
                 for r in refs {
                     match resolver.resolve_ref(elements, r) {
@@ -2481,10 +2744,22 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                 || Resolver::is_cybersecurity_goal(target)
                                 || Resolver::is_hazardous_event(target)
                                 || Resolver::is_native_requirement(target)
-                                || matches!(target.frontmatter.element_type, Some(ElementType::Requirement));
+                                || matches!(
+                                    target.frontmatter.element_type,
+                                    Some(
+                                        ElementType::Requirement
+                                            | ElementType::FaultTree
+                                            | ElementType::FMEASheet
+                                            | ElementType::TARASheet
+                                            | ElementType::ADR
+                                            | ElementType::Argument
+                                            | ElementType::TestPlan
+                                            | ElementType::Allocation
+                                    )
+                                );
                             if !ok {
                                 findings.push(error("E860", &file, &format!(
-                                    "ConfirmationMeasure.confirms '{}' is not a valid confirmation target type (expected SafetyGoal, CybersecurityGoal, HazardousEvent, or Requirement)", r)));
+                                    "ConfirmationMeasure.confirms '{}' is not a valid confirmation target type (expected SafetyGoal, CybersecurityGoal, HazardousEvent, Requirement, FaultTree, FMEASheet, TARASheet, ADR, Argument, TestPlan, or Allocation)", r)));
                             }
                         }
                     }
@@ -2739,6 +3014,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                     &file,
                                     &format!(
                                         "{} TestCase: test function '{}' was ignored/skipped in the ingested results",
+                                        tc_status, func
+                                    ),
+                                )),
+                                FnVerdict::Flaky => findings.push(warning(
+                                    "W010",
+                                    &file,
+                                    &format!(
+                                        "{} TestCase: test function '{}' is flaky in the ingested results (passed only after a retry)",
                                         tc_status, func
                                     ),
                                 )),
@@ -4308,12 +4591,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
     }
 
-    // W616: two TestPlans with an identical (configurations, scope) pair.
-    // The config set is the resolved/declared bound configurations (qualified
-    // names, order-independent); absent `configurations:` (config-agnostic) is its
-    // own distinct key so two config-agnostic plans at the same scope also collide.
+    // W616: two TestPlans in the same (configurations, scope) bucket whose effective
+    // TestCase sets are redundant (GH #255): one contains the other (equal sets
+    // included) or their Jaccard overlap is at least 0.5. The config set is the
+    // resolved/declared bound configurations (qualified names, order-independent);
+    // Plans with no members are skipped (W612 reports them).
     {
-        let mut seen: HashMap<(Vec<String>, Option<String>), &str> = HashMap::new();
+        type Bucket<'a> = Vec<(&'a str, std::collections::BTreeSet<String>)>;
+        let mut seen: HashMap<(Vec<String>, Option<String>), Bucket> = HashMap::new();
         for elem in elements {
             if !matches!(elem.frontmatter.element_type, Some(ElementType::TestPlan)) {
                 continue;
@@ -4324,16 +4609,109 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 .collect();
             cfgs.sort();
             cfgs.dedup();
-            let key = (cfgs, elem.frontmatter.scope.clone());
-            if let Some(prev) = seen.insert(key, elem.file_path.as_str()) {
+            let members: std::collections::BTreeSet<String> = crate::testplan::effective_testcases(elem, elements, &resolver)
+                .iter()
+                .map(|t| t.qualified_name.clone())
+                .collect();
+            if members.is_empty() {
+                continue;
+            }
+            let bucket = seen.entry((cfgs, elem.frontmatter.scope.clone())).or_default();
+            let redundant = bucket.iter().find_map(|(prev_file, prev)| {
+                let inter = members.intersection(prev).count();
+                let smaller = members.len().min(prev.len());
+                let union = members.len() + prev.len() - inter;
+                let contained = inter == smaller;
+                (contained || inter * 2 >= union).then(|| (*prev_file, inter, smaller))
+            });
+            if let Some((prev_file, inter, smaller)) = redundant {
                 findings.push(warning(
                     "W616",
                     &elem.file_path,
                     &format!(
-                        "TestPlan shares an identical (configurations, scope) pair with {} (likely redundant or duplicated plans)",
-                        prev
+                        "TestPlan shares {} of {} members with {} in the same (configurations, scope) bucket (likely redundant or duplicated plans)",
+                        inter, smaller, prev_file
                     ),
                 ));
+            }
+            bucket.push((elem.file_path.as_str(), members));
+        }
+    }
+
+    // ADR supersession (GH #232, REQ-TRS-ADRSUP-001): E320 unresolved/non-ADR target, E321
+    // cycle, W313 target not marked superseded, W314 breakdownAdr cites a superseded ADR.
+    {
+        let is_adr = |e: &RawElement| matches!(e.frontmatter.element_type, Some(ElementType::ADR));
+        let mut edges: HashMap<&str, Vec<&str>> = HashMap::new();
+        for adr in elements.iter().filter(|e| is_adr(e)) {
+            for t in adr.frontmatter.supersedes.iter().flatten() {
+                match resolver.resolve_ref(elements, t) {
+                    None => findings.push(error(
+                        "E320",
+                        &adr.file_path,
+                        &format!("ADR supersedes '{}', which resolves to no element", t),
+                    )),
+                    Some(x) if !is_adr(x) => findings.push(error(
+                        "E320",
+                        &adr.file_path,
+                        &format!("ADR supersedes '{}', which is not an ADR", t),
+                    )),
+                    Some(x) => {
+                        edges.entry(adr.qualified_name.as_str()).or_default().push(x.qualified_name.as_str());
+                        if adr.frontmatter.status.as_deref() == Some("accepted")
+                            && x.frontmatter.status.as_deref() != Some("superseded")
+                            && x.qualified_name != adr.qualified_name
+                        {
+                            findings.push(warning(
+                                "W313",
+                                &adr.file_path,
+                                &format!(
+                                    "ADR supersedes '{}' whose status is '{}', not 'superseded'",
+                                    t,
+                                    x.frontmatter.status.as_deref().unwrap_or("(none)")
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        // E321: an ADR on a supersession cycle (a self-loop included) — reachable from itself.
+        for adr in elements.iter().filter(|e| is_adr(e)) {
+            let start = adr.qualified_name.as_str();
+            let mut seen: HashSet<&str> = HashSet::new();
+            let mut stack: Vec<&str> = edges.get(start).cloned().unwrap_or_default();
+            let mut on_cycle = false;
+            while let Some(n) = stack.pop() {
+                if n == start {
+                    on_cycle = true;
+                    break;
+                }
+                if seen.insert(n) {
+                    stack.extend(edges.get(n).into_iter().flatten().copied());
+                }
+            }
+            if on_cycle {
+                findings.push(error(
+                    "E321",
+                    &adr.file_path,
+                    &format!("ADR '{}' is on a supersession cycle", adr.frontmatter.id.as_deref().unwrap_or(start)),
+                ));
+            }
+        }
+        for e in elements {
+            if e.frontmatter.status.as_deref() == Some("draft") {
+                continue;
+            }
+            let Some(b) = e.frontmatter.breakdown_adr.as_deref() else { continue };
+            if let Some(x) = resolver.resolve_ref(elements, b) {
+                if is_adr(x) && x.frontmatter.status.as_deref() == Some("superseded") {
+                    findings.push(warning(
+                        "W314",
+                        &e.file_path,
+                        &format!("breakdownAdr '{}' is superseded — cite its successor", b),
+                    ));
+                }
             }
         }
     }
@@ -4561,11 +4939,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             &elem.file_path,
                             &format!("unresolved PlanningItem achieves reference '{}'", a),
                         )),
-                        Some(target) if !Resolver::is_native_requirement(target) => {
+                        Some(target) if !Resolver::is_achievable_target(target) => {
                             findings.push(error(
                                 "E715",
                                 &elem.file_path,
-                                &format!("PlanningItem `achieves` '{}' does not resolve to a native Requirement", a),
+                                &format!(
+                                    "PlanningItem `achieves` '{}' does not resolve to a native Requirement, SafetyGoal, CybersecurityGoal, ADR, Argument, TestPlan, or Baseline",
+                                    a
+                                ),
                             ));
                         }
                         Some(_) => {}
@@ -4755,6 +5136,40 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
     }
 
+    // `[coverage]` parent_rule = "rollup" (GH #253): a parent is covered through its leaves when every
+    // live leaf descendant has an active verifying TestCase. Never for an integrity-rated parent
+    // (E898), and draft / rejected / obsolete leaves are skipped. Shared by W305 and W310.
+    let parent_rolled_up = |req_id: &str, fm: &crate::element::RawFrontmatter| -> bool {
+        if config.coverage.rule_for(fm).0 != crate::config::ParentRule::Rollup || crate::config::is_integrity_rated(fm) {
+            return false;
+        }
+        let live = |id: &str| {
+            !resolver
+                .get_by_id(elements, id)
+                .and_then(|e| e.frontmatter.status.as_deref())
+                .is_some_and(|s| matches!(s, "draft" | "rejected" | "obsolete" | "retired" | "deprecated" | "superseded"))
+        };
+        let mut leaves: Vec<String> = Vec::new();
+        let mut stack: Vec<String> = vec![req_id.to_string()];
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        while let Some(id) = stack.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            match derived_children.get(&id).filter(|c| !c.is_empty()) {
+                Some(cs) => stack.extend(cs.iter().cloned()),
+                None if live(&id) => leaves.push(id),
+                None => {}
+            }
+        }
+        !leaves.is_empty()
+            && leaves.iter().all(|l| {
+                verified_by.get(l).is_some_and(|tcs| {
+                    tcs.iter().any(|t| resolver.get_by_id(elements, t).and_then(|e| e.frontmatter.status.as_deref()) == Some("active"))
+                })
+            })
+    };
+
     // W310 (issue #114): PlanningItem-scoped completion check. W002/W003/W305
     // already warn from the Requirement's own file when it lacks verification
     // coverage, but nothing ties "this specific PlanningItem you're about to
@@ -4785,6 +5200,22 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         for a in ach {
             let Some(target) = resolver.resolve_ref(elements, a) else { continue };
             if !Resolver::is_native_requirement(target) {
+                // W315: a non-Requirement outcome (GH #240) is complete once its own status
+                // has moved past draft/review/proposed.
+                if Resolver::is_achievable_target(target)
+                    && matches!(target.frontmatter.status.as_deref(), None | Some("draft" | "review" | "proposed"))
+                {
+                    findings.push(warning(
+                        "W315",
+                        &elem.file_path,
+                        &format!(
+                            "PlanningItem '{}' is 'done', but achieves '{}' whose status is '{}' — the work product is not complete",
+                            pi_id,
+                            a,
+                            target.frontmatter.status.as_deref().unwrap_or("(none)")
+                        ),
+                    ));
+                }
                 continue;
             }
             let req_id = target.frontmatter.id.as_deref().unwrap_or(a.as_str());
@@ -4812,6 +5243,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             } else {
                 !active_tcs.is_empty()
             };
+            let covered = covered || (is_parent && parent_rolled_up(req_id, &target.frontmatter));
             if !covered {
                 let need = if is_parent {
                     "active system-integration TestCase (testLevel L3, L4, or L5)"
@@ -4907,6 +5339,15 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
     }
 
+    let mut rolled_up: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // E898: an invalid `[coverage]` table (GH #253).
+    if let Some(root) = &config.model_root {
+        for p in &config.coverage.problems {
+            findings.push(error("E898", &root.join(".syscribe.toml").to_string_lossy(), p));
+        }
+    }
+
     // W002/W003: coverage checks for native Requirements
     for elem in elements {
         if !Resolver::is_native_requirement(elem) {
@@ -4950,6 +5391,37 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 ));
             }
             _ => {}
+        }
+
+        // W312 / E319: with results ingested, a requirement at approved/implemented/
+        // verified whose active verifier FAILED (GH #257). Verified is an error, since
+        // verified with a failing verifier is a contradiction. Only a Fail verdict counts.
+        if matches!(status, "approved" | "implemented" | "verified") {
+            if let Some(results) = &config.results {
+                let mut failing: Vec<&str> = active_tcs
+                    .iter()
+                    .filter_map(|tc_id| resolver.get_by_id(elements, tc_id))
+                    .filter(|tc| {
+                        crate::results::testcase_verdict(tc, Some(results)) == crate::safety_case::Verdict::Fail
+                    })
+                    .filter_map(|tc| tc.frontmatter.id.as_deref())
+                    .collect();
+                failing.sort_unstable();
+                failing.dedup();
+                if !failing.is_empty() {
+                    let msg = format!(
+                        "Requirement '{}' (status: {}) has an active verifying TestCase that FAILED in the ingested results: {}",
+                        req_id,
+                        status,
+                        failing.join(", ")
+                    );
+                    if status == "verified" {
+                        findings.push(error("E319", &elem.file_path, &msg));
+                    } else {
+                        findings.push(warning("W312", &elem.file_path, &msg));
+                    }
+                }
+            }
         }
 
         // W702: asilLevel: D requirement must have at least one active L5 (HIL) TestCase
@@ -5126,6 +5598,12 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // (L3 system test, L4 system integration test, or L5 HIL/acceptance).
         // Leaf-level test cases (L1/L2) on derived requirements are not sufficient to
         // verify the emergent, composed behaviour expressed by the parent.
+        let (cov_rule, cov_source) = config.coverage.rule_for(&elem.frontmatter);
+        if is_parent && cov_rule != crate::config::ParentRule::Both && crate::config::is_integrity_rated(&elem.frontmatter) {
+            findings.push(error("E898", &elem.file_path, &format!(
+                "{req_id} is integrity-rated (ASIL/CAL/SIL) but {cov_source} of [coverage] sets parent_rule = \"{}\"; an integrity-rated parent needs \"both\"",
+                cov_rule.as_str())));
+        }
         if is_parent && matches!(status, "approved" | "implemented" | "verified") {
             let has_integration_tc = active_tcs.iter().any(|tc_id| {
                 resolver
@@ -5133,13 +5611,19 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     .and_then(|e| e.frontmatter.test_level.as_deref())
                     .is_some_and(|lvl| matches!(lvl, "L3" | "L4" | "L5"))
             });
-            if !has_integration_tc {
+            // Under `rollup` a parent whose every live leaf descendant has an active verifying
+            // TestCase is covered through them (GH #253); never an integrity-rated parent (E898).
+            let is_rolled_up = !has_integration_tc && parent_rolled_up(req_id, &elem.frontmatter);
+            if is_rolled_up {
+                rolled_up.insert(req_id.to_string());
+            }
+            if !has_integration_tc && !is_rolled_up {
                 findings.push(warning(
                     "W305",
                     &elem.file_path,
                     &format!(
-                        "parent Requirement '{}' (status: {}) has no active system integration TestCase (testLevel: L3, L4, or L5)",
-                        req_id, status
+                        "parent Requirement '{}' (status: {}) has no active system integration TestCase (testLevel: L3, L4, or L5); coverage rule: {}",
+                        req_id, status, cov_rule.as_str()
                     ),
                 ));
             }
@@ -5657,6 +6141,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // every operand must resolve to a FeatureDef. A bare QName or a list (legacy
     // AND) are the trivial cases; `and`/`or`/`not`/parentheses are also accepted.
     for elem in elements {
+        if elem.frontmatter.applies_when_inherited {
+            continue; // copy of the sheet's declaration; the sheet is checked itself (GH #229)
+        }
         if let Some(ref aw) = elem.frontmatter.applies_when {
             match crate::variability::applies_when_expr(aw) {
                 Err(msg) => findings.push(error(
@@ -5766,7 +6253,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             _ => "element",
         };
         for e in elements {
-            let own = e.frontmatter.applies_when.is_some();
+            let own = e.frontmatter.applies_when.is_some() && !e.frontmatter.applies_when_inherited;
             let et = &e.frontmatter.element_type;
             let qn = if e.qualified_name.is_empty() { "<root>" } else { &e.qualified_name };
             // (a) forbidden target — own appliesWhen on a FeatureDef / Configuration
@@ -5833,7 +6320,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         let is_draft = |elem: &RawElement| elem.frontmatter.status.as_deref() == Some("draft");
 
         // Non-draft requirements: (display id, applies_when, identity keys).
-        let reqs: Vec<(String, Option<FeatureExpr>, Vec<String>)> = elements
+        let reqs: Vec<(String, Option<FeatureExpr>, Vec<String>, String)> = elements
             .iter()
             .filter(|e| {
                 matches!(e.frontmatter.element_type, Some(ElementType::Requirement)) && !is_draft(e)
@@ -5848,7 +6335,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 if let Some(i) = &e.frontmatter.id {
                     keys.push(i.clone());
                 }
-                (id, parse_aw(e), keys)
+                (id, parse_aw(e), keys, e.file_path.clone())
             })
             .collect();
 
@@ -5877,41 +6364,109 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             })
             .collect();
 
-        for cfg in elements
-            .iter()
-            .filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::Configuration)))
-        {
-            let sel = crate::variability::canon_selection(
-                &cfg.frontmatter.feature_selections(),
-                &feat_alias,
-            );
-            let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
-            let cfg_id = cfg
-                .frontmatter
-                .id
-                .clone()
-                .unwrap_or_else(|| cfg.qualified_name.clone());
-            for (rid, rexpr, rkeys) in &reqs {
-                let active = rexpr.as_ref().is_none_or(|e| e.eval(&selected));
-                if !active {
+        // W015, one finding per requirement naming every configuration in which it is
+        // active but uncovered (GH #245), instead of one per (requirement, configuration).
+        let cfgs: Vec<(String, std::collections::BTreeMap<String, bool>)> = {
+            let mut v: Vec<_> = elements
+                .iter()
+                .filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::Configuration)))
+                .map(|cfg| {
+                    let id = cfg.frontmatter.id.clone().unwrap_or_else(|| cfg.qualified_name.clone());
+                    let sel = crate::variability::canon_selection(&cfg.frontmatter.feature_selections(), &feat_alias);
+                    (id, sel)
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0));
+            v
+        };
+        // Is a (non-draft) requirement covered in the configuration `selected` describes?
+        let covered_in = |keys: &[String], selected: &dyn Fn(&str) -> bool| -> bool {
+            tcs.iter().any(|(texpr, verifies)| {
+                texpr.as_ref().is_none_or(|e| e.eval(&selected)) && verifies.iter().any(|v| keys.iter().any(|k| k == v))
+            })
+        };
+        // Leaf descendants of a parent, by id (cycle-safe).
+        let leaf_ids = |root: &str| -> Vec<String> {
+            let mut leaves = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut stack = vec![root.to_string()];
+            while let Some(id) = stack.pop() {
+                if !seen.insert(id.clone()) {
                     continue;
                 }
-                let covered = tcs.iter().any(|(texpr, verifies)| {
-                    let runs = texpr.as_ref().is_none_or(|e| e.eval(&selected));
-                    runs && verifies.iter().any(|v| rkeys.iter().any(|k| k == v))
-                });
-                if !covered {
-                    findings.push(warning(
-                        "W015",
-                        &cfg.file_path,
-                        &format!(
-                            "requirement '{}' is active in configuration '{}' but no TestCase covering it runs in {}",
-                            rid, cfg_id, cfg_id
-                        ),
-                    ));
+                match derived_children.get(&id).filter(|c| !c.is_empty()) {
+                    Some(cs) => stack.extend(cs.iter().cloned()),
+                    None if id != root => leaves.push(id),
+                    None => {}
                 }
             }
+            leaves
+        };
+        let req_index: HashMap<&str, usize> = reqs.iter().enumerate().map(|(i, (id, _, _, _))| (id.as_str(), i)).collect();
+        // Statuses whose leaves make no commitment (as `parent_rolled_up`'s `live`).
+        let dead = |id: &str| {
+            resolver
+                .get_by_id(elements, id)
+                .and_then(|e| e.frontmatter.status.as_deref())
+                .is_some_and(|s| matches!(s, "draft" | "rejected" | "obsolete" | "retired" | "deprecated" | "superseded"))
+        };
+        for (rid, rexpr, rkeys, rfile) in &reqs {
+            let mut uncovered: Vec<&str> = Vec::new();
+            for (cfg_id, sel) in &cfgs {
+                let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
+                if !rexpr.as_ref().is_none_or(|e| e.eval(&selected)) {
+                    continue;
+                }
+                if !covered_in(rkeys, &selected) {
+                    uncovered.push(cfg_id.as_str());
+                }
+            }
+            if uncovered.is_empty() {
+                continue;
+            }
+            // For a parent, say whether it is uncovered *directly only* or also below it: the live
+            // leaves active in an uncovered configuration are checked there.
+            let leaves = leaf_ids(rid);
+            let below = if leaves.is_empty() {
+                String::new()
+            } else {
+                let (mut checked, mut all_covered) = (0usize, true);
+                for (_, sel) in cfgs.iter().filter(|(c, _)| uncovered.contains(&c.as_str())) {
+                    let selected = |q: &str| sel.get(q).copied().unwrap_or(false);
+                    for l in leaves.iter().filter(|l| !dead(l)) {
+                        let Some(&i) = req_index.get(l.as_str()) else { continue };
+                        let (_, lexpr, lkeys, _) = &reqs[i];
+                        if lexpr.as_ref().is_none_or(|e| e.eval(&selected)) {
+                            checked += 1;
+                            all_covered &= covered_in(lkeys, &selected);
+                        }
+                    }
+                }
+                if checked == 0 {
+                    "; no live leaf below it is active there to cover it".to_string()
+                } else if all_covered {
+                    "; its leaves below are all verified there — covered through its children only, it still needs a direct test".to_string()
+                } else {
+                    "; and not every leaf below it is verified there".to_string()
+                }
+            };
+            findings.push(warning(
+                "W015",
+                rfile,
+                &format!(
+                    "requirement '{}' is active in {} configuration(s) but no TestCase covering it runs there: {}{}",
+                    rid,
+                    uncovered.len(),
+                    uncovered.join(", "),
+                    below
+                ),
+            ));
         }
+    }
+
+    // Feature-parameter placeholders (GH #265, REQ-TRS-PHOLD-001): E240–E243, W245, W246.
+    for (is_error, code, file, msg) in crate::placeholders::findings(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 
     // ── Tier 2 cross-reference checks (E825-E830) ────────────────────────────
@@ -6273,7 +6828,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         if Resolver::is_hazardous_event(elem) {
             let referenced = he_referenced.contains(&elem.qualified_name)
                 || elem.frontmatter.id.as_ref().is_some_and(|id| he_referenced.contains(id));
-            if !referenced {
+            // A QM-rated event needs no safety goal (ISO 26262-3 Table 4, GH #230).
+            let is_qm = crate::asil::event_is_qm(&elem.frontmatter);
+            if !referenced && !is_qm {
                 let id = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
                 findings.push(warning("W800", &elem.file_path,
                     &format!("HazardousEvent '{}' is not referenced by any SafetyGoal.hazardousEvents", id)));
@@ -6654,7 +7211,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     // CAL3 → I2 (or higher) cybersecurity_assessment required (REQ-TRS-SEC-007).
                     if fm.cal_level.as_deref() == Some("CAL3") && !is_assessed(elem, &cs_assessed_i2) {
                         findings.push(warning("W039", &elem.file_path, &format!(
-                            "CAL3 item '{}' has no I2 cybersecurity_assessment ConfirmationMeasure confirming it (ISO/SAE 21434 §7)", id)));
+                            "CAL3 item '{}' has no I2 or higher (I2 or I3) cybersecurity_assessment ConfirmationMeasure confirming it (ISO/SAE 21434 §7)", id)));
                     }
                 }
             }
@@ -6935,8 +7492,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         if let Some(ref goal_ref) = fm.derived_from_safety_goal {
             if let Some(goal) = resolver.resolve_ref(elements, goal_ref) {
                 let gfm = &goal.frontmatter;
-                let child_has = fm.asil_level.is_some() || fm.sil_level.is_some();
-                let src_has   = gfm.asil_level.is_some() || gfm.sil_level.is_some();
+                let child_has = has_integrity_level(fm);
+                let src_has   = has_integrity_level(gfm);
                 if src_has && !child_has {
                     findings.push(error(
                         "E841",
@@ -6971,8 +7528,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 let via = link_prov.via_suffix(&elem.qualified_name, crate::link_types::BaseLink::DerivedFrom, di);
                 if let Some(parent) = resolver.resolve_ref(elements, df) {
                     let pfm = &parent.frontmatter;
-                    let child_has = fm.asil_level.is_some() || fm.sil_level.is_some();
-                    let src_has   = pfm.asil_level.is_some() || pfm.sil_level.is_some();
+                    let child_has = has_integrity_level(fm);
+                    let src_has   = has_integrity_level(pfm);
                     if src_has && !child_has {
                         findings.push(error(
                             "E842",
@@ -7011,8 +7568,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 let via = link_prov.via_suffix(&elem.qualified_name, crate::link_types::BaseLink::Satisfies, si);
                 if let Some(target) = resolver.resolve_ref(elements, s) {
                     let tfm = &target.frontmatter;
-                    let child_has = fm.asil_level.is_some() || fm.sil_level.is_some();
-                    let src_has   = tfm.asil_level.is_some() || tfm.sil_level.is_some();
+                    let child_has = has_integrity_level(fm);
+                    let src_has   = has_integrity_level(tfm);
                     if src_has && !child_has {
                         findings.push(error(
                             "E843",
@@ -7150,6 +7707,25 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             // use — GH #131), inverted into target qname -> { source qnames }. A
             // standalone `Allocation` element contributes its allocatedFrom ->
             // allocatedTo edge, never itself as an endpoint.
+            // Pairs argued independent by an `approved` DependentFailureAnalysis (GH #235).
+            let mut dfa_pairs: BTreeSet<(String, String)> = BTreeSet::new();
+            for d in elements.iter().filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::DependentFailureAnalysis)) && e.frontmatter.status.as_deref() == Some("approved")) {
+                let qn: Vec<String> = d
+                    .frontmatter
+                    .analyses
+                    .iter()
+                    .flatten()
+                    .filter_map(|r| resolver.resolve_ref(elements, r))
+                    .map(|t| t.qualified_name.clone())
+                    .collect();
+                for x in &qn {
+                    for y in &qn {
+                        if x != y {
+                            dfa_pairs.insert((x.clone(), y.clone()));
+                        }
+                    }
+                }
+            }
             let mut targets: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
             for (from, to) in allocation_edges(elements, &resolver) {
                 targets.entry(to).or_default().insert(from);
@@ -7182,6 +7758,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         if target_has_ffi || has_ffi_arg(a) || has_ffi_arg(b) {
                             continue;
                         }
+                        if dfa_pairs.contains(&(a.qualified_name.clone(), b.qualified_name.clone())) {
+                            continue; // independence argued by an approved DependentFailureAnalysis
+                        }
                         findings.push(warning(
                             "W034",
                             &a.file_path,
@@ -7190,6 +7769,158 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                 target_qn, srcs[i], tag_a, srcs[j], tag_b
                             ),
                         ));
+                    }
+                }
+            }
+        }
+    }
+
+    // E895 / W893 (GH #237, REQ-TRS-QUANT-001): structured timing quantities and their budgets.
+    {
+        use std::collections::BTreeMap;
+        const KINDS: &[&str] = &["ftti", "latency", "wcet", "reaction"];
+        let to_ms = |v: f64, unit: &str| -> Option<f64> {
+            Some(match unit {
+                "s" => v * 1000.0,
+                "ms" => v,
+                "us" => v / 1000.0,
+                "ns" => v / 1_000_000.0,
+                _ => return None,
+            })
+        };
+        let mut by_elem: BTreeMap<String, Vec<(String, f64)>> = BTreeMap::new();
+        for elem in elements {
+            let fm = &elem.frontmatter;
+            let mut list: Vec<(String, f64)> = Vec::new();
+            for (i, entry) in fm.quantities.iter().flatten().enumerate() {
+                let n = i + 1;
+                let bad = |why: &str| error("E895", &elem.file_path, &format!("quantities entry {n}: {why}"));
+                let Some(m) = entry.as_mapping() else {
+                    findings.push(bad("must be a mapping {kind, value, unit}"));
+                    continue;
+                };
+                let kind = yaml_field(m, "kind").and_then(|v| v.as_str()).unwrap_or("");
+                let unit = yaml_field(m, "unit").and_then(|v| v.as_str()).unwrap_or("");
+                let value = yaml_field(m, "value").and_then(|v| v.as_f64());
+                if !KINDS.contains(&kind) {
+                    findings.push(bad(&format!("`kind` must be one of {}", KINDS.join(", "))));
+                } else if list.iter().any(|(k, _)| k == kind) {
+                    findings.push(bad(&format!("`kind` '{kind}' is stated twice — one value per kind (state the worst case)")));
+                } else if value.is_none_or(|v| !(v.is_finite() && v > 0.0)) {
+                    findings.push(bad("`value` must be a positive number (the unit goes in `unit:`, e.g. `value: 5` `unit: ms`)"));
+                } else if let Some(ms) = value.and_then(|v| to_ms(v, unit)) {
+                    list.push((kind.to_string(), ms));
+                } else {
+                    findings.push(bad("`unit` must be one of s, ms, us, ns"));
+                }
+            }
+            // A SafetyGoal's `ftti:` string counts as an ftti quantity.
+            if !list.iter().any(|(k, _)| k == "ftti") {
+                if let Some(ms) = fm.ftti.as_deref().and_then(crate::asil::ftti_millis).filter(|ms| *ms > 0.0) {
+                    list.push(("ftti".to_string(), ms));
+                }
+            }
+            if !list.is_empty() {
+                by_elem.insert(elem.qualified_name.clone(), list);
+            }
+        }
+        // Children (derived requirements) per budget holder, by qualified name. Draft and retired
+        // children state no commitment and do not count; a child listed twice counts once.
+        let counts = |c: &RawElement| !matches!(c.frontmatter.status.as_deref(), Some("draft") | Some("retired"));
+        let mut kids_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for elem in elements {
+            let is_goal = matches!(elem.frontmatter.element_type, Some(ElementType::SafetyGoal));
+            let is_req = Resolver::is_native_requirement(elem);
+            if !is_goal && !is_req {
+                continue;
+            }
+            let mut kids: Vec<String> = Vec::new();
+            if is_goal {
+                for c in elements.iter().filter(|c| Resolver::is_native_requirement(c) && counts(c)) {
+                    if let Some(r) = c.frontmatter.derived_from_safety_goal.as_deref() {
+                        if resolver.resolve_ref(elements, r).is_some_and(|t| t.qualified_name == elem.qualified_name) {
+                            kids.push(c.qualified_name.clone());
+                        }
+                    }
+                }
+            } else if let Some(ids) = elem.frontmatter.id.as_deref().and_then(|id| derived_children.get(id)) {
+                kids.extend(ids.iter().filter_map(|c| resolver.resolve_ref(elements, c)).filter(|c| counts(c)).map(|c| c.qualified_name.clone()));
+            }
+            kids.sort();
+            kids.dedup();
+            kids_of.insert(elem.qualified_name.clone(), kids);
+        }
+        // What a requirement contributes to its parent's budget of `kind`: its own value, else the
+        // serial sum of what its children contribute (so a budget rolls up through intermediate
+        // requirements that state nothing). `visiting` breaks `derivedFrom` cycles.
+        fn contribution(
+            qn: &str,
+            kinds: &[&str],
+            by_elem: &BTreeMap<String, Vec<(String, f64)>>,
+            kids_of: &BTreeMap<String, Vec<String>>,
+            visiting: &mut Vec<String>,
+        ) -> Option<f64> {
+            if let Some(q) = by_elem.get(qn) {
+                let own: Vec<f64> = q.iter().filter(|(k, _)| kinds.contains(&k.as_str())).map(|(_, v)| *v).collect();
+                if !own.is_empty() {
+                    return Some(own.iter().sum());
+                }
+            }
+            if visiting.iter().any(|v| v == qn) {
+                return None;
+            }
+            visiting.push(qn.to_string());
+            let sums: Vec<f64> = kids_of
+                .get(qn)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| contribution(c, kinds, by_elem, kids_of, visiting))
+                .collect();
+            visiting.pop();
+            (!sums.is_empty()).then(|| sums.iter().sum())
+        }
+        let pkg_gates = crate::variability::package_conditions(elements);
+        let gated = |e: &RawElement| crate::variability::effective_applies_when(e, &pkg_gates).is_some();
+        let round = |v: f64| (v * 1000.0).round() / 1000.0;
+        for elem in elements {
+            let Some(own) = by_elem.get(&elem.qualified_name) else { continue };
+            if elem.frontmatter.status.as_deref() == Some("draft") {
+                continue;
+            }
+            let Some(kids) = kids_of.get(&elem.qualified_name) else { continue };
+            let children: Vec<&RawElement> = kids.iter().filter_map(|q| resolver.get(elements, q)).collect();
+            // Variant alternatives cannot be summed in the 150% model: a gated child is checked per
+            // variant (`validate --config`), where the projection recomputes the chain.
+            if children.iter().any(|c| gated(c)) {
+                continue;
+            }
+            let is_goal = matches!(elem.frontmatter.element_type, Some(ElementType::SafetyGoal));
+            let label = elem.frontmatter.id.as_deref().unwrap_or(&elem.qualified_name);
+            for (kind, budget) in own {
+                let sums: Vec<f64> = children
+                    .iter()
+                    .filter_map(|c| contribution(&c.qualified_name, &[kind.as_str()], &by_elem, &kids_of, &mut vec![elem.qualified_name.clone()]))
+                    .collect();
+                if sums.is_empty() {
+                    continue;
+                }
+                let total: f64 = sums.iter().sum();
+                if total > budget * (1.0 + 1e-9) {
+                    findings.push(warning("W893", &elem.file_path, &format!(
+                        "{label}: the {kind} budget {} ms is exceeded by the chain derived from it ({} ms over {} requirement(s))",
+                        round(*budget), round(total), sums.len())));
+                }
+            }
+            if is_goal {
+                if let Some((_, ftti)) = own.iter().find(|(k, _)| k == "ftti") {
+                    for c in &children {
+                        if let Some(t) = contribution(&c.qualified_name, &["latency", "reaction"], &by_elem, &kids_of, &mut vec![elem.qualified_name.clone()]) {
+                            if t > ftti * (1.0 + 1e-9) {
+                                findings.push(warning("W893", &c.file_path, &format!(
+                                    "latency + reaction of '{}' is {} ms, over the {} ms FTTI of {label}",
+                                    c.frontmatter.id.as_deref().unwrap_or(&c.qualified_name), round(t), round(*ftti))));
+                            }
+                        }
                     }
                 }
             }
@@ -7212,7 +7943,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         let status = elem.frontmatter.status.as_deref().unwrap_or("");
         let satisfiers = satisfied_reqs.get(&elem.qualified_name).map(|v| v.len()).unwrap_or(0);
 
-        if matches!(status, "approved" | "implemented") && satisfiers == 0 {
+        let allocatable = !elem.frontmatter.is_non_allocatable_requirement();
+        if matches!(status, "approved" | "implemented") && satisfiers == 0 && allocatable {
             findings.push(warning(
                 "W300",
                 &elem.file_path,
@@ -7221,7 +7953,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
 
         // W302: leaf requirement still has reqDomain: system at implemented/verified
-        if matches!(status, "implemented" | "verified") {
+        if matches!(status, "implemented" | "verified") && allocatable {
             let req_domain = elem.frontmatter.req_domain.as_deref().unwrap_or("system");
             if req_domain == "system" {
                 findings.push(warning(
@@ -8195,6 +8927,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         actor_in,
         mop_refined_by,
         allocated_from,
+        rolled_up,
     }
 }
 
@@ -13070,6 +13803,27 @@ mod link_type_tests {
         assert!(has(&run(&[he("HE-TST-002", "severity: S3\n")], ""), "W813"));
         let mixed = run(&[he("HE-TST-003", "severity: S0\nconsequence: Cd\n")], "");
         assert!(has(&mixed, "W814"));
+    }
+
+    #[test]
+    fn w800_skips_qm_events_only() {
+        // TC-TRS-HARA-001 / GH #230
+        let qm = run(&[he("HE-TST-010", "severity: S1\nexposure: E4\ncontrollability: C1\n")], "");
+        assert!(!has(&qm, "W800"), "{qm:?}");
+        let zero = run(&[he("HE-TST-011", "severity: S0\nexposure: E4\ncontrollability: C3\n")], "");
+        assert!(!has(&zero, "W800"), "{zero:?}");
+        let asil = run(&[he("HE-TST-012", "severity: S3\nexposure: E4\ncontrollability: C3\n")], "");
+        assert!(has(&asil, "W800"), "{asil:?}");
+        let partial = run(&[he("HE-TST-013", "severity: S1\n")], "");
+        assert!(has(&partial, "W800"), "{partial:?}");
+        for sec in ["severity: S3\nexposure: E0\ncontrollability: C3\n", "severity: S3\nexposure: E4\ncontrollability: C0\n"] {
+            assert!(!has(&run(&[he("HE-TST-014", sec)], ""), "W800"), "{sec}");
+        }
+        // An explicit asilLevel on the event is its rating, as in the traceability view.
+        let explicit_qm = run(&[he("HE-TST-015", "asilLevel: QM\n")], "");
+        assert!(!has(&explicit_qm, "W800"), "{explicit_qm:?}");
+        let explicit_d = run(&[he("HE-TST-016", "asilLevel: D\nseverity: S1\nexposure: E4\ncontrollability: C1\n")], "");
+        assert!(has(&explicit_d, "W800"), "{explicit_d:?}");
     }
 
     #[test]

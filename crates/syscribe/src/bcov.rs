@@ -69,7 +69,7 @@ pub fn cmd_behavioral_coverage(elements: &[RawElement], opts: &BcovOptions) {
     let resolver = Resolver::new(elements);
 
     let (scope_label, scope_prefix) = match opts.scope {
-        None => ("<model>".to_string(), None),
+        None => ("whole model".to_string(), None),
         Some(q) => match resolver.resolve_ref(elements, q) {
             Some(s) => (s.qualified_name.clone(), Some(s.qualified_name.clone())),
             None => {
@@ -196,7 +196,7 @@ pub fn cmd_behavioral_coverage(elements: &[RawElement], opts: &BcovOptions) {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
-                "scope": scope_label, "covered": covered, "total": total,
+                "scope": opts.scope.map(|_| scope_label.as_str()), "covered": covered, "total": total,
                 "coverage_pct": (pct * 10.0).round() / 10.0, "elements": els
             }))
             .unwrap()

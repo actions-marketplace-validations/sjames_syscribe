@@ -43,10 +43,26 @@ pub enum SelectionOutcome {
     Error(String),
 }
 
+thread_local! {
+    /// The stored `Configuration` the last `resolve_selection` on this thread resolved to.
+    /// A `Selection` is only the feature map, so two configurations that select the same
+    /// features but bind different parameters cannot be told apart from it; `project` uses this
+    /// (guarded by an equality check against the selection) to pick the right `parameterBindings`
+    /// for `{{Feature.param}}` placeholders (GH #265). A proper variant type would replace it.
+    static CURRENT_CONFIG: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The qualified name of the stored Configuration the last `resolve_selection` on this thread
+/// resolved to, if the most recent resolution was a stored Configuration.
+pub fn current_config() -> Option<String> {
+    CURRENT_CONFIG.with(|c| c.borrow().clone())
+}
+
 /// Resolve a `--config` argument into a concrete selection. Accepts a stored
 /// `Configuration` (by id or qualified name) or an ad-hoc comma-separated set of
 /// `FeatureDef` qualified names (listed = selected, all others deselected).
 pub fn resolve_selection(elements: &[RawElement], arg: &str) -> SelectionOutcome {
+    CURRENT_CONFIG.with(|c| *c.borrow_mut() = None);
     if !has_feature_model(elements) {
         return SelectionOutcome::Dormant;
     }
@@ -55,6 +71,7 @@ pub fn resolve_selection(elements: &[RawElement], arg: &str) -> SelectionOutcome
         e.frontmatter.element_type.as_ref() == Some(&ElementType::Configuration)
             && (e.frontmatter.id.as_deref() == Some(arg) || e.qualified_name == arg)
     }) {
+        CURRENT_CONFIG.with(|c| *c.borrow_mut() = Some(cfg.qualified_name.clone()));
         return SelectionOutcome::Resolved(cfg.frontmatter.feature_selections());
     }
     // 2. An ad-hoc feature set — each token is a FeatureDef qualified name or its
@@ -152,10 +169,23 @@ pub fn canonical_selection(elements: &[RawElement], cfg: &RawElement) -> Selecti
 
 /// The projected (active) element set for a selection.
 pub fn project(elements: &[RawElement], sel: &Selection) -> Vec<RawElement> {
+    let sel = variability::canon_selection(sel, &variability::feature_id_to_qname(elements));
+    let mut view = project_raw(elements, &sel);
+    // Feature-parameter placeholders ({{Feature.param}}) take this variant's values (GH #265).
+    crate::placeholders::substitute(&mut view, elements, &sel);
+    view
+}
+
+/// The projected (active) element set with placeholders left symbolic. Validation, suspect-link
+/// and baseline checks use this: their recorded hashes were taken on the base model, so a
+/// substituted body would read as drift (GH #265 review).
+pub fn project_raw(elements: &[RawElement], sel: &Selection) -> Vec<RawElement> {
     let pkg = variability::package_conditions(elements);
     let alias = variability::feature_id_to_qname(elements);
     let sel = variability::canon_selection(sel, &alias);
-    elements.iter().filter(|e| is_active_canon(e, &sel, &pkg, &alias)).cloned().collect()
+    let resolver = Resolver::new(elements);
+    let gate = |e: &RawElement| is_active_canon(e, &sel, &pkg, &alias);
+    elements.iter().filter(|e| gate(e) && !allocation_gated_off(e, elements, &resolver, &gate)).cloned().collect()
 }
 
 // ── reference taxonomy ──────────────────────────────────────────────────────
@@ -198,6 +228,28 @@ pub fn outbound_refs(elem: &RawElement) -> Vec<(RefKind, String)> {
             out.push((RefKind::Traceability, s.clone()));
         }
     }
+    // List-valued references of the analysis/process elements (GH #234): an inactive member
+    // escapes as W019 rather than failing the element's own resolution check.
+    for xs in [&fm.reviews, &fm.test_cases, &fm.demonstrates, &fm.confirms, &fm.supports, &fm.runs_on, &fm.analyses, &fm.covers].into_iter().flatten() {
+        for s in xs {
+            out.push((RefKind::Traceability, s.clone()));
+        }
+    }
+    for entry in fm.evidence.iter().flatten() {
+        // `Argument.evidence` entries are plain references; `PlanningItem.evidence` entries are
+        // mappings whose `ref:` names an element (`path:` entries are files, not references).
+        match entry {
+            serde_yaml::Value::String(s) => out.push((RefKind::Traceability, s.clone())),
+            serde_yaml::Value::Mapping(m) => {
+                // A non-empty `rationale:` waives the entry (E716 treats it so): no escape either.
+                let waived = m.get("rationale").and_then(|v| v.as_str()).is_some_and(|s| !s.trim().is_empty());
+                if let Some(r) = m.get("ref").and_then(|v| v.as_str()).filter(|_| !waived) {
+                    out.push((RefKind::Traceability, r.to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
     for s in [&fm.breakdown_adr, &fm.derived_from_safety_goal]
         .into_iter()
         .flatten()
@@ -227,8 +279,9 @@ pub fn escaping_refs(full: &[RawElement], sel: &Selection) -> Vec<Finding> {
     let alias = variability::feature_id_to_qname(full);
     let sel = &variability::canon_selection(sel, &alias);
     let mut findings = Vec::new();
+    let gate = |e: &RawElement| is_active_canon(e, sel, &pkg, &alias);
     for x in full {
-        if !is_active_canon(x, sel, &pkg, &alias) {
+        if !gate(x) || allocation_gated_off(x, full, &resolver, &gate) {
             continue;
         }
         for (kind, target) in outbound_refs(x) {
@@ -269,8 +322,39 @@ pub fn escaping_refs(full: &[RawElement], sel: &Selection) -> Vec<Finding> {
 /// subsets/redefines/satisfies, REQ-TRS-XREF-007) are the structural members:
 /// a target pruned from the variant is E226/W019 here, never a dangling ref.
 const LENS_SUPPRESS: &[&str] = &[
-    "E102", "E103", "E104", "E105", "E106", "E110", "E111", "E112", "E113", "E114", "E632",
+    "E102", "E103", "E104", "E105", "E106", "E110", "E111", "E112", "E113", "E114", "E320", "E632",
+    // Per-kind resolution of list-valued references (GH #234): a member inactive in the variant is
+    // a W019 escape; one that resolves nowhere is still reported by whole-model `validate`.
+    "E601", "E603", "E704", "E716", "E851", "E855", "E891", "E894", "E897",
+    // A `done` leaf PlanningItem whose only evidence is inactive here has no resolving evidence (E719):
+    // the same cascade, reported as the W019 escape instead.
+    "E719",
+    // The lens keeps only the stored Configuration being validated (GH #245), so the base it inherits
+    // from (`derivedFrom:`) is not in the projected set: a dangling base is reported by whole-model
+    // `validate`, not here.
+    "E234",
 ];
+
+/// An `Allocation` is gated by the AND of its endpoints' gates (GH #234): inactive when any
+/// endpoint that exists in the full model is inactive. `active` answers for a full-model element.
+fn allocation_gated_off(x: &RawElement, full: &[RawElement], resolver: &Resolver, active: &dyn Fn(&RawElement) -> bool) -> bool {
+    if x.frontmatter.element_type.as_ref() != Some(&ElementType::Allocation) {
+        return false;
+    }
+    let fm = &x.frontmatter;
+    let mut endpoints: Vec<String> = fm.allocated_from.iter().flatten().chain(fm.allocated_to.iter().flatten()).cloned().collect();
+    // The `features: [{allocatedFrom, allocatedTo}]` form names endpoints too.
+    for f in fm.features.iter().flatten() {
+        if let Some(m) = f.as_mapping() {
+            for key in ["allocatedFrom", "allocatedTo"] {
+                if let Some(v) = m.get(key) {
+                    endpoints.extend(vstr(v));
+                }
+            }
+        }
+    }
+    endpoints.iter().filter_map(|r| resolver.resolve_ref(full, r)).any(|t| !active(t))
+}
 
 /// Full re-validation in the lens (REQ-TRS-PROJ-002): escaping refs plus the
 /// standard validator over the projected subset (minus the suppressed
@@ -281,12 +365,22 @@ pub fn validate_projected(
     sel: &Selection,
 ) -> Vec<Finding> {
     let mut findings = escaping_refs(full, sel);
-    let active = project(full, sel);
+    let mut active = project_raw(full, sel);
+    // Per-configuration findings (W015) are about the selected variant only: keep the
+    // stored Configuration(s) whose selection is this one, drop the others so a
+    // requirement is not reported against configurations outside the lens (GH #245).
+    let wanted = variability::canon_selection(sel, &variability::feature_id_to_qname(full));
+    active.retain(|e| {
+        e.frontmatter.element_type.as_ref() != Some(&ElementType::Configuration)
+            || canonical_selection(full, e) == wanted
+    });
     let res = validator::validate_with_config(&active, config);
     findings.extend(
         res.findings
             .into_iter()
-            .filter(|f| !LENS_SUPPRESS.contains(&f.code)),
+            // The `[coverage]` table's own findings are about the file, not the variant: reported once by
+            // plain `validate`, not once per projected configuration.
+            .filter(|f| !LENS_SUPPRESS.contains(&f.code) && !(f.code == "E898" && f.file.ends_with(".syscribe.toml"))),
     );
     findings
 }

@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
     syscribe -m <root> validate [--file <path>] [--json]
-        [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors]
+        [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors] [--summary]
         [--profile <name>] [--config <C>] [--all-configs]
         [--results <file> [--format <fmt>]] [--fetch-remote]
 
@@ -18,6 +18,10 @@ gating flags promote chosen warnings to build failures.
     --deny <CODES>          Comma-separated warning codes treated as gate failures.
     --max-warnings <N>      Fail when the warning count exceeds N.
     --warnings-as-errors    Treat every warning as a gate failure.
+    --summary               Print finding counts per code and severity instead of each
+                            finding (with --json: [{code, severity, count}]). Gating and
+                            the exit code are unchanged. With --all-configs the per-variant
+                            result table is already a summary; --summary has no effect there.
     --profile <name>        Apply a named [profiles.<name>] policy from .syscribe.toml
                             (SIL/ASIL-scopable code promotion). See `help` for profiles.
     --config <C>            Project onto a Configuration (id/qname or 'Features::A,Features::B')
@@ -30,6 +34,26 @@ gating flags promote chosen warnings to build failures.
                             --format cargo-json|junit|session-log picks the parser (default
                             inferred: .xml → junit, else cargo-json).
     --fetch-remote          Run the .syscribe.toml [remote] hook to fetch remote sourceFiles.
+
+## VARIANT ESCAPES — WHICH CHECK SEES WHAT
+A reference from an active element to one gated off in a variant "escapes" it. The three
+checks differ in reach:
+
+    validate                 sees no escapes (the 150% model: every element is present)
+    validate --config C      checks that one variant; --all-configs checks every stored
+                             Configuration
+    feature-check --deep     proves the absence of escapes (E227 structural, W020
+                             traceability) for every valid configuration, stored or not
+
+In a variant, a structural reference to an inactive element is E226; a traceability or
+list-valued reference (satisfies, verifies, derivedFrom, links, ReviewRecord.reviews,
+Argument.supports/evidence, PlanningItem evidence ref, ConfirmationMeasure.confirms,
+TestPlan.demonstrates/testCases) is the warning W019 — the per-kind "does not resolve"
+errors (and E719 for a done leaf PlanningItem) are not raised for a target that exists but
+is inactive; a waived evidence entry (with a `rationale:`) raises nothing. An Allocation is
+inactive in a variant when any endpoint is, whether named in allocatedFrom/allocatedTo or in
+a `features:` entry. A mandatory single reference (FaultTree.topEvent) keeps
+its error.
 
 ## EXAMPLES
     # Findings table for the whole model

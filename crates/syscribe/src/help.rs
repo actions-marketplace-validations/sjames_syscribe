@@ -15,6 +15,9 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
             ("validate", include_str!("../../../prompts/help/validate.md")),
             ("audit", include_str!("../../../prompts/help/audit.md")),
             ("lint-docs", include_str!("../../../prompts/help/lint-docs.md")),
+            ("coverage", include_str!("../../../prompts/help/coverage.md")),
+            ("compliance", include_str!("../../../prompts/help/compliance.md")),
+            ("mechanisms", include_str!("../../../prompts/help/mechanisms.md")),
         ],
     ),
     (
@@ -49,6 +52,7 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
         &[
             ("export", include_str!("../../../prompts/help/export.md")),
             ("export-html", include_str!("../../../prompts/help/export-html.md")),
+            ("import-reqif", include_str!("../../../prompts/help/import-reqif.md")),
             ("export-reqif", include_str!("../../../prompts/help/export-reqif.md")),
             ("export-sysml", include_str!("../../../prompts/help/export-sysml.md")),
             ("sbom", include_str!("../../../prompts/help/sbom.md")),
@@ -132,6 +136,7 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
             ("set", include_str!("../../../prompts/help/set.md")),
             ("scaffold-gherkin", include_str!("../../../prompts/help/scaffold-gherkin.md")),
             ("ingest-results", include_str!("../../../prompts/help/ingest-results.md")),
+            ("results", include_str!("../../../prompts/help/results.md")),
         ],
     ),
     (

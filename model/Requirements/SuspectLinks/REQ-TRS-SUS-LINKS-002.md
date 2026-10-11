@@ -20,11 +20,17 @@ element, not over the whole file.
 A single default projection shall apply to all element types:
 
 - **Included:** the markdown body, plus the normative frontmatter fields (for example
-  `status`, `reqDomain`, safety fields such as SIL/ASIL, `multiplicity`, and the
+  `reqDomain`, safety fields such as SIL/ASIL, `multiplicity`, and the
   type-load-bearing structural fields such as `supertype` / `typedBy`).
 - **Excluded:** editorial and presentation fields that do not affect the meaning a
   downstream consumer depends on — `displayOrder`, `extRef`, `name`, layout coordinates,
   and comments — and the `traceBaselines` field itself.
+- **Excluded (workflow state, GH #251):** `status`, `claimedBy`, `claimedAt`, `assignedTo`. Promoting a
+  requirement `draft → review → approved`, or claiming a work item, is lifecycle state and shall not make every
+  baselined link to it suspect. `status` stays in the projection when it retires or disposes of the element
+  (`deprecated`, `superseded`, `obsolete`, `rejected`, `withdrawn`, `wont_fix`, `false_positive`, `not_affected`), so links
+  to a retired target still go suspect. Consequence: baselines captured before this change hash a different surface and
+  show one `W090` each until re-accepted (`suspect accept --all`).
 
 Per-type projection surfaces may be refined in a later phase without changing the storage
 format of REQ-TRS-SUS-LINKS-001.

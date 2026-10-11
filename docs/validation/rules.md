@@ -32,7 +32,7 @@ This page groups every finding code by feature area, with context. The same code
 | E019 | Any | `dalLevel` is not one of `A · B · C · D · E` (DO-178C) |
 | E020 | Any | `verificationMethod` is not one of `test · inspection · analysis · demonstration` |
 | E021 | Any | `coverageTarget` is not one of `statement · branch · MCDC` |
-| E022 | Any | `requirementKind` is not one of `stakeholder · system · software · hardware` |
+| E022 | Any | `requirementKind` is not one of `stakeholder · system · software · hardware · process · regulatory · deliverable` |
 | E023 | Any (stable id) | The numeric suffix is longer than the configured maximum (`[ids] max_digits` in `.syscribe.toml`, default 8; minimum 3 enforced by E006). Applies identically to ids under a configured additional prefix (see W046) |
 | E024 | — | **RETIRED.** Formerly flagged a `name:` field on an id-identified type. `name` is now the single, required label on every element, so this code is **no longer emitted** — a `Requirement` carrying `id` + `name` validates clean. |
 | E025 | Any element | The removed `title:` field is declared on an element (id-identified or name-identified alike) — the `title` field is removed; rename it to `name`. (A `FeatureDef` carries `name` as its label and a mandatory `FEAT-*` `id` — see `E201` — the `id` and label axes are independent.) |
@@ -49,7 +49,7 @@ This page groups every finding code by feature area, with context. The same code
 | W007 | Type definition (e.g. `PartDef`) is never referenced as a supertype or type |
 | W008 | Element has no `type:` field — will be ignored by most commands |
 | W009 | A TestCase `testFunctions[].function` is not found in its `sourceFile` (live source-drift; a planned/draft TestCase reports the informational `I010` instead) |
-| W010 | An `active` TestCase's `testFunctions[].function` last failed, was ignored/skipped, or was absent in the ingested test results (`ingest-results` sidecar or `validate --results`). Inert unless results have been ingested; gate with `--deny W010`. (The product-line unbound-required-parameter warning is `W017`.) |
+| W010 | An `active` TestCase's `testFunctions[].function` last failed, was ignored/skipped, was flaky (passed only after a retry), or was absent in the ingested test results (`ingest-results` sidecar or `validate --results`). Inert unless results have been ingested; gate with `--deny W010`. (The product-line unbound-required-parameter warning is `W017`.) |
 | I010 | Informational: a **planned** `TestCase` (`status: draft`/`review`/`approved`) has a `sourceFile:` or `testFunctions[].function` that is not present yet — the planned-verification counterpart of `W004`/`W009`. Never affects the exit status unless selected with `--deny I010` |
 
 ## Cross-reference errors (E101–E106, E110–E128)
@@ -75,7 +75,7 @@ This page groups every finding code by feature area, with context. The same code
 | E120 | `supertype:` is declared on a usage (`Part`, `Port`, `Attribute`, …) — type it with `typedBy:` and specialize with `subsets:` |
 | E121 | `isVariant: true` on an element that is neither a member of an `isVariation: true` element nor names one in `variantOf:` |
 | E122 | An `EnumerationDef` has no `values:`, or specializes another `EnumerationDef` |
-| E123 | A usage is typed by a definition of the wrong kind (`Part` by a `PortDef`, `Port` by a `PartDef`, …), or `conjugates:` is not a `PortDef` naming a `PortDef` |
+| E123 | A usage is typed by a definition of the wrong kind (`Part` by a `PortDef`, `Port` by a `PartDef`, an `Attribute` by an `ItemDef`, …; the message names the fix, see §8.3.0a), or `conjugates:` is not a `PortDef` naming a `PortDef` |
 | E124 | A value `Enum::literal` names a literal the `EnumerationDef` does not declare |
 | E125 | An `InterfaceDef` or `ConnectionDef` declares `ends:` with fewer than two entries |
 | E126 | An `imports:` target, `aliases:` `for:` target or `dependsOn:` entry does not resolve (a library package or a name in a loaded peer repo is accepted) |
@@ -131,6 +131,11 @@ other — including an ingested SysML v2 `allocation` usage's `typedBy:`, now th
 | E231 | (single-file feature model, REQ-TRS-FM-005) A `type: FeatureModel` sheet's `featureTree:` entry is not a mapping, has no `name:`, or its dot-separated path has an empty segment (leading, trailing, or doubled `.`) — the entry is dropped |
 | E232 | (single-file feature model) Two `featureTree:` entries — within one sheet or across sheets in the same model — resolve to the same qualified name |
 | E233 | (single-file feature model) A `crossTreeConstraints:` entry is malformed (not a mapping, no `feature:`, or a reference with an empty path segment), or its `feature:` does not resolve to a `FeatureDef` synthesized from that same sheet's own `featureTree:` |
+| E240 | A `{{Feature.param}}` placeholder is used but the model has no `FeatureDef` or no `Configuration` |
+| E241 | A placeholder names no `FeatureDef`, or the feature declares no such parameter |
+| E242 | A placeholder's element is active in a `Configuration` that does not select the parameter's feature (gate it with `appliesWhen`) |
+| E243 | A placeholder has no binding, fixed value or default in a configuration where the element is active, and the element is approved/implemented/verified |
+| E247 | A placeholder in a typed field (`failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `silLevel`, `asilLevel`, `calLevel`) resolves, in a configuration where the element is active, to a value the field does not accept |
 | E234 | (Configuration inheritance, §9.8) A `Configuration`'s `derivedFrom:` base does not resolve to any element of the model (the base must be local) |
 | E235 | (Configuration inheritance) A `Configuration`'s `derivedFrom:` base is not a `Configuration` |
 | E236 | (Configuration inheritance) A `Configuration` is on a `derivedFrom:` cycle — reported on each member; none inherits |
@@ -143,9 +148,11 @@ The variability dimension is **opt-in**: it is dormant — and these checks do n
 
 | Code | Condition |
 |---|---|
-| W015 | A requirement is **active** in a `Configuration` (its `appliesWhen:` holds for that configuration's selections) but no non-draft `TestCase` that runs in that `Configuration` verifies it. Draft requirements and draft tests are suppressed. Gate it in CI with `--deny W015`. |
+| W015 | A requirement is **active** in a `Configuration` (its `appliesWhen:` holds for that configuration's selections) but no non-draft `TestCase` that runs in that `Configuration` verifies it. Draft requirements and draft tests are suppressed. Gate it in CI with `--deny W015`. Reported **once per requirement**, listing every configuration where it is uncovered. For a parent requirement the message adds whether its leaves below are all verified there (it is then covered through its children only and still needs a direct test), not (some live leaf has no covering test there), or whether no live leaf is active there at all.  |
 | W016 | A `Configuration` parsed **zero** feature selections while a feature model exists — e.g. it used a legacy/unrecognized `selections:` key instead of the `features:` map (§9.8). Without this warning the block is silently ignored and every cell in `matrix` comes back N/A. Not emitted when no `FeatureDef` is present. |
 | W017 | A selected feature declares a required parameter (`isRequired: true`, not fixed, no `default:`) that the `Configuration` does not bind. (`W010` is test-result ingestion.) **Suppressed** for a parameter whose `bindingTime: runtime` — the running system supplies its value. |
+| W245 | As `E243`, for a draft or review element |
+| W246 | A placeholder references a `bindingTime: runtime` parameter (no value at projection time) |
 | W027 | A `Configuration` binds a parameter whose `bindingTime: runtime` (resolved by the running system, not at configuration time). Gate with `--deny W027`. |
 
 A `TestCase` *runs in* a `Configuration` iff its `appliesWhen:` is satisfied by that configuration's `features:` selections; a `TestCase` with no `appliesWhen:` runs in every configuration. The same relationship powers `syscribe matrix`.
@@ -219,21 +226,26 @@ A `Package` may declare `appliesWhen:` to gate its whole subtree; an element's *
 | E302 | `reqDomain` value is not `system · hardware · software` |
 | E303 | `domain` value is not `system · hardware · software` |
 | E304 | ADR `status` is not `proposed · accepted · deprecated · superseded` |
+| E320 | `ADR.supersedes:` names an element that does not resolve or is not an `ADR` |
+| E321 | An `ADR` is on a `supersedes:` cycle (a self-reference included) |
 
 ## Traceability warnings (W300–W307)
 
 | Code | Condition |
 |---|---|
-| W300 | Leaf Requirement at `approved` or `implemented` has no satisfying element |
+| W300 | Leaf Requirement at `approved` or `implemented` has no satisfying element (not raised for `requirementKind` `process`/`regulatory`/`deliverable`) |
 | W301 | **Retired** (GH #121) — no longer emitted; a leaf may be jointly satisfied by several elements |
-| W302 | Leaf Requirement at `implemented` or `verified` still has `reqDomain: system` |
+| W302 | Leaf Requirement at `implemented` or `verified` still has `reqDomain: system` (not raised for non-allocatable kinds) |
 | W303 | `breakdownAdr:` references a `proposed` ADR but Requirement is `approved` or higher |
 | W304 | `isDeploymentPackage: true` combined with `domain: hardware` |
 | W305 | Parent Requirement (has `derivedFrom` children) at `approved`, `implemented`, or `verified` has no active TestCase at `testLevel: L3`, `L4`, or `L5` — leaf-level tests on derived requirements are not sufficient to verify emergent composed behaviour |
+| W313 | An `accepted` `ADR` supersedes an ADR whose status is not `superseded` |
+| W314 | A non-draft element's `breakdownAdr:` resolves to a `superseded` ADR (cite its successor) |
+| W312 | Results-gated: `approved`/`implemented` Requirement has an active verifying TestCase that FAILED in the ingested results |
 | W306 | **Unsatisfied safety mechanism** — a high-integrity Requirement (`silLevel >= 4` or `asilLevel: D`) that is **not** a fully integrated safety mechanism: `status: draft`, **or** (for a **leaf**) no element satisfies it, **or** (with a feature model) active in no `Configuration`. The "unsatisfied" sub-condition applies to leaves only — a **parent** (has `derivedChildren`) is satisfied transitively and can't be satisfied directly (`E312`), so it is never flagged unsatisfied. Message names the triggering sub-condition(s). Gate with `--deny W306`. (Threshold/sub-condition tuning rides with severity profiles, #18.) |
 | W307 | A non-`draft` `UseCaseDef` carries no `refines:` link to a requirement (absent or empty). Advisory and draft-suppressed; gate with `--deny W307` and promote it to a gate failure via the `[profiles.magicgrid]` profile. See the [MagicGrid](#magicgrid-overlay-e316-w307-mg010mg070) section. |
 
-## §12 Traceability errors (E310–E316)
+## §12 Traceability errors (E310–E316, E319)
 
 | Code | Condition |
 |---|---|
@@ -244,6 +256,7 @@ A `Package` may declare `appliesWhen:` to gate its whole subtree; an element's *
 | E314 | `isDeploymentPackage: true` element has no allocation to a hardware element — any §12.9 form counts: an `Allocation` element (top-level or per `features:` entry), `allocatedTo:` on the element, or a legacy authored `allocatedFrom:` on the hardware target |
 | E315 | Cross-domain `supertype:` or `typedBy:` reference — use Allocation instead |
 | E316 | A `refines:` operand on a `UseCaseDef`/`UseCase` — or on a behavioral definition `ActionDef`/`Action`/`StateDef`/`State` — does not resolve, or resolves to an element that is not a `Requirement`/`RequirementDef`. **Base-format check** — runs regardless of the MagicGrid profile. The `refinedBy` reverse index includes refining behavioral elements alongside refining use cases. |
+| E319 | Results-gated: `verified` Requirement has an active verifying TestCase that FAILED in the ingested results |
 
 ## §12.8 Implementation trace (W023)
 
@@ -292,7 +305,7 @@ The optional common field `extRef:` (string or list) marks an element as the rep
 | W403 | Edge `source` or `target` is not a defined shape id in this diagram |
 | W404 | An operation parameter's `typedBy` or an operation's `returnType` does not resolve to a known element. Built-in and curated library types (`ScalarValues::*`, `Base::*`, `ISQ::*`, `SI::*`) are recognised and never flagged |
 | W405 | The body is inconsistent with `svgMode`: `svgMode: companion` but the body has no `<img` tag pointing at the SVG, or `svgMode: inline` but the body has no fenced ` ```svg ` block |
-| W406 | Frontmatter `shapes`/`edges` id has no matching `id="..."` attribute in the inline SVG block — checked only when the diagram's SVG is inline (not for `pumlMode: companion`, `svgMode: companion`/`svgFile:`, Mermaid/PlantUML kinds, or a `layout:` diagram with no ` ```svg ` block) |
+| W406 | Frontmatter `shapes`/`edges` id has no matching `id="..."` attribute in the inline SVG block — checked only when the diagram's SVG is inline (not for `pumlMode: companion`, `svgMode: companion`/`svgFile:`, a manifest diagram (any `shapes:`, list or mapping form) that has no inline SVG block, Mermaid/PlantUML kinds, or a `layout:` diagram with no ` ```svg ` block) |
 | W407 | Inline SVG element `id` has no matching entry in frontmatter `shapes`/`edges` (SVG-internal ids used via `url(#...)` are excluded; same inline-SVG scope as W406) |
 | W408 | Mermaid `%% ref:` annotation does not resolve to a known element |
 | W409 | Mermaid diagram has no `%% ref:` annotations — add at least one to link nodes to model elements |
@@ -403,9 +416,9 @@ A `ReviewRecord` (`RR-*`) is a baselined, thin traceability anchor for a formal 
 | W700 | A `status: closed` review has an `items[]` with `disposition: open`. |
 | W704 | A non-`draft` native Requirement appears in no `ReviewRecord.reviews:` list (dormant unless ReviewRecords exist; `--deny W704`). |
 
-## Native PlanningItem (E706–E717, E719–E723, W308–W311, §23, ADR-SYS-PLANITEM-001)
+## Native PlanningItem (E706–E717, E719–E723, W308–W311, W315, §23, ADR-SYS-PLANITEM-001)
 
-A `PlanningItem` (`PI-*`) is the model's native representation of planning/tracking work — a strict single-parent tree (`parent:`), with a top-level item required to set `achieves:` (the `Requirement`(s) it exists to realise) and, optionally, `blockedBy:` (what it's waiting on) and `evidence:` (proof of completion).
+A `PlanningItem` (`PI-*`) is the model's native representation of planning/tracking work — a strict single-parent tree (`parent:`), with a top-level item required to set `achieves:` (the `Requirement`(s) — or goal, ADR, argument, plan or baseline — it exists to realise) and, optionally, `blockedBy:` (what it's waiting on) and `evidence:` (proof of completion).
 
 | Code | Condition |
 |---|---|
@@ -418,7 +431,7 @@ A `PlanningItem` (`PI-*`) is the model's native representation of planning/track
 | E712 | A `parent:` chain forms a cycle. |
 | E713 | A top-level item (no `parent:`) has no `achieves:` entry. |
 | E714 | An `achieves:` entry does not resolve. |
-| E715 | An `achieves:` entry does not resolve to a native `Requirement`. |
+| E715 | An `achieves:` entry does not resolve to a native `Requirement`, `SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan` or `Baseline`. |
 | E716 | An `evidence[].ref` does not resolve (and is not waived by that entry's own `rationale:`). |
 | E717 | An `evidence[].path` does not exist on disk (and is not waived). |
 | E719 | A leaf item (empty computed `children`) at `status: done` has no non-waived, resolving `evidence:` entry — graded harder than the analogous `W300` (a warning), since claiming done with no proof is a correctness defect. |
@@ -430,6 +443,7 @@ A `PlanningItem` (`PI-*`) is the model's native representation of planning/track
 | W309 | A `[users]` key in `.syscribe.toml` is not a valid username — the entry is ignored (excluded from the roster `E722` checks against). |
 | W310 | A `done` `PlanningItem`'s `achieves:` Requirement hasn't met the verification bar `validate` already applies to it directly on its own file — an active `TestCase` for a leaf Requirement, an active integration-level (`L3`/`L4`/`L5`) `TestCase` for a parent one (mirrors `W002`/`W305` exactly, just scoped to the specific `PlanningItem` about to claim `done` — a distinct finding, not a duplicate, since it lands on the `PlanningItem`'s own file). Never fires for `todo`/`in_progress`/`blocked`, and never re-flags an `E714`/`E715` target. |
 | W311 | Two `PlanningItem`s that are both "active" (`status: in_progress`, or explicitly claimed via `claimedBy:`) share an `achieves:` Requirement, or an `evidence[].path` resolving to the same repo-relative path — very likely two agents about to (or already) step on the same work. Fires once per overlapping pair, per overlap kind, attached to the lexically-first item's file (by stable id). |
+| W315 | A `done` `PlanningItem` achieves a non-Requirement work product (`SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan`, `Baseline`) whose status is still `draft`/`review`/`proposed` |
 
 `blockedBy:` is resolved permissively, like `evidence.ref:` — any model element, not restricted to `PlanningItem` — since an undecided `ADR` or any other unmet dependency is an equally legitimate blocker. It is graded the opposite way from `evidence:`: `status: blocked` with an **empty** `blockedBy:` raises nothing (being blocked needs no proof), while `status: done` on a leaf with no evidence does (`E719`).
 
@@ -759,7 +773,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 
 | Code | Condition |
 |---|---|
-| W800 | HazardousEvent is not referenced by any `SafetyGoal.hazardousEvents` |
+| W800 | HazardousEvent is not referenced by any `SafetyGoal.hazardousEvents` (skipped when S/E/C derive QM) |
 | W802 | CybersecurityGoal is not implemented by any `SecurityControl.implementsGoals` |
 | W803 | VulnerabilityReport has `status: open` — ensure it is being tracked and mitigated |
 | W804 | CybersecurityGoal has no `Requirement` with `derivedFromCybersecurityGoal` pointing to it |
@@ -867,7 +881,7 @@ one** of the two sources declares a non-empty `ffiRationale:` string, OR carries
 
 | Code | Severity | Condition |
 |---|---|---|
-| W034 | Warning | For an allocation target with ≥2 sources, a mixed-criticality source pair has no freedom-from-interference argument. One finding per offending `(target, sourceA, sourceB)`, naming both sources and their integrity tags. Gate with `--deny W034`; promotable via `[profiles]` |
+| W034 | Warning | For an allocation target with ≥2 sources, a mixed-criticality source pair has no freedom-from-interference argument. The pair is excused by an `ffiRationale`/`accepted` `breakdownAdr`, or when both sources are in the `analyses` of an `approved` `DependentFailureAnalysis` (it names the pair, not the shared target). One finding per offending `(target, sourceA, sourceB)`, naming both sources and their integrity tags. Gate with `--deny W034`; promotable via `[profiles]` |
 
 See `docs/model-guide/safety-analysis.md`.
 
@@ -896,7 +910,7 @@ levels are not gated.
 | E850 | Error | `independenceLevel` is not one of `I1 · I2 · I3` |
 | E851 | Error | a `confirms:` ref does not resolve to any model element |
 | E924 | Error | `ConfirmationMeasure.status` is not one of `planned · in_progress · completed` (GH #136 — previously documented but unchecked) |
-| E860 | Error | a `ConfirmationMeasure.confirms` ref resolves to an element that is not a `SafetyGoal`, `CybersecurityGoal`, `HazardousEvent`, or native `Requirement` (REQ-TRS-SEC-005) |
+| E860 | Error | a `ConfirmationMeasure.confirms` ref resolves to an element that is not a `SafetyGoal`, `CybersecurityGoal`, `HazardousEvent`, native `Requirement`, `FaultTree`, `FMEASheet`, `TARASheet`, `ADR`, `Argument`, `TestPlan` or `Allocation` (REQ-TRS-SEC-005) |
 | W038 | Warning | A non-draft work product (`Requirement`, `PartDef`, `Part`, `SafetyGoal`, `CybersecurityGoal`) declares no `responsibility:`. **Opt-in:** dormant unless some element declares `responsibility:`. Gate with `--deny W038`; promotable via `[profiles]` |
 | W039 | Warning | A high-integrity item lacks its required independent assessment: an `asilLevel: D` **or `silLevel: 3`/`silLevel: 4`** `SafetyGoal`/native `Requirement` not confirmed by an I3 `functional_safety_assessment` (ISO 26262-2 §6 / IEC 61508-1 §8); a `calLevel: CAL4` `CybersecurityGoal` not confirmed by an I3 `cybersecurity_assessment`; or a `calLevel: CAL3` `CybersecurityGoal` not confirmed by an I2-or-I3 `cybersecurity_assessment` (REQ-TRS-SEC-007). **Opt-in:** dormant unless at least one `ConfirmationMeasure` exists. Gate with `--deny W039`; promotable via `[profiles]` |
 
@@ -933,6 +947,29 @@ nodes argue for a `SafetyGoal` or a parent `Argument`, discharged by `evidence`
 | E859 | Error | an `AssumptionOfUse.appliesTo` ref resolves to an element that is not a `SafetyGoal`, `CybersecurityGoal`, `Argument`, or `Requirement` (REQ-TRS-SEC-004) |
 
 See `docs/model-guide/safety-analysis.md`.
+
+### SafetyMechanism (E896–E897, W894)
+
+`SafetyMechanism` (`SM-*`, GH #236) records what a mechanism covers, its coverages and reaction
+time; list them with `syscribe mechanisms`.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E896 | Error | `SafetyMechanism` is missing `id`, `name` or `status`, its `id` is not `SM-*`, its `status` is not `draft`/`review`/`approved`/`retired`, or its `reactionTime` is not a duration (the coverages' 0..1 range is the generic `E846`) |
+| E897 | Error | a `SafetyMechanism.covers` entry does not resolve, or is not an `FMEAEntry`, `FaultTreeEvent`, `Requirement`, `SafetyGoal` or `HazardousEvent` |
+| W894 | Warning | a non-draft `SafetyMechanism`'s `reactionTime` exceeds the `ftti` of a `SafetyGoal` it covers (directly or through a covered requirement's `derivedFromSafetyGoal`) |
+
+### DependentFailureAnalysis (E890–E892, W890)
+
+The ISO 26262-9 clause 7 independence argument as a model element (`DFA-*`). An `approved`
+analysis silences `W034` for every pair of its `analyses`.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E890 | Error | `DependentFailureAnalysis` is missing `id`, `name`, `status` or `analyses`, its `id` is not `DFA-*`, its `status` is not `draft`/`review`/`approved`/`retired`, or `analyses` names fewer than two elements |
+| E891 | Error | a `DependentFailureAnalysis.analyses` entry does not resolve to any model element |
+| E892 | Error | a `sharedResources` entry is not a mapping, has no `resource`, has a `kind` outside `power`/`clock`/`memory`/`bus`/`software`/`other`, or a `couplingFactor` outside 0..1 |
+| W890 | Warning | an `approved` `DependentFailureAnalysis` has a shared resource with no `mitigation` |
 
 ## Integrity level propagation errors and warnings (E841–E843, W808)
 
@@ -1083,6 +1120,38 @@ computed) — mapped back to a label.
 |---|---|
 | E921 | `id` or `name` is absent; `id` does not match `ATS-*` pattern; or `attackFeasibility` is not one of `high · medium · low · very_low` |
 
+## Coverage policy (E898)
+
+The `[coverage]` table of `.syscribe.toml` (GH #253) sets how `W305` judges a parent requirement
+(`both` by default; `rollup` accepts a parent whose every leaf descendant has an active
+verifying TestCase; `direct` needs the parent's own test). `W305` names the rule applied.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E898 | Error | the `[coverage]` table of `.syscribe.toml` is invalid (unparseable, unknown key, bad rule or selector value), or an integrity-rated (ASIL/CAL/SIL) parent requirement is judged by a rule looser than `both` |
+
+## Timing quantities and budgets (E895, W893)
+
+`quantities:` (GH #237) states FTTI, latency, WCET and reaction time as `{kind, value, unit}`;
+a `SafetyGoal`'s `ftti:` string counts as an `ftti` quantity.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E895 | Error | a `quantities` entry is not a mapping, has an unknown `kind` (`ftti`/`latency`/`wcet`/`reaction`) or `unit` (`s`/`ms`/`us`/`ns`), a non-positive / non-numeric `value`, or the same `kind` twice on one element |
+| W893 | Warning | a timing budget is exceeded: the sum of a kind over the requirements derived from a `Requirement`/`SafetyGoal` (a serial chain) is larger than its own value, or a derived requirement's `latency` + `reaction` exceeds the goal's FTTI (draft-suppressed) |
+
+## Test environments (E893–E894, W891–W892)
+
+`TestEnvironment` (`TE-*`, GH #238) models the rig an L4/L5 test runs on; `runsOn:` and
+`requiresCapabilities:` on a `TestCase`/`TestPlan` tie tests to it.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E893 | Error | `TestEnvironment` is missing `id`, `name` or `status`, its `id` is not `TE-*`, a `status` / `environmentKind` / `calibrationStatus` is outside its enum, or `calibrationDue` is not a `YYYY-MM-DD` date |
+| E894 | Error | a `runsOn` entry on a `TestCase`/`TestPlan` does not resolve, or resolves to something that is not a `TestEnvironment` |
+| W891 | Warning | a `TestCase`/`TestPlan` lists `requiresCapabilities` that none of its `runsOn` environments offers (case-insensitive) |
+| W892 | Warning | a non-draft `TestCase`/`TestPlan` runs on a `retired` `TestEnvironment` or one whose `calibrationStatus` is `expired` |
+
 ## TestPlan (E600–E606, W610–W616)
 
 | Code | Condition |
@@ -1099,8 +1168,8 @@ computed) — mapped back to a label.
 | W612 | the effective TestCase set is empty |
 | W613 | a `TestCase` named explicitly in `testCases:` is `draft`/`retired` |
 | W614 | an `approved`/`active` plan demonstrates a `Requirement` that no member verifies (honours goal-closure) |
-| W615 | results-gated: an `approved` plan has a member whose ingested verdict is Fail/Missing |
-| W616 | two plans share an identical `(configurations, scope)` pair |
+| W615 | results-gated: an `approved` plan has members whose ingested verdict is Fail, flaky or Missing — one finding per plan listing them |
+| W616 | two plans share an identical `(configurations, scope)` pair and their effective member sets are redundant (one contains the other, or overlap ≥ 0.5) |
 
 A duplicate `TestPlan` `id` is the generic `E101`.
 
@@ -1188,7 +1257,7 @@ resolve.
 
 | Code | Condition |
 |---|---|
-| W042 | A qualified-name segment — an element's own name or a package/directory name — is not a SysMLv2 basic name (`[A-Za-z_][A-Za-z0-9_]*`) and is not a stable id; rename using `_` or CamelCase. Hyphenated names cannot be referenced in `appliesWhen`/`parameterConstraints` (`-` is the subtraction operator). |
+| W042 | A qualified-name segment — an element's own name or a package/directory name — is not a SysMLv2 basic name (`[A-Za-z_][A-Za-z0-9_]*`) and is not a stable id; rename using `_` or CamelCase. Hyphenated names cannot be referenced in `appliesWhen`/`parameterConstraints` (`-` is the subtraction operator). `Allocation` (and every other name-identified type) is identified by its file name, so a file named after a project id scheme such as `SC-DC-001-Implementation.md` raises it: name such files with underscores (`SC_DC_001_Implementation.md`) or CamelCase, and keep the human title in `name:`. |
 | W065 | An id-identified element (`Requirement`, `TestCase`, `ADR`, `PlanningItem`, …) is stored in a file whose stem differs from its `id` (convention: `<id>.md`, so the element is findable by id in the file tree). Opt-in (`[ids] check_file_names = true` in `.syscribe.toml`); draft-suppressed; skipped for synthesized/plugin/annotation elements. Gate with `--deny W065`. MCP `create_element` writes `<id>.md` for these types. |
 
 ## Additional stable-ID prefixes (W046)

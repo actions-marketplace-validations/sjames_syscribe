@@ -5,12 +5,20 @@
         [--config <C> | --all-configs] [--plan TP-X]
 
 ## DESCRIPTION
-Rolls up a top-level readiness picture: requirement status split (overall and
-per top-level package), SIL/ASIL distribution, per-configuration coverage %,
+Rolls up a top-level readiness picture (coverage and orphans count non-draft TestCases;
+`verification-depth` and `behavioral-coverage` count `active` ones only; `trace` and
+`who-verifies` list linked TestCases of any status): requirement status split (overall and
+per top-level package), SIL/ASIL distribution, per-configuration coverage %, coverage by requirement class (the derivation-tree
+roll-up of `matrix --rollup`: complete / partial / none per `reqClass`, honouring the
+`[coverage]` policy; `coverageByClass` in JSON, or `coverageByClassError` when the policy is invalid; these
+roll-up figures can differ from the per-configuration grid, which counts a parent covered by any
+direct test),
 orphans (requirements with no test / no satisfying element, dangling TestCases,
 no-trace requirements), Safety (hazards, goals by integrity level, FTA, FMEA,
 hardware metrics) and Security (TARA, CAL, vulnerabilities, zones) sections,
-and a single PASS/FAIL verdict.
+and a single PASS/FAIL verdict. When test results are ingested it adds a
+Verification results section (active tests by verdict, goals supported /
+incomplete / failing, plans by verdict; `verification` in JSON, null without results).
 
 ## OPTIONS
     --profile <name>  Use a .syscribe.toml [profiles.<name>] policy as the bar.
@@ -26,11 +34,12 @@ and a single PASS/FAIL verdict.
 
 ## DESCRIPTION (policy)
 The verdict FAILS when any Error finding exists, any W306 (unsatisfied safety
-mechanism) is present, W033 (hardware metric below target) or W805 (no derived
+mechanism) is present, W312 (an approved/implemented requirement whose active
+verifier fails), a safety goal is FAILING on ingested results, W033 (hardware metric below target) or W805 (no derived
 requirement) is present on an ASIL C/D goal, or — with --profile — any finding
 the profile promotes. Configure with an [audit] table in .syscribe.toml:
     [audit]
-    fail_on = ["W306"]          # codes failing at any level
+    fail_on = ["W306", "W312"]  # codes failing at any level (the defaults)
     [audit.fail_on_asil]        # code = ASIL levels; empty table opts out
     W033 = ["C", "D"]
     W805 = ["C", "D"]

@@ -280,6 +280,20 @@ impl Manifest {
         }
     }
 
+    /// Store each element's `file` relative to `base` (the git root), so a manifest is
+    /// portable between machines (GH #261). A path that is not under `base`, or does
+    /// not exist, is left as it is.
+    pub fn relativize(&mut self, base: &Path) {
+        let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+        for e in &mut self.elements {
+            let p = Path::new(&e.file);
+            let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            if let Ok(rel) = abs.strip_prefix(&base) {
+                e.file = rel.to_string_lossy().replace('\\', "/");
+            }
+        }
+    }
+
     pub fn to_json_pretty(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }
@@ -324,7 +338,7 @@ pub fn scan(elements: &[RawElement], resolver: &Resolver, model_root: &Path) -> 
         let id = element_key(e);
 
         // E522 — supersedes must resolve to an existing element.
-        if let Some(sup) = &fm.supersedes {
+        for sup in fm.supersedes.iter().flatten() {
             if resolver.resolve_ref(elements, sup).is_none() {
                 out.push((
                     "E522",
@@ -437,6 +451,10 @@ pub fn diff_manifests(a: &Manifest, b: &Manifest) -> BaselineDiff {
 pub struct VerifyResult {
     pub id: String,
     pub passed: bool,
+    /// A `superseded` baseline whose content drift was not checked (GH #262): history,
+    /// not a gate. Seal/manifest and git-tag problems are still reported.
+    #[serde(default)]
+    pub skipped: bool,
     pub messages: Vec<String>,
 }
 
@@ -446,11 +464,12 @@ pub fn verify_baseline(elements: &[RawElement], b: &RawElement, model_root: &Pat
     let fm = &b.frontmatter;
     let mut messages = Vec::new();
     let Some(seal) = &fm.seal else {
-        return VerifyResult { id, passed: false, messages: vec!["no seal".to_string()] };
+        return VerifyResult { id, passed: false, skipped: false, messages: vec!["no seal".to_string()] };
     };
     let scope = fm.frozen_scope.clone().unwrap_or_default();
+    let superseded = fm.status.as_deref() == Some("superseded");
     let (current, _n) = aggregate_for_scope(elements, &scope);
-    if current != seal.aggregate_hash {
+    if !superseded && current != seal.aggregate_hash {
         messages.push("content drift (recomputed aggregate ≠ seal)".to_string());
     }
     if let Some(m) = Manifest::from_file(&manifest_path(model_root, seal)) {
@@ -469,5 +488,5 @@ pub fn verify_baseline(elements: &[RawElement], b: &RawElement, model_root: &Pat
             None => {} // tag not present yet — informational, not a failure
         }
     }
-    VerifyResult { id, passed: messages.is_empty(), messages }
+    VerifyResult { id, passed: messages.is_empty(), skipped: superseded && messages.is_empty(), messages }
 }

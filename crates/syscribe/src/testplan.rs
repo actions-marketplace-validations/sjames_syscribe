@@ -268,7 +268,7 @@ pub fn plan_lens(elements: &[RawElement], tp: &str) -> Vec<RawElement> {
 /// `tc_verdict` evidence fold. Empty effective set → `empty`. Any member Fail →
 /// `fail`. All members Pass → `pass`. Otherwise (missing / no results) →
 /// `incomplete`.
-fn plan_verdict(
+pub(crate) fn plan_verdict(
     plan: &RawElement,
     elements: &[RawElement],
     resolver: &Resolver,
@@ -395,6 +395,10 @@ pub fn cmd_testplan_list(elements: &[RawElement], json: bool, results: Option<&R
             r.id, title, scope, cfgs, r.effective_count, cov, r.verdict
         );
     }
+    println!();
+    println!(
+        "Coverage = requirements in the plan's scope covered by a non-draft member TestCase, as a percentage of the requirements applicable in the plan's configurations (with a feature model, a requirement whose only member tests were unsuccessful in the ingested results counts as not covered). Verdict is the separate roll-up of the members' ingested results."
+    );
 }
 
 // ── detail (`testplan TP-X`) ────────────────────────────────────────────────

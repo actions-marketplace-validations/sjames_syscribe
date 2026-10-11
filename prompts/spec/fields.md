@@ -138,7 +138,7 @@ computed by the tool and never authored.
 | `derivedFromSafetyGoal` | string | SafetyGoal ID/QName |
 | `derivedFromCybersecurityGoal` | string | CybersecurityGoal ID/QName |
 | `reqClass` | string | `stakeholder` · `system` · `derived` — position in the stakeholder/system decomposition (informational, not validated) |
-| `requirementKind` | string | `stakeholder` · `system` · `software` · `hardware` (`E022` if other) |
+| `requirementKind` | string | `stakeholder` · `system` · `software` · `hardware` · `process` · `regulatory` · `deliverable` (`E022` if other); the last three are not architecture-allocatable (no `W300`/`W302`) |
 | `dalLevel` | string | `A`–`E` (DO-178C, `E019`); with `asilLevel` warns `W703` |
 | `decompositionKind` | string | ASIL/SIL decomposition argument: `independent` · `redundant` · `diverse` (informational) |
 | `decomposedFrom` | string | Original ASIL (A–D) before decomposition; the notation `asilLevel: B(D)` sets it implicitly. `asilLevel` also accepts `QM` (E878, E879) |
@@ -171,13 +171,14 @@ computed by the tool and never authored.
 |---|---|---|
 | `date` | string | ISO-8601 date the decision was made |
 | `deciders` | string or list | Decision-makers: stakeholder `PartDef` qnames or free-text names. Display metadata, not resolved; shown by `show`. ADR-only (`W047` on any other type) |
+| `supersedes` | string or list | The `ADR`(s) this one replaces (`E320` unresolved/non-ADR, `E321` cycle, `W313` target not `superseded`, `W314` a `breakdownAdr:` still cites a superseded ADR). `supersededBy` is computed and shown by `show`/`links` |
 
 ## PlanningItem fields (§23)
 
 | Field | Type | Notes |
 |---|---|---|
 | `parent` | string | At most one other `PlanningItem` (strict tree; cycle `E712`) |
-| `achieves` | string or list | `Requirement`s this work realises — **required** on a top-level item (`E713`–`E715`) |
+| `achieves` | string or list | What this work realises — a `Requirement`, or a `SafetyGoal`/`CybersecurityGoal`/`ADR`/`Argument`/`TestPlan`/`Baseline` — **required** on a top-level item (`E713`–`E715`; `W315` when `done` but the target is still draft/review/proposed) |
 | `itemType` | string | `bug` · `task` · `feature` (`E709`) |
 | `blockedBy` | string or list | Any elements it waits on (`E720` dangling, `E721` cycle, `W308` if set while not `blocked`) |
 | `assignedTo` | string | Unix-style username (`E723`); checked against `[users]` when that roster is non-empty (`E722`) |
@@ -194,7 +195,7 @@ requirement lacks the W002/W305 verification bar. `W311`: two active items overl
 | `date` / `approver` / `gitTag` / `gitCommit` | Baseline | string | `gitCommit` captured by `baseline create`; `gitTag` is distinct from the `BL-*` id |
 | `frozenScope` | Baseline | map | `{package, config, closureFrom, types, status, tags}`; omit for the whole model |
 | `seal` | Baseline | map | `{aggregateHash, elementCount, manifest}` — generated, never hand-edit (`E520`/`E521`) |
-| `supersedes` | Baseline | string | Earlier `BL-*` (`E522` if unresolved) |
+| `supersedes` | Baseline | string or list | Earlier `BL-*` (`E522` if unresolved) |
 | `reviewType` | ReviewRecord | string | **required** — `design_review`·`requirements_review`·`hazard_review`·`test_readiness_review`·`inspection`·`walk_through` |
 | `reviews` | ReviewRecord | list | **required** — elements covered by the review |
 | `reviewDate` / `reviewedBy` / `recordedAt` | ReviewRecord | string / list / string | `recordedAt` points to the external review (e.g. a PR URL) |
@@ -366,11 +367,18 @@ Full narrative + rules: `syscribe spec safety`. Integrity levels (`asilLevel` A�
 | `diagnosticCoverage` / `latentDiagnosticCoverage` | architecture elements | float | DC / DCl, `0.0`–`1.0` |
 | `measureType` | ConfirmationMeasure | string | `confirmation_review`·`functional_safety_audit`·`functional_safety_assessment`·`cybersecurity_assessment` |
 | `independenceLevel` | ConfirmationMeasure | string | `I1`·`I2`·`I3` |
-| `confirms` | ConfirmationMeasure | list | Work products confirmed (any element) |
+| `confirms` | ConfirmationMeasure | list | Work products confirmed: `SafetyGoal`, `CybersecurityGoal`, `HazardousEvent`, `Requirement`, `FaultTree`, `FMEASheet`, `TARASheet`, `ADR`, `Argument`, `TestPlan`, `Allocation` (`E851` unresolved, `E860` other type; confirm a sheet, not its exploded rows) |
 | `argumentType` | Argument | string | `claim`·`strategy`·`solution` |
 | `supports` | Argument | string or list | SafetyGoal or parent Argument argued for |
 | `evidence` | Argument | list | Requirement/TestCase/Argument/AssumptionOfUse refs (strings) |
 | `appliesTo` | AssumptionOfUse | list | SafetyGoal/Argument/Requirement the SRAC constrains |
+| `covers` / `reactionTime` | SafetyMechanism | list / duration | Failure modes covered; reaction time checked against the goal FTTI (W894) |
+| `quantities` | any | list | Timing values `{kind: ftti\|latency\|wcet\|reaction, value, unit: s\|ms\|us\|ns}`; budgets checked (W893) |
+| `runsOn` | TestCase / TestPlan | list | TestEnvironment(s) the test executes on |
+| `requiresCapabilities` | TestCase / TestPlan | list | Capabilities needed from the environment |
+| `capabilities` / `environmentKind` / `calibrationStatus` / `calibrationDue` | TestEnvironment | list / enum / enum / date | What the rig offers and its calibration |
+| `analyses` | DependentFailureAnalysis | list (≥2) | Elements argued independent |
+| `sharedResources` | DependentFailureAnalysis | list | `{resource, kind, initiators, couplingFactor, mitigation}` |
 
 ## Security analysis fields (ISO/SAE 21434)
 

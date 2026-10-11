@@ -80,6 +80,7 @@ These are not standard SysML usages — they carry a stable opaque identifier an
 | `Requirement` | `REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status` |
 | `TestCase` | `TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status`, `testLevel`, `verifies` |
 | `TestPlan` | `TP(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status` |
+| `TestEnvironment` | `TE(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status` |
 | `ADR` | `ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}` | `id`, `name`, `status` |
 | `ReviewRecord` | `RR(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `reviewType`, `reviews` |
 | `TradeStudy` | `TRD(-[A-Z0-9]{2,12})+-[0-9]{3,8}` | `id`, `name`, `status`, `criteria`, `alternatives`, `scores` |
@@ -124,7 +125,7 @@ rankings. Validation `E869`–`E877`, `W061`–`W064`; command `trade-study`.
 work of getting from `Requirement` to satisfied/verified — the shape a Jira epic/story/task or a
 GitHub issue hierarchy fills today, made durable and structurally part of the traceability graph.
 A strict **single-parent tree** (`parent:`, at most one — not a DAG); a top-level item (no
-`parent:`) must set `achieves:` (one or more `Requirement`s this branch of work exists to realise,
+`parent:`) must set `achieves:` (one or more `Requirement`s (or a goal, ADR, argument, plan or baseline) this branch of work exists to realise,
 deliberately a separate field from `satisfies:`, which stays scoped to architecture semantics).
 `status` (`todo`/`in_progress`/`blocked`/`done`) and `itemType` (`bug`/`task`/`feature`) reuse
 GitHub's own current vocabulary verbatim. `blockedBy:` names one or more elements it's waiting on —
@@ -171,6 +172,9 @@ These types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Each carrie
 | `ConfirmationMeasure` | `CM-*` | ISO 26262-2 / ISO/SAE 21434 | Confirmation review / FS audit / FS assessment / cybersecurity assessment (`measureType`, `independenceLevel` I1–I3, `confirms:`) |
 | `Argument` | `ARG-*` | GSN | Safety-case node (`argumentType: claim \| strategy \| solution`, `supports:`, `evidence:`) |
 | `AssumptionOfUse` | `AOU-*` | ISO 26262 | Safety-related application condition (SRAC); `appliesTo:` goals/arguments/requirements |
+| `TestEnvironment` | `TE-*` | ASPICE SWE.4–SYS.5 | The rig a test runs on; `capabilities:`, calibration; named by `runsOn:` on `TestCase`/`TestPlan` |
+| `SafetyMechanism` | `SM-*` | ISO 26262-5/-4 | Diagnostic mechanism; `covers:` failure modes, `diagnosticCoverage`, `reactionTime`; `syscribe mechanisms` |
+| `DependentFailureAnalysis` | `DFA-*` | ISO 26262-9 cl. 7 | Independence argument; `analyses:` (≥2 elements), `sharedResources:`; an approved one silences `W034` for its pairs |
 
 All of these require `id`, `name` and `status`. Every stable id needs at least one 2–12-character
 category segment before the numeric suffix — `DS-BRAKE-001`, not `DS-001`.

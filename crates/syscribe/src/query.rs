@@ -446,6 +446,15 @@ fn builtin_outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
     if let Some(ref sat) = fm.satisfies {
         for s in sat { out.push(("satisfies".into(), s.clone())); }
     }
+    // Feature-parameter placeholders in the body or name (GH #267).
+    for ph in syscribe_model::placeholders::of_element(elem) {
+        if !out.iter().any(|(l, t)| l == "placeholder" && t == &ph.feature) {
+            out.push(("placeholder".into(), ph.feature));
+        }
+    }
+    if matches!(fm.element_type, Some(ElementType::ADR)) {
+        for s in fm.supersedes.iter().flatten() { out.push(("supersedes".into(), s.clone())); }
+    }
     if let Some(ref aw) = fm.applies_when {
         if let Ok(Some(expr)) = syscribe_model::variability::applies_when_expr(aw) {
             for op in expr.operands() {
@@ -478,6 +487,9 @@ fn builtin_outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
         for s in ev.iter().filter_map(|v| v.as_str()) {
             out.push(("evidence".into(), s.to_string()));
         }
+    }
+    for (label, list) in [("runsOn", &fm.runs_on), ("analyses", &fm.analyses), ("covers", &fm.covers)] {
+        for s in list.iter().flatten() { out.push((label.into(), s.clone())); }
     }
     if let Some(ref at) = fm.applies_to {
         for s in at { out.push(("appliesTo".into(), s.clone())); }
@@ -630,6 +642,26 @@ pub fn cmd_show(
     if matches!(fm.element_type, Some(ElementType::ADR)) {
         if let Some(ref d) = fm.date { println!("| **date** | {} |", d); }
         if let Some(ref ds) = fm.deciders { if !ds.is_empty() { println!("| **deciders** | {} |", ds.join(", ")); } }
+        // Supersession (GH #232): the stored direction and the computed reverse.
+        if let Some(s) = fm.supersedes.as_ref().filter(|v| !v.is_empty()) {
+            println!("| **supersedes** | {} |", s.join(", "));
+        }
+        let by: Vec<String> = elements
+            .iter()
+            .filter(|o| matches!(o.frontmatter.element_type, Some(ElementType::ADR)))
+            .filter(|o| {
+                // Same resolution as validation (`resolve_ref`: id, qualified name or name).
+                o.frontmatter
+                    .supersedes
+                    .iter()
+                    .flatten()
+                    .any(|t| resolver.resolve_ref(elements, t).is_some_and(|x| std::ptr::eq(x, elem)))
+            })
+            .map(|o| o.frontmatter.id.clone().unwrap_or_else(|| o.qualified_name.clone()))
+            .collect();
+        if !by.is_empty() {
+            println!("| **supersededBy** | {} |", by.join(", "));
+        }
     }
     // PlanningItem (ADR-SYS-PLANITEM-001): itemType/parent/achieves/blockedBy
     // were previously absent from `show`'s field dump entirely (evidence: and
@@ -662,6 +694,28 @@ pub fn cmd_show(
         }
     }
     if let Some(ref at) = fm.applies_to { if !at.is_empty() { println!("| **appliesTo** | {} |", at.join(", ")); } }
+    for (label, list) in [("analyses", &fm.analyses), ("runsOn", &fm.runs_on), ("requiresCapabilities", &fm.requires_capabilities), ("capabilities", &fm.capabilities), ("covers", &fm.covers)] {
+        if let Some(l) = list.as_ref().filter(|l| !l.is_empty()) { println!("| **{label}** | {} |", l.join(", ")); }
+    }
+    for (label, v) in [("diagnosticCoverage", fm.diagnostic_coverage), ("latentDiagnosticCoverage", fm.latent_diagnostic_coverage)] {
+        if let Some(v) = v { println!("| **{label}** | {v} |"); }
+    }
+    for (label, v) in [("environmentKind", &fm.environment_kind), ("calibrationStatus", &fm.calibration_status), ("calibrationDue", &fm.calibration_due), ("reactionTime", &fm.reaction_time)] {
+        if let Some(v) = v { println!("| **{label}** | {v} |"); }
+    }
+    if let Some(sr) = fm.shared_resources.as_ref().filter(|l| !l.is_empty()) { println!("| **sharedResources** | {} |", sr.len()); }
+    if let Some(q) = fm.quantities.as_ref().filter(|l| !l.is_empty()) {
+        let txt: Vec<String> = q
+            .iter()
+            .filter_map(|e| e.as_mapping())
+            .map(|m| {
+                let g = |k: &str| m.get(k).map(|v| v.as_str().map(String::from).unwrap_or_else(|| format!("{v:?}"))).unwrap_or_default();
+                let val = m.get("value").map(|v| match v { serde_yaml::Value::Number(n) => n.to_string(), o => format!("{o:?}") }).unwrap_or_default();
+                format!("{} {} {}", g("kind"), val, g("unit"))
+            })
+            .collect();
+        println!("| **quantities** | {} |", txt.join("; "));
+    }
     if let Some(ref f) = fm.feature_model { println!("| **featureModel** | {} |", f); }
     if let Some(ref aw) = fm.applies_when {
         let aw_str = match aw {
@@ -1182,7 +1236,30 @@ fn related_commands(elem_type: Option<&ElementType>) -> Vec<(&'static str, &'sta
 
 // ── cmd: ls ──────────────────────────────────────────────────────────────────
 
+/// `Requirements/System` → `Requirements::System` (GH #231). Only a scope that does not
+/// already contain `::` and does contain `/` is rewritten.
+fn path_to_qname(s: &str) -> Option<String> {
+    (s.contains('/') && !s.contains("::")).then(|| s.trim_matches('/').replace('/', "::"))
+}
+
+/// The longest leading part of `qname` that is an existing package/element, for a hint.
+fn nearest_scope<'a>(elements: &'a [RawElement], qname: &str) -> Option<&'a str> {
+    let mut parts: Vec<&str> = qname.split("::").collect();
+    while parts.pop().is_some() && !parts.is_empty() {
+        let cand = parts.join("::");
+        if let Some(e) = elements.iter().find(|e| e.qualified_name == cand) {
+            return Some(e.qualified_name.as_str());
+        }
+    }
+    None
+}
+
 pub fn cmd_ls(elements: &[RawElement], parent: &str, wheres: &[CustomWhere]) {
+    let converted = path_to_qname(parent);
+    let parent = match &converted {
+        Some(q) if ns_children(elements, q).len() + usize::from(elements.iter().any(|e| &e.qualified_name == q)) > 0 => q.as_str(),
+        _ => parent,
+    };
     let mut children = ns_children(elements, parent);
     // `--where` custom-field predicates (GH #39) — ANDed with each other.
     children.retain(|c| wheres.iter().all(|w| custom_field_matches(c, w)));
@@ -1191,6 +1268,17 @@ pub fn cmd_ls(elements: &[RawElement], parent: &str, wheres: &[CustomWhere]) {
             eprintln!("No top-level elements found.");
         } else {
             eprintln!("No children found for: {parent}");
+            // Hint only when the scope itself does not exist; an existing, childless or
+            // filtered-out scope needs no suggestion.
+            let q = path_to_qname(parent).unwrap_or_else(|| parent.to_string());
+            if !elements.iter().any(|e| e.qualified_name == q) {
+                if q != parent {
+                    eprintln!("(scopes use `::`, e.g. `{q}`)");
+                }
+                if let Some(near) = nearest_scope(elements, &q) {
+                    eprintln!("did you mean `{near}`?");
+                }
+            }
         }
         return;
     }
@@ -1821,6 +1909,25 @@ pub fn cmd_trace(
             }
         }
         println!();
+        // Why a verifier failed: the retained JUnit message and time (GH #258).
+        let mut failing: Vec<String> = Vec::new();
+        for tc_id in &sorted_v {
+            if let Some(tc) = resolve(elements, resolver, tc_id) {
+                for n in syscribe_model::results::failure_notes(tc, evidence) {
+                    let msg = n.message.as_deref().map(|m| format!(" — {}", syscribe_model::results::one_line(m))).unwrap_or_default();
+                    let time = n.time.map(|t| format!(" ({t}s)")).unwrap_or_default();
+                    failing.push(format!("- {tc_id}: {}{msg}{time}", n.function));
+                }
+            }
+        }
+        if !failing.is_empty() {
+            println!("### Failing tests");
+            println!();
+            for l in failing {
+                println!("{l}");
+            }
+            println!();
+        }
     }
 
     // ── Refined by (MagicGrid «refine», REQ-TRS-MG-001) ───────────────────
@@ -1913,7 +2020,13 @@ pub fn cmd_links(elements: &[RawElement], resolver: &Resolver, key: &str) {
         for (rel, target) in &out {
             let ttype = resolve(elements, resolver, target)
                 .map(|e| tl(e.frontmatter.element_type.as_ref()))
-                .unwrap_or("(unresolved)");
+                .unwrap_or_else(|| {
+                    if rel == "implementedBy" && syscribe_model::config::is_external_source_ref(target) {
+                        "external"
+                    } else {
+                        "(unresolved)"
+                    }
+                });
             println!("| {} | {} | {} |", rel, target, ttype);
         }
         println!();
@@ -2251,6 +2364,8 @@ pub struct GateOptions {
     pub max_warnings: Option<usize>,
     /// Treat every warning as a gate failure.
     pub warnings_as_errors: bool,
+    /// `--summary`: print finding counts per code instead of each finding (GH #245).
+    pub summary: bool,
 }
 
 impl GateOptions {
@@ -2636,6 +2751,36 @@ fn evaluate_gate<'a>(
     GateEval { errors, warnings, infos, denied, denied_by_flags, denied_by_profile, over_max, exit_code }
 }
 
+/// The one-line `N errors, M warnings (…) — FAIL` verdict that opens every text report.
+fn gate_summary_line(eval: &GateEval<'_>, gate: &GateOptions) -> String {
+    let mut summary = format!("{} errors, {} warnings", eval.errors.len(), eval.warnings.len());
+    let mut clauses: Vec<String> = Vec::new();
+    if !eval.denied_by_flags.is_empty() {
+        if gate.warnings_as_errors {
+            clauses.push("all warnings promoted to errors (--warnings-as-errors)".to_string());
+        } else {
+            clauses.push(format!(
+                "{} gated by --deny {}",
+                eval.denied_by_flags.len(),
+                sorted_codes(&eval.denied_by_flags).join(", ")
+            ));
+        }
+    }
+    if !eval.denied_by_profile.is_empty() {
+        clauses.push(format!("{} gated by --profile", eval.denied_by_profile.len()));
+    }
+    if eval.over_max {
+        clauses.push(format!("exceeds --max-warnings {}", gate.max_warnings.unwrap_or(0)));
+    }
+    if !clauses.is_empty() {
+        summary.push_str(&format!(" ({})", clauses.join("; ")));
+    }
+    if !eval.errors.is_empty() || eval.gate_tripped() {
+        summary.push_str(" — FAIL");
+    }
+    summary
+}
+
 /// Print a gated finding report (text or `--json`) and return its exit code
 /// WITHOUT exiting. `clean_msg` is the line printed when there are no findings.
 fn print_gated_report(
@@ -2647,6 +2792,47 @@ fn print_gated_report(
 ) -> i32 {
     use syscribe_model::validator::Severity;
     let exit_code = eval.exit_code;
+
+    if gate.summary {
+        use std::collections::BTreeMap;
+        let mut counts: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+        for f in findings {
+            let sev = match f.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Info => "info",
+            };
+            *counts.entry((f.code, sev)).or_insert(0) += 1;
+        }
+        if json {
+            let items: Vec<serde_json::Value> = counts
+                .iter()
+                .map(|((c, s), n)| serde_json::json!({ "code": c, "severity": s, "count": n }))
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&items).unwrap());
+        } else if counts.is_empty() {
+            println!("{clean_msg}");
+        } else {
+            println!("{}", gate_summary_line(eval, gate));
+            println!();
+            println!("| Code | Severity | Count |");
+            println!("|---|---|---|");
+            for ((c, s), n) in &counts {
+                println!("| {c} | {s} | {n} |");
+            }
+        }
+        if exit_code == 2 {
+            for line in gate_report_lines(&eval.denied, eval.over_max, eval.warnings.len(), gate) {
+                // Same streams as the full report: stderr alongside JSON, stdout in text.
+                if json {
+                    eprintln!("{}", line);
+                } else {
+                    println!("{}", line);
+                }
+            }
+        }
+        return exit_code;
+    }
 
     if json {
         let items: Vec<serde_json::Value> = findings.iter().map(|f| {
@@ -2675,39 +2861,9 @@ fn print_gated_report(
         return exit_code;
     }
 
-    // Leading pass/fail summary line (issue #116): always present in text
-    // mode, so "did this pass" is answerable from the first line instead of
-    // by the absence of an Errors section. Printed before the per-severity
-    // tables below, not after.
-    {
-        let mut summary = format!("{} errors, {} warnings", eval.errors.len(), eval.warnings.len());
-        let mut clauses: Vec<String> = Vec::new();
-        if !eval.denied_by_flags.is_empty() {
-            if gate.warnings_as_errors {
-                clauses.push("all warnings promoted to errors (--warnings-as-errors)".to_string());
-            } else {
-                clauses.push(format!(
-                    "{} gated by --deny {}",
-                    eval.denied_by_flags.len(),
-                    sorted_codes(&eval.denied_by_flags).join(", ")
-                ));
-            }
-        }
-        if !eval.denied_by_profile.is_empty() {
-            clauses.push(format!("{} gated by --profile", eval.denied_by_profile.len()));
-        }
-        if eval.over_max {
-            clauses.push(format!("exceeds --max-warnings {}", gate.max_warnings.unwrap_or(0)));
-        }
-        if !clauses.is_empty() {
-            summary.push_str(&format!(" ({})", clauses.join("; ")));
-        }
-        if !eval.errors.is_empty() || eval.gate_tripped() {
-            summary.push_str(" — FAIL");
-        }
-        println!("{}", summary);
-        println!();
-    }
+    // Leading pass/fail summary line (issue #116): always present in text mode.
+    println!("{}", gate_summary_line(eval, gate));
+    println!();
 
     let table = |label: &str, fs: &[&VFinding]| {
         if fs.is_empty() {
@@ -2835,6 +2991,16 @@ pub fn cmd_validate_all_configs(
     let mut rows: Vec<Row> = Vec::new();
     for cfg in &configs {
         let sel = cfg.frontmatter.feature_selections();
+        // Each variant is judged on its own evidence (GH #258, REQ-TRS-CFGRES-001).
+        let own;
+        let config = if config.results.as_ref().is_some_and(|r| !r.by_config.is_empty()) {
+            let mut c = config.clone();
+            c.results = c.results.as_ref().map(|r| r.for_config(&cfg_id(cfg)));
+            own = c;
+            &own
+        } else {
+            config
+        };
         let all = syscribe_model::projection::validate_projected(elements, config, &sel);
         let findings = filter_by_file(&all, file_filter);
         let eval = evaluate_gate(&findings, gate, profile, elements);
@@ -3130,6 +3296,7 @@ type: ADR
 id: ADR-PREFIX-001
 name: "Decision title"
 status: proposed
+# supersedes: ADR-PREFIX-000   # the ADR(s) this replaces; mark them status: superseded
 ---
 
 ## Context
@@ -3150,7 +3317,8 @@ id: PI-PREFIX-001
 name: "Short description of the work"
 status: todo               # todo | in_progress | blocked | done
 itemType: task              # bug | task | feature (optional)
-# A top-level item (no parent:) MUST set achieves: (E713/E714/E715).
+# A top-level item (no parent:) MUST set achieves: (E713/E714/E715): a Requirement, or a
+# SafetyGoal | CybersecurityGoal | ADR | Argument | TestPlan | Baseline.
 achieves:
   - REQ-PREFIX-001
 # A child item sets parent: instead of achieves: (single-parent tree, E712 cycle check).
@@ -4266,7 +4434,8 @@ measureType: functional_safety_assessment
 #   functional_safety_assessment | cybersecurity_assessment
 independenceLevel: I3    # I1 | I2 | I3
 confirms:
-  - SG-PREFIX-001        # the confirmed work product(s) (any model element ref)
+  - SG-PREFIX-001        # SafetyGoal | CybersecurityGoal | HazardousEvent | Requirement |
+                         # FaultTree | FMEASheet | TARASheet | ADR | Argument | TestPlan | Allocation
 ---
 
 Record the confirmation measure: who performs it, with what independence (I1–I3),
@@ -4327,17 +4496,116 @@ appliesTo:
 A safety-related application condition (SRAC): a constraint the integrator must
 honour for the referenced goal/argument/requirement to hold.
 "#,
+        "testenvironment" => r#"---
+type: TestEnvironment
+id: TE-PREFIX-001
+name: "[Cluster HIL rig]"
+status: planned        # planned | available | retired
+environmentKind: hil   # hil | bench | chamber | vehicle | simulation | other
+capabilities: [CAN-FD, display-camera]
+calibrationStatus: unknown   # valid | expired | unknown
+calibrationDue: 2027-01-01
+---
+
+The rig a test runs on. Name it from a `TestCase` or `TestPlan` with `runsOn:`; list what
+the test needs with `requiresCapabilities:` (`W891` when the rig lacks one).
+"#,
+        "safetymechanism" => r#"---
+type: SafetyMechanism
+id: SM-PREFIX-001
+name: "[Frame CRC monitor]"
+status: draft                 # draft | review | approved | retired
+covers:                       # FMEAEntry / FaultTreeEvent / Requirement / SafetyGoal / HazardousEvent
+  - FM-PREFIX-001
+diagnosticCoverage: 0.99      # 0..1
+latentDiagnosticCoverage: 0.9 # 0..1
+reactionTime: 20 ms           # compared with the covered goal's FTTI (W894)
+safeState: "[blank display]"
+allocatedTo:
+  - Architecture::PartA
+---
+
+A safety mechanism: what it detects or controls, with which coverage, and how fast it reacts.
+List mechanisms with `syscribe mechanisms`.
+"#,
+        "dependentfailureanalysis" => r#"---
+type: DependentFailureAnalysis
+id: DFA-PREFIX-001
+name: "Independence of [A] and [B]"
+status: draft          # draft | review | approved | retired
+analyses:              # the elements argued independent (at least two)
+  - Architecture::PartA
+  - Architecture::PartB
+sharedResources:
+  - resource: "[shared power rail / clock / memory / bus master]"
+    kind: power        # power | clock | memory | bus | software | other
+    initiators: ["[brown-out]"]
+    couplingFactor: 0.1   # 0..1
+    mitigation: "[how the coupling is controlled]"
+---
+
+Dependent failure analysis (ISO 26262-9 clause 7): why a common cause cannot take
+out all the analysed elements at once. An `approved` analysis silences `W034` for
+every pair of its `analyses`.
+"#,
         _ => return None,
     };
     Some(out)
 }
 
-pub fn cmd_template(type_name: &str) {
+/// `template_str` with the `Requirement` id prefix resolved against the model's
+/// `[ids.prefixes]` (REQ-TRS-TMPL-001, GH #246). `prefix` is an explicit choice and
+/// must be `REQ` or a configured prefix; `None` defaults to the first configured
+/// `Requirement` prefix, else the built-in `REQ`. Other types ignore both.
+pub fn template_for_model(
+    type_name: &str,
+    model_root: &std::path::Path,
+    prefix: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(base) = template_str(type_name) else { return Ok(None) };
+    if !type_name.eq_ignore_ascii_case("requirement") {
+        if prefix.is_some() {
+            return Err(format!("--prefix applies only to the Requirement template, not {type_name}"));
+        }
+        return Ok(Some(base.to_string()));
+    }
+    let configured = syscribe_model::config::load_id_prefixes(model_root)
+        .remove("Requirement")
+        .unwrap_or_default()
+        .into_iter()
+        // Malformed prefixes are ignored by the resolver (and flagged W046), so never offer one.
+        .filter(|p| syscribe_model::resolver::is_valid_id_prefix(p))
+        .collect::<Vec<_>>();
+    let chosen = match prefix {
+        Some(p) => {
+            if p != "REQ" && !configured.iter().any(|c| c == p) {
+                let mut valid = vec!["REQ".to_string()];
+                valid.extend(configured);
+                return Err(format!(
+                    "unknown Requirement id prefix '{p}' (prefixes are uppercase). Valid prefixes: {}",
+                    valid.join(", ")
+                ));
+            }
+            p.to_string()
+        }
+        None => configured.first().cloned().unwrap_or_else(|| "REQ".to_string()),
+    };
+    Ok(Some(base.replacen("id: REQ-PREFIX-001", &format!("id: {chosen}-PREFIX-001"), 1)))
+}
+
+pub fn cmd_template(type_name: &str, model_root: &std::path::Path, prefix: Option<&str>) {
     if type_name.eq_ignore_ascii_case("fmeaentry") {
         eprintln!("FMEAEntry elements are synthesised from FMEASheet entries — use `template FMEASheet` instead.");
         std::process::exit(1);
     }
-    match template_str(type_name) {
+    let found = match template_for_model(type_name, model_root, prefix) {
+        Ok(f) => f,
+        Err(msg) => {
+            eprintln!("{msg}");
+            std::process::exit(1);
+        }
+    };
+    match found {
         Some(out) => print!("{}", out),
         None => {
             eprintln!("Unknown type '{}'. Known types:", type_name);
@@ -4391,11 +4659,12 @@ const TEMPLATE_GROUPS: &[&str] = &[
 fn template_group(name: &str) -> &'static str {
     match name {
         "Requirement" | "TestCase" | "TestPlan" | "ADR" | "Baseline" | "PlanningItem"
-        | "ReviewRecord" | "TradeStudy" => "Native elements",
+        | "ReviewRecord" | "TradeStudy" | "TestEnvironment" => "Native elements",
         "Package" | "LibraryPackage" | "Namespace" | "Dependency" | "Diagram" => "Packages & views",
         "FeatureDef" | "FeatureModel" | "Configuration" => "PLE",
         "HazardousEvent" | "SafetyGoal" | "FaultTree" | "FaultTreeGate" | "FaultTreeEvent"
-        | "FMEASheet" | "FMEAEntry" | "ConfirmationMeasure" | "Argument" | "AssumptionOfUse" => "Safety",
+        | "FMEASheet" | "FMEAEntry" | "ConfirmationMeasure" | "Argument" | "AssumptionOfUse"
+        | "DependentFailureAnalysis" | "SafetyMechanism" => "Safety",
         "Asset" | "DamageScenario" | "ThreatScenario" | "CybersecurityGoal" | "SecurityControl"
         | "VulnerabilityReport" | "TARASheet" | "AttackTree" | "AttackTreeGate" | "AttackStep"
         | "Zone" | "Conduit" => "Security",

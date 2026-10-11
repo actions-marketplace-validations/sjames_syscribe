@@ -9,6 +9,11 @@ mod cliargs;
 mod clusters;
 mod coanalysis;
 mod coverage;
+mod covtree;
+mod runhist;
+mod reqif_import;
+mod compliance;
+mod mechanisms;
 mod cyberrisk;
 mod connectivity;
 mod diagram_export;
@@ -67,7 +72,6 @@ use syscribe_model::{
     config::ValidateConfig,
     element::{ElementType, RawElement},
     resolver::{is_adr_id, is_req_id, is_tc_id, Resolver},
-    results::ResultsData,
     validator,
     walker,
 };
@@ -236,7 +240,9 @@ fn parse_gate_options(args: &[String]) -> query::GateOptions {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--warnings-as-errors" {
+        if a == "--summary" {
+            gate.summary = true;
+        } else if a == "--warnings-as-errors" {
             gate.warnings_as_errors = true;
         } else if a == "--deny" {
             if let Some(val) = args.get(i + 1) {
@@ -491,6 +497,30 @@ fn first_positional<'a>(args: &'a [String], value_flags: &[&str]) -> Option<&'a 
     None
 }
 
+/// Remove `--results-as-of <run>` / `--results-as-of=<run>` from the command line; the run id (if any)
+/// is returned separately. A flag without a value exits 1.
+fn strip_results_as_of(args: Vec<String>) -> (Vec<String>, Option<String>) {
+    let mut out = Vec::with_capacity(args.len());
+    let mut run = None;
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        if a == "--results-as-of" {
+            match it.next() {
+                Some(v) if !v.starts_with('-') => run = Some(v),
+                _ => {
+                    eprintln!("--results-as-of needs a run id (a run retained with `ingest-results --run <id>`)");
+                    std::process::exit(1);
+                }
+            }
+        } else if let Some(v) = a.strip_prefix("--results-as-of=") {
+            run = Some(v.to_string());
+        } else {
+            out.push(a);
+        }
+    }
+    (out, run)
+}
+
 /// The first command-line token after any leading `-m <root>` / `--model <root>` /
 /// `--model=<root>` / `-m<root>` model flags — the command name position.
 fn first_command_token(args: &[String]) -> Option<&str> {
@@ -579,7 +609,9 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
-    let args: Vec<String> = std::env::args().collect();
+    // `--results-as-of <run>` is a global option like `-m` (GH #258): taken out before anything else
+    // looks at the command line, wherever it appears.
+    let (args, results_as_of) = strip_results_as_of(std::env::args().collect());
 
     // REQ-TRS-CLI-007: version reporting. `--version`, `-V`, or the `version`
     // subcommand print "syscribe <semver>" to stdout and exit 0, handled before any
@@ -735,6 +767,10 @@ fn main() {
     // `mcp` and `lsp` each own model loading (they build a long-lived, reloadable
     // store), so dispatch them before the eager `walk_model` below to avoid loading
     // the model twice.
+    if results_as_of.is_some() && matches!(subcommand_args.first().map(String::as_str), Some("mcp") | Some("lsp") | Some("ingest-results")) {
+        eprintln!("--results-as-of does not apply to `{}`.", subcommand_args[0]);
+        std::process::exit(1);
+    }
     if subcommand_args.first().map(String::as_str) == Some("mcp") {
         let read_only = subcommand_args.iter().any(|a| a == "--read-only");
         let watch = !subcommand_args.iter().any(|a| a == "--no-watch");
@@ -762,7 +798,28 @@ fn main() {
 
     // Validation config rooted at the model directory so on-disk references
     // (e.g. `sourceFile:`) resolve correctly per spec §11.12.
-    let vcfg = ValidateConfig::with_model_root(model_root);
+    let mut vcfg = ValidateConfig::with_model_root(model_root);
+    // `--results-as-of <run>` (GH #258): evaluate evidence against a retained run, not the latest sidecar.
+    if let Some(run) = &results_as_of {
+        if let Err(e) = runhist::set_as_of(model_root, run) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        vcfg.results = runhist::as_of().cloned();
+    }
+    // `--config C` on an evidence-reading command judges the evidence as C sees it (GH #258): the
+    // global results overlaid with C's own. `diff` names two configurations and `ingest-results`
+    // *writes* one, so neither takes the lens.
+    let results_failures = subcommand_args.first().map(String::as_str) == Some("results") && subcommand_args.get(1).map(String::as_str) == Some("failures");
+    if results_failures || matches!(
+        subcommand_args.first().map(String::as_str),
+        Some("validate" | "audit" | "trace" | "why" | "who-verifies" | "safety-case" | "coverage" | "matrix" | "testplan" | "verification-depth" | "stats" | "digest" | "trace-export" | "hara")
+    ) {
+        if let Some(key) = subcommand_args.windows(2).find(|w| w[0] == "--config").and_then(|w| runhist::config_key(&elems, &w[1])) {
+            runhist::set_lens_config(&key);
+            vcfg.results = vcfg.results.take().map(runhist::lensed);
+        }
+    }
 
     // ── Subcommand dispatch ───────────────────────────────────────────────────
     // `report` (and a bare invocation with no subcommand) fall through to the default
@@ -1079,6 +1136,31 @@ fn main() {
                     std::process::exit(code);
                 }
             }
+            "coverage" => {
+                // Coverage roll-up through the derivation tree (GH #252). Read-only. Exit 0 · 1 usage/unresolved.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                if rest.first().map(|s| s.as_str()) != Some("tree") {
+                    eprintln!("Usage: syscribe --model <root> coverage tree <req> [--plan <TP>] [--config <id>] [--json]");
+                    std::process::exit(1);
+                }
+                let rest = &rest[1..];
+                let json = rest.iter().any(|a| a == "--json");
+                let Some(root) = first_positional(rest, &["--plan", "--config"]) else {
+                    eprintln!("Usage: syscribe --model <root> coverage tree <req> [--plan <TP>] [--config <id>] [--json]");
+                    std::process::exit(1);
+                };
+                // --plan / --config lenses (REQ-TRS-COVPLAN-001), composed as for `matrix`.
+                let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let lens = [plan.map(|p| format!("plan {p}")), config.map(|c| format!("configuration {c}"))].into_iter().flatten().collect::<Vec<_>>().join(", ");
+                let view = if plan.is_some() || config.is_some() { lensed_elements(&elems, plan, config) } else { elems.clone() };
+                let result = syscribe_model::validator::validate_with_config(&view, &vcfg);
+                let results = runhist::load_results(model_root);
+                let code = covtree::cmd_coverage_tree(&view, &result, results.as_ref(), &syscribe_model::config::CoveragePolicy::load(model_root), root, &lens, json);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
             "digest" => {
                 // Token-budgeted, one-line-per-requirement bulk view (REQ-TRS-OUT-022).
                 // Reuses the stats scoping + coverage 'verified' notion. Exit 0 · 1 usage.
@@ -1159,17 +1241,73 @@ fn main() {
                 let mut file: Option<&str> = None;
                 let mut i = 0;
                 while i < rest.len() {
-                    if rest[i] == "--format" { i += 2; continue; }
+                    if rest[i] == "--format" || rest[i] == "--run" || rest[i] == "--config" { i += 2; continue; }
                     if rest[i].starts_with("--") { i += 1; continue; }
                     file = Some(rest[i].as_str());
                     break;
                 }
-                match file {
-                    Some(f) => ingest::cmd_ingest_results(model_root, format, f),
-                    None => {
-                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit] <file>");
+                if let Some(r) = rest.windows(2).find(|w| w[0] == "--run").map(|w| w[1].as_str()) {
+                    if r.is_empty() || r.starts_with('-') {
+                        eprintln!("ingest-results: --run needs a run id that is not empty and does not start with '-' (got '{r}')");
                         std::process::exit(1);
                     }
+                }
+                match file {
+                    Some(f) => ingest::cmd_ingest_results(model_root, format, f, rest.windows(2).find(|w| w[0] == "--run").map(|w| w[1].as_str()), rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str()), &elems),
+                    None => {
+                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit|session-log] [--run <run-id>] [--config <CONF-id>] <file>");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "mechanisms" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = mechanisms::cmd_mechanisms(&elems, rest.iter().any(|a| a == "--json"), rest.iter().any(|a| a == "--uncovered"));
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "compliance" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let val = |k: &str| rest.windows(2).find(|w| w[0] == k).map(|w| w[1].as_str());
+                let view = projected_elements(&elems, val("--config"));
+                let code = compliance::cmd_compliance(
+                    model_root,
+                    &view,
+                    val("--standard"),
+                    rest.iter().any(|a| a == "--json"),
+                    rest.iter().any(|a| a == "--fail-on-missing"),
+                );
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "import-reqif" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let val = |k: &str| rest.windows(2).find(|w| w[0] == k).map(|w| w[1].as_str());
+                let Some(file) = first_positional(rest, &["--into", "--id-prefix", "--class", "--domain"]) else {
+                    eprintln!("Usage: syscribe --model <root> import-reqif <file.reqif> [--into <package>] [--id-prefix <PFX>] [--class <reqClass>] [--domain <reqDomain>] [--update] [--dry-run]");
+                    std::process::exit(1);
+                };
+                let opts = reqif_import::ImportOptions {
+                    file,
+                    into: val("--into").unwrap_or("Requirements"),
+                    id_prefix: val("--id-prefix").unwrap_or("REQ-IMP"),
+                    req_class: val("--class").unwrap_or("stakeholder"),
+                    req_domain: val("--domain").unwrap_or("system"),
+                    update: rest.iter().any(|a| a == "--update"),
+                    dry_run: rest.iter().any(|a| a == "--dry-run"),
+                };
+                let code = reqif_import::cmd_import_reqif(model_root, &elems, &opts);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "results" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = runhist::cmd_results(model_root, rest);
+                if code != 0 {
+                    std::process::exit(code);
                 }
             }
             "export" => {
@@ -1321,12 +1459,19 @@ fn main() {
                         });
                     }
                 }
-                if rest.iter().any(|a| a == "--features") {
+                if rest.iter().any(|a| a == "--rollup") {
+                    let result = syscribe_model::validator::validate_with_config(&view, &vcfg);
+                    let results = runhist::load_results(model_root);
+                    let code = covtree::cmd_rollup(&view, &result, results.as_ref(), &syscribe_model::config::CoveragePolicy::load(model_root), tag, status, json);
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                } else if rest.iter().any(|a| a == "--features") {
                     matrix::cmd_matrix_features(&view, json);
                 } else {
                     // Surface executed-evidence by default when a sidecar exists
                     // (issue #21); absent results, behaves exactly as before.
-                    let results = ResultsData::load_sidecar(model_root);
+                    let results = runhist::load_results(model_root);
                     matrix::cmd_matrix(
                         &view,
                         json,
@@ -1453,7 +1598,7 @@ fn main() {
                     goal = rest[gi].as_str();
                     break;
                 }
-                let results = ResultsData::load_sidecar(model_root);
+                let results = runhist::load_results(model_root);
                 let sidecar_loaded = results.is_some();
                 let view = projected_elements(&elems, config);
                 let view_resolver = Resolver::new(&view);
@@ -1466,7 +1611,7 @@ fn main() {
                 // Read-only TestPlan surface (GH #38 / REQ-TRS-PLAN-005).
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                let results = ResultsData::load_sidecar(model_root);
+                let results = runhist::load_results(model_root);
                 // First non-flag positional = optional TP-id.
                 let tp = rest.iter().find(|a| !a.starts_with("--")).map(|s| s.as_str());
                 match tp {
@@ -1815,11 +1960,28 @@ fn main() {
                 query::cmd_next_id(&elems, key);
             }
             "template" => {
-                if key.is_empty() {
-                    eprintln!("Usage: syscribe --model <root> template <type>");
+                // The type is the first argument that is neither `--prefix` nor its value,
+                // so `template --prefix SYS Requirement` works too.
+                let mut ty = "";
+                let mut it = subcommand_args.iter().skip(1);
+                while let Some(a) = it.next() {
+                    if a == "--prefix" {
+                        it.next();
+                    } else if !a.starts_with("--") {
+                        ty = a.as_str();
+                        break;
+                    }
+                }
+                if ty.is_empty() {
+                    eprintln!("Usage: syscribe --model <root> template <type> [--prefix <id-prefix>]");
                     std::process::exit(1);
                 }
-                query::cmd_template(key);
+                let prefix = subcommand_args
+                    .iter()
+                    .position(|a| a == "--prefix")
+                    .and_then(|i| subcommand_args.get(i + 1))
+                    .map(|s| s.as_str());
+                query::cmd_template(ty, model_root, prefix);
             }
             "move" => {
                 let dest = subcommand_args.get(2).map(|s| s.as_str()).unwrap_or("");
@@ -1841,7 +2003,7 @@ fn main() {
             "set" => {
                 let rest = subcommand_args.get(2..).unwrap_or(&[]);
                 if key.is_empty() || rest.is_empty() {
-                    eprintln!("Usage: syscribe --model <root> set <qname|id> status=<value> | evidence.add ref=<id>|path=<path> | achieves.add <req-id>  [--dry-run]");
+                    eprintln!("Usage: syscribe --model <root> set <qname|id> status=<value> | evidence.add ref=<id>|path=<path> | achieves.add <ref> | <scalar>=<value> | <list>.add <value>  [--dry-run]");
                     std::process::exit(1);
                 }
                 let dry_run = rest.iter().any(|a| a == "--dry-run");
@@ -1899,7 +2061,7 @@ fn main() {
                         let linked_only = rest.iter().any(|a| a == "--linked-only");
                         // Annotate verifying TestCases with ingested verdicts when a
                         // sidecar exists (issue #21).
-                        let results = ResultsData::load_sidecar(model_root);
+                        let results = runhist::load_results(model_root);
                         query::cmd_trace(
                             &elems,
                             &resolver,
@@ -1927,7 +2089,7 @@ fn main() {
                 let view_resolver = Resolver::new(&view);
                 let result = validator::validate_with_config(&view, &vcfg);
                 let ok = vdepth::cmd_verification_depth(
-                    &view, &view_resolver, &result, sil, status, min_levels, json,
+                    &view, &view_resolver, &result, sil, status, min_levels, json, vcfg.results.as_ref(),
                 );
                 if !ok {
                     std::process::exit(2);
@@ -1967,7 +2129,7 @@ fn main() {
                 let rest = subcommand_args.get(2..).unwrap_or(&[]);
                 let code = if sub == "trace" {
                     // GH #223: the hazard-to-test graph with the ingested test verdicts.
-                    let results = ResultsData::load_sidecar(model_root);
+                    let results = runhist::load_results(model_root);
                     let cyber = syscribe_model::cyber_config::CyberConfig::load(model_root);
                     analysis_cmd::cmd_hara_trace(&elems, &cyber, results.as_ref(), rest)
                 } else {

@@ -150,6 +150,7 @@ pub fn verdict_from_findings(
     elements: &[RawElement],
     config: &ValidateConfig,
     profile: Option<&Profile>,
+    failing_goals: &[String],
 ) -> (bool, Vec<String>) {
     let errors = findings.iter().filter(|f| f.severity == Severity::Error).count();
     let candidates: Vec<&validator::Finding> =
@@ -161,6 +162,13 @@ pub fn verdict_from_findings(
     let mut reasons: Vec<String> = Vec::new();
     if errors > 0 {
         reasons.push(format!("{errors} error-severity finding(s)"));
+    }
+    if !failing_goals.is_empty() {
+        reasons.push(format!(
+            "{} safety goal(s) FAILING on ingested test results ({})",
+            failing_goals.len(),
+            failing_goals.join(", ")
+        ));
     }
     let audit = &config.audit;
     for code in &audit.fail_on {
@@ -211,7 +219,116 @@ pub fn audit_verdict(
     plan_scope: Option<&std::collections::HashSet<String>>,
 ) -> (bool, Vec<String>) {
     let findings = audit_findings(elements, config, sel, plan_scope);
-    verdict_from_findings(&findings, elements, config, profile)
+    let projected: Option<Vec<RawElement>> = sel.map(|s| syscribe_model::projection::project_raw(elements, s));
+    let view: &[RawElement] = projected.as_deref().unwrap_or(elements);
+    let resolver = Resolver::new(view);
+    let failing = failing_goals(view, &resolver, config, plan_scope.is_some());
+    verdict_from_findings(&findings, elements, config, profile, &failing)
+}
+
+/// The safety case over the **reporting** view, so a `coverage = true` link type counts
+/// the same here as in every dashboard section. `coverage_view` keeps the element order,
+/// so `resolver` (built on `view`) stays valid. Shared by the verdict and the section so
+/// they cannot disagree.
+fn goal_verdicts(
+    view: &[RawElement],
+    resolver: &Resolver,
+    config: &ValidateConfig,
+    results: &syscribe_model::results::ResultsData,
+) -> syscribe_model::safety_case::SafetyCase {
+    let cov = syscribe_model::link_types::coverage_view(view, &config.link_types);
+    syscribe_model::safety_case::build(
+        &cov,
+        resolver,
+        "",
+        syscribe_model::safety_case::BuildOptions::default(),
+        &|tc| syscribe_model::results::testcase_verdict(tc, Some(results)),
+    )
+}
+
+/// Safety goals whose argument is `failing` on the ingested results (GH #256). Empty
+/// when no results are loaded.
+fn failing_goals(view: &[RawElement], resolver: &Resolver, config: &ValidateConfig, plan_scoped: bool) -> Vec<String> {
+    let Some(results) = config.results.as_ref() else { return Vec::new() };
+    if plan_scoped {
+        return Vec::new(); // goals are model-level; see `goal_verdicts`
+    }
+    let sc = goal_verdicts(view, resolver, config, results);
+    let mut out: Vec<String> = sc
+        .goals
+        .iter()
+        .filter(|g| g.verdict == syscribe_model::safety_case::GoalVerdict::Failing)
+        .map(|g| g.root.id.clone())
+        .collect();
+    out.sort();
+    out
+}
+
+/// Section "Verification results" (GH #256): active TestCases by verdict, SafetyGoals by
+/// safety-case verdict, TestPlans by verdict. `None` when no results are loaded.
+fn verification_section(
+    view: &[RawElement],
+    resolver: &Resolver,
+    config: &ValidateConfig,
+    in_scope: &dyn Fn(&RawElement) -> bool,
+    plan_scoped: bool,
+) -> Option<serde_json::Value> {
+    let results = config.results.as_ref()?;
+    let (mut pass, mut fail, mut unknown) = (0u32, 0u32, 0u32);
+    for tc in view.iter().filter(|e| is_type(e, ElementType::TestCase) && in_scope(e)) {
+        if tc.frontmatter.status.as_deref() != Some("active") {
+            continue;
+        }
+        match crate::query::tc_verdict(tc, Some(results)) {
+            crate::query::TcVerdict::Pass => pass += 1,
+            crate::query::TcVerdict::Fail => fail += 1,
+            crate::query::TcVerdict::Unknown => unknown += 1,
+        }
+    }
+    // Goals and plans are model-level: under `--plan` they are left out (null) rather than
+    // reported as misleading zeros, and no goal verdict is applied to the plan's verdict.
+    let (goals, plans) = if plan_scoped {
+        (serde_json::Value::Null, serde_json::Value::Null)
+    } else {
+        let sc = goal_verdicts(view, resolver, config, results);
+        let mut goals: BTreeMap<&str, u32> = BTreeMap::from([("supported", 0), ("incomplete", 0), ("failing", 0)]);
+        for g in &sc.goals {
+            *goals.entry(g.verdict.as_str()).or_insert(0) += 1;
+        }
+        let mut plans: BTreeMap<&str, u32> =
+            BTreeMap::from([("pass", 0), ("fail", 0), ("incomplete", 0), ("empty", 0)]);
+        for p in view.iter().filter(|e| is_type(e, ElementType::TestPlan)) {
+            *plans.entry(crate::testplan::plan_verdict(p, view, resolver, Some(results))).or_insert(0) += 1;
+        }
+        (json!(goals), json!(plans))
+    };
+    Some(json!({
+        "tests": { "pass": pass, "fail": fail, "unknown": unknown },
+        "goals": goals,
+        "plans": plans,
+    }))
+}
+
+fn print_verification(v: &serde_json::Value) {
+    println!("## Verification results");
+    println!();
+    let t = &v["tests"];
+    println!("- Active tests: {} pass, {} fail, {} unknown", t["pass"], t["fail"], t["unknown"]);
+    let g = &v["goals"];
+    if g.is_null() {
+        println!("- Safety goals and test plans: model-level, not evaluated under --plan");
+    } else {
+        println!(
+            "- Safety goals: {} supported, {} incomplete, {} FAILING",
+            g["supported"], g["incomplete"], g["failing"]
+        );
+        let p = &v["plans"];
+        println!(
+            "- Test plans: {} pass, {} fail, {} incomplete, {} empty",
+            p["pass"], p["fail"], p["incomplete"], p["empty"]
+        );
+    }
+    println!();
 }
 
 /// `audit --all-configs`: audit each stored `Configuration`'s projected variant;
@@ -241,7 +358,17 @@ pub fn cmd_audit_all_configs(
             SelectionOutcome::Resolved(s) => Some(s),
             _ => None,
         };
-        let (pass, reasons) = audit_verdict(elements, config, profile, sel.as_ref(), None);
+        // Each variant is judged on its own evidence (GH #258, REQ-TRS-CFGRES-001).
+        let own;
+        let cfg_config = if config.results.as_ref().is_some_and(|r| !r.by_config.is_empty()) {
+            let mut c = config.clone();
+            c.results = c.results.as_ref().map(|r| r.for_config(&cid));
+            own = c;
+            &own
+        } else {
+            config
+        };
+        let (pass, reasons) = audit_verdict(elements, cfg_config, profile, sel.as_ref(), None);
         rows.push((cid, pass, reasons));
     }
     let any_fail = rows.iter().any(|(_, pass, _)| !pass);
@@ -290,7 +417,7 @@ pub fn cmd_audit(
     // set of file paths in the plan's scope: references resolve against the full
     // model (so nothing escapes), while the section rows and the verdict count only
     // in-scope elements.
-    let projected: Option<Vec<RawElement>> = sel.map(|s| syscribe_model::projection::project(elements, s));
+    let projected: Option<Vec<RawElement>> = sel.map(|s| syscribe_model::projection::project_raw(elements, s));
     let view: &[RawElement] = projected.as_deref().unwrap_or(elements);
     let resolver = Resolver::new(view);
     let full_resolver = Resolver::new(elements);
@@ -300,7 +427,8 @@ pub fn cmd_audit(
 
     // ---- Readiness verdict (shared policy, projection-aware) --------------
     let findings = audit_findings(elements, config, sel, plan_scope);
-    let (pass, reasons) = verdict_from_findings(&findings, elements, config, profile);
+    let failing = failing_goals(view, &resolver, config, plan_scope.is_some());
+    let (pass, reasons) = verdict_from_findings(&findings, elements, config, profile, &failing);
 
     // REQ-TRS-LINKTYPE-006 — every dashboard section below reads the *reporting*
     // view: a `coverage = true` user-defined link extending satisfies/verifies/
@@ -353,6 +481,53 @@ pub fn cmd_audit(
         None => Coverage::rollup(view, config.results.as_ref(), false),
     };
 
+    // ---- Section 3b: coverage by requirement class (GH #252) ---------------
+    // The derivation-tree roll-up of `matrix --rollup`, per reqClass. One extra validation pass over
+    // the same (scoped) view supplies the derivation and verification indices.
+    let class_cov: Result<std::collections::BTreeMap<String, std::collections::BTreeMap<&'static str, usize>>, String> = {
+        let scoped: Vec<RawElement>;
+        let cov_view: &[RawElement] = match plan_scope {
+            Some(_) => {
+                scoped = view.iter().filter(|e| in_scope(e)).cloned().collect();
+                &scoped
+            }
+            None => view,
+        };
+        // Under `--config` keep only the selected Configuration among the Configuration elements, as
+        // `matrix` does, so the roll-up is evaluated for that variant and not ANDed over all of them.
+        let one_config: Vec<RawElement>;
+        let cov_view: &[RawElement] = match sel {
+            Some(s) => {
+                let wanted = syscribe_model::variability::canon_selection(s, &syscribe_model::variability::feature_id_to_qname(elements));
+                let is_cfg = |e: &RawElement| e.frontmatter.element_type == Some(syscribe_model::element::ElementType::Configuration);
+                let matches_sel = |e: &RawElement| syscribe_model::projection::canonical_selection(elements, e) == wanted;
+                if cov_view.iter().any(|e| is_cfg(e) && matches_sel(e)) {
+                    one_config = cov_view.iter().filter(|e| !is_cfg(e) || matches_sel(e)).cloned().collect();
+                    &one_config
+                } else {
+                    cov_view
+                }
+            }
+            None => cov_view,
+        };
+        let res = validator::validate_with_config(cov_view, config);
+        crate::covtree::class_summary(cov_view, &res, config.results.as_ref(), &config.coverage)
+    };
+    let class_cov_json = match &class_cov {
+        Ok(m) => {
+            let mut o = serde_json::Map::new();
+            for (class, v) in m {
+                let g = |k: &str| v.get(k).copied().unwrap_or(0);
+                let applicable = g("complete") + g("partial") + g("none");
+                let pct = Coverage::percent(g("complete") as u32, applicable as u32).map_or(serde_json::Value::Null, |p| json!(p));
+                o.insert(class.clone(), json!({"complete": g("complete"), "partial": g("partial"), "none": g("none"), "na": g("na"), "percentComplete": pct}));
+            }
+            serde_json::Value::Object(o)
+        }
+        Err(_) => serde_json::Value::Null,
+    };
+    let class_cov_error = class_cov.as_ref().err().cloned();
+
     // ---- Section 4: orphans ----------------------------------------------
     // Satisfaction map: any element's satisfies: target (by qname or id).
     let mut satisfied: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -397,7 +572,7 @@ pub fn cmd_audit(
             if !verified(r) {
                 unverified.push(disp_id(r));
             }
-            if !is_satisfied(r) {
+            if !is_satisfied(r) && !r.frontmatter.is_non_allocatable_requirement() {
                 unsatisfied.push(disp_id(r));
             }
         }
@@ -428,6 +603,7 @@ pub fn cmd_audit(
     // ---- Sections 5/6: safety & security (GH #216) -------------------------
     let safety = safety_section(view, &resolver, &findings, &in_scope);
     let security = security_section(view, &findings, &in_scope);
+    let verification = verification_section(view, &resolver, config, &in_scope, plan_scope.is_some());
 
     // ---- Section 7: verdict (computed above via verdict_from_findings) -----
     let exit_code = if pass { 0 } else { 2 };
@@ -449,6 +625,8 @@ pub fn cmd_audit(
                 "qmOrNone": qm_none,
             },
             "coverage": coverage.json(),
+            "coverageByClass": class_cov_json,
+            "coverageByClassError": class_cov_error,
             "orphans": {
                 "unverifiedRequirements": orphan_json(&unverified),
                 "unsatisfiedRequirements": orphan_json(&unsatisfied),
@@ -457,6 +635,7 @@ pub fn cmd_audit(
             },
             "safety": safety,
             "security": security,
+            "verification": verification,
             "verdict": { "pass": pass, "reasons": reasons },
         });
         println!("{}", serde_json::to_string_pretty(&doc).unwrap());
@@ -524,6 +703,24 @@ pub fn cmd_audit(
     }
     println!();
 
+    // 3b. Coverage by requirement class
+    println!("## Coverage by Requirement Class");
+    println!();
+    match &class_cov {
+        Err(e) => println!("[coverage] policy problem: {e}"),
+        Ok(m) if m.is_empty() => println!("No requirements."),
+        Ok(m) => {
+            println!("complete / partial / none (derivation-tree roll-up; parents are judged by their leaves and the [coverage] rule,");
+            println!("so these figures can differ from the per-configuration grid above):");
+            for (class, v) in m {
+                let g = |k: &str| v.get(k).copied().unwrap_or(0);
+                let applicable = g("complete") + g("partial") + g("none");
+                println!("  {class}: {} complete, {} partial, {} none, {} n/a ({})", g("complete"), g("partial"), g("none"), g("na"), fmt_pct(Coverage::percent(g("complete") as u32, applicable as u32)));
+            }
+        }
+    }
+    println!();
+
     // 4. Orphans
     println!("## Orphans");
     println!();
@@ -536,6 +733,9 @@ pub fn cmd_audit(
     // 5./6. Safety and security
     print_safety(&safety);
     print_security(&security);
+    if let Some(v) = &verification {
+        print_verification(v);
+    }
 
     // 7. Verdict
     println!("## Readiness Verdict");

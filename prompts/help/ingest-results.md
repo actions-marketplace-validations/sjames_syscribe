@@ -1,7 +1,11 @@
 # ingest-results — ingest external test results (enables W010)
 
 ## SYNOPSIS
-    syscribe -m <root> ingest-results [--format cargo-json|junit|session-log] <file>
+    syscribe -m <root> ingest-results [--format cargo-json|junit|session-log] [--run <run-id>] [--config <CONF-id>] <file>
+
+`--run <id>` additionally retains the ingest under a run identity for `results diff` (see `results`).
+
+`--config <CONF-id>` records the ingest as the evidence of one Configuration only (see DESCRIPTION).
 
 ## DESCRIPTION
 Parses an external test report and writes the verdict sidecar at
@@ -10,10 +14,27 @@ Parses an external test report and writes the verdict sidecar at
 emits W010 for an `active` TestCase whose `testFunctions:` last failed, were
 skipped, or were missing from the run.
 
+`--config <CONF-id>` must resolve to a `Configuration` (else exit 1 and nothing is written).
+The results are kept under that configuration only — the global verdicts are untouched — so
+a test that fails only on one variant is no longer one global `fail`. A configuration is judged
+on its *effective* results: the global ones overlaid with its own (its own verdict wins,
+otherwise the global one applies; no configuration inherits another's). Each `matrix` column
+uses its own, and under `--config CONF-X` `validate`, `audit`, `trace`, `safety-case`,
+`coverage tree`, `matrix --rollup` and the other evidence readers do too. With `--run`, the run
+keeps the configuration sections; `results diff` names a changed test `<test> @ <config>`.
+A syscribe older than this feature ignores the configuration sections and drops them when it
+rewrites the sidecar (`ingest-results`), so keep tool versions consistent.
+
 Two source shapes, feeding two different verdict axes:
 
 - **`cargo-json`/`junit`** — automated test output, reduced to a per-**function**
-  verdict (matched against a TestCase's `testFunctions[].function`).
+  verdict (matched against a TestCase's `testFunctions[].function`). JUnit results
+  are also keyed by `classname::name`, so a reference like `com.A#test_x` (or
+  `com.A.test_x`, or `com.A::test_x`) is exact
+  and a bare `test_x` takes the worst of any same-named tests; a testcase with a
+  `flakyFailure`/`rerunFailure` child and no failure is `flaky` (not a pass; `W010`, and
+  `W615` for an approved plan). A sidecar that contains `flaky` cannot be read by an
+  older syscribe (it ignores the whole sidecar), so keep tool versions consistent.
 - **`session-log`** — a JSON array of manual/exploratory verification records,
   one per Gherkin scenario actually exercised against a live system (a curl
   session, an MQTT probe client, a CLI walkthrough — anything session-based
@@ -48,6 +69,12 @@ Two source shapes, feeding two different verdict axes:
   any recorded `fail` makes the whole TestCase `[fail]`; partial or absent
   coverage leaves it unannotated (unknown) — the same "all-or-fail" rule
   `testFunctions:` verdicts already follow.
+
+After a function-level ingest, a line `Expected functions: N; not run: M missing,
+K skipped` (with the first names) summarises the `testFunctions` of native `active`
+TestCases that the report lacks (missing) or reports as skipped. For JUnit, the
+`message` attribute of a failure/error/skipped/flakyFailure child and the testcase
+`time` are kept for every non-passing case (see `results failures`).
 
 ## MERGE SEMANTICS
 The sidecar holds two independent sections, and each ingest **merges** into the

@@ -210,6 +210,16 @@ hand-listed `Diagrams::MissionExecutionSeq`).
 `UseCase` and `Custom` have no generator; a derived diagram of such a kind is drawn empty, so
 keep using a manifest for them.
 
+### Composition across packages: `depth:`
+
+A derived BDD pulls in the blocks that its blocks compose, even from other packages, as
+*external* blocks (marked `external`). `depth: N` sets how many composition levels are followed
+beyond the subject's own blocks (default `1`; `0` = only the subject's members). A member that
+`include:`/`exclude:` left out is never pulled in by composition. On a package subject, `include:`
+also accepts a name qualified relative to the subject (`Hardware::Box`), a full qualified name or
+a stable id (never a bare display name of a definition elsewhere). The Mermaid and PlantUML
+exports tag such blocks `<<external>>`.
+
 ### Narrowing the view: `include:` / `exclude:`
 
 ```yaml

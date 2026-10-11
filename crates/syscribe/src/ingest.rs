@@ -62,7 +62,7 @@ pub fn parse_file(format: &str, file: &str) -> Option<ResultsData> {
 /// `model_root` (REQ-TRS-INGEST-001). The format's own section (`by_leaf` for
 /// cargo-json/junit, `by_scenario` for session-log) is replaced; the other is
 /// kept. A malformed input exits before anything is written.
-pub fn cmd_ingest_results(model_root: &Path, format: Option<&str>, file: &str) {
+pub fn cmd_ingest_results(model_root: &Path, format: Option<&str>, file: &str, run: Option<&str>, config: Option<&str>, elems: &[syscribe_model::element::RawElement]) {
     let fmt = match pick_format(format, file) {
         Some(f) => f,
         None => std::process::exit(1),
@@ -71,17 +71,70 @@ pub fn cmd_ingest_results(model_root: &Path, format: Option<&str>, file: &str) {
         Some(d) => d,
         None => std::process::exit(1),
     };
-    match data.merge_into_sidecar(model_root) {
+    // `--config` names a Configuration (id or qualified name); it is stored by id (REQ-TRS-CFGRES-001).
+    let config_key: Option<String> = match config {
+        None => None,
+        Some(c) => match elems.iter().find(|e| {
+            matches!(e.frontmatter.element_type, Some(syscribe_model::element::ElementType::Configuration))
+                && (e.frontmatter.id.as_deref() == Some(c) || e.qualified_name == c)
+        }) {
+            Some(e) => Some(e.frontmatter.id.clone().unwrap_or_else(|| e.qualified_name.clone())),
+            None => {
+                eprintln!("ingest-results: --config '{c}' is not a Configuration of this model; nothing was written.");
+                std::process::exit(1);
+            }
+        },
+    };
+    // Load the history first so a corrupt one aborts before anything is written.
+    let mut history = None;
+    if let Some(r) = run {
+        match syscribe_model::results::RunHistory::load(model_root) {
+            Ok(mut h) => {
+                h.record_for(r, &data, config_key.as_deref());
+                history = Some(h);
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
+    let merged = match &config_key {
+        Some(c) => data.merge_config_into_sidecar(model_root, c),
+        None => data.merge_into_sidecar(model_root),
+    };
+    match merged {
         Ok((path, _merged)) => {
+            if let (Some(h), Some(r)) = (&history, run) {
+                match h.save(model_root) {
+                    Ok(p) => println!("Recorded run '{r}' in {}", p.display()),
+                    Err(e) => {
+                        eprintln!("Cannot write run history: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
             use syscribe_model::results::Verdict;
-            let verdicts = data.by_leaf.values().chain(data.by_scenario.values());
+            // Class-qualified keys (`classname::name`, GH #259) duplicate their leaf entry;
+            // count each test once. A leaf never contains `:`.
+            let verdicts = data
+                .by_leaf
+                .iter()
+                .filter(|(k, _)| !k.contains("::"))
+                .map(|(_, v)| v)
+                .chain(data.by_scenario.values());
             let pass = verdicts.clone().filter(|v| matches!(v, Verdict::Pass)).count();
             let fail = verdicts.clone().filter(|v| matches!(v, Verdict::Fail)).count();
+            let flaky = verdicts.clone().filter(|v| matches!(v, Verdict::Flaky)).count();
             let ign = verdicts.filter(|v| matches!(v, Verdict::Ignored)).count();
+            let flaky_note = if flaky > 0 { format!(", {flaky} flaky") } else { String::new() };
             println!(
-                "Ingested {} test result(s) from {} ({}): {} pass, {} fail, {} ignored.",
-                data.count, file, fmt, pass, fail, ign
+                "Ingested {} test result(s) from {} ({}): {} pass, {} fail{}, {} ignored.",
+                data.count, file, fmt, pass, fail, flaky_note, ign
             );
+            if fmt != "session-log" {
+                print_expected_summary(elems, &data);
+            }
             // Worded without a parenthesised format so the only `(<format>)`
             // in the output stays the "Ingested … (<format>)" line above.
             let (own, other) = if fmt == "session-log" {
@@ -89,12 +142,20 @@ pub fn cmd_ingest_results(model_root: &Path, format: Option<&str>, file: &str) {
             } else {
                 ("function-level", "session-log scenario")
             };
-            println!(
-                "Merged into sidecar: {} (replaced the {} verdicts; kept any {} verdicts)",
-                path.display(),
-                own,
-                other
-            );
+            match &config_key {
+                Some(c) => println!(
+                    "Merged into sidecar: {} (configuration {c}: replaced its {} verdicts; kept its {} verdicts, the global ones and other configurations)",
+                    path.display(),
+                    own,
+                    other
+                ),
+                None => println!(
+                    "Merged into sidecar: {} (replaced the {} verdicts; kept any {} verdicts)",
+                    path.display(),
+                    own,
+                    other
+                ),
+            }
             if fmt == "session-log" {
                 println!("Re-run `trace`/`matrix`/`audit` to see scenarios annotated with their session-log verdict.");
             } else {
@@ -104,6 +165,43 @@ pub fn cmd_ingest_results(model_root: &Path, format: Option<&str>, file: &str) {
         Err(e) => {
             eprintln!("Cannot write results sidecar: {}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+/// One line on the `testFunctions` of native `active` TestCases that the run did not execute:
+/// missing (not in the report) vs skipped (reported as ignored). Silent when there are none.
+fn print_expected_summary(elems: &[syscribe_model::element::RawElement], data: &syscribe_model::results::ResultsData) {
+    use syscribe_model::element::ElementType;
+    use syscribe_model::results::FnVerdict;
+    let mut funcs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for e in elems {
+        if e.frontmatter.element_type != Some(ElementType::TestCase) || e.frontmatter.status.as_deref() != Some("active") {
+            continue;
+        }
+        for f in e.frontmatter.test_functions.iter().flatten() {
+            if let Some(name) = f.get("function").and_then(|x| x.as_str()) {
+                funcs.insert(name.to_string());
+            }
+        }
+    }
+    if funcs.is_empty() {
+        return;
+    }
+    let (mut missing, mut skipped) = (Vec::new(), Vec::new());
+    for f in &funcs {
+        match data.verdict_for(f) {
+            FnVerdict::Missing => missing.push(f.as_str()),
+            FnVerdict::Ignored => skipped.push(f.as_str()),
+            _ => {}
+        }
+    }
+    println!("Expected functions: {}; not run: {} missing, {} skipped", funcs.len(), missing.len(), skipped.len());
+    for (label, list) in [("missing", &missing), ("skipped", &skipped)] {
+        if !list.is_empty() {
+            let shown: Vec<&str> = list.iter().take(10).copied().collect();
+            let more = if list.len() > 10 { format!(" … +{}", list.len() - 10) } else { String::new() };
+            println!("  {label}: {}{more}", shown.join(", "));
         }
     }
 }

@@ -3,6 +3,20 @@ use serde::{Deserialize, Serialize};
 /// Serde helper: accept either a plain YAML string or a sequence of strings.
 /// Allows `allocatedFrom: SC-001` and `allocatedFrom: [SC-001, SC-002]` both to
 /// deserialize into `Option<Vec<String>>`.
+/// Serialises a one-element list as a bare string, so a field authored as a single
+/// reference keeps the JSON shape and content hash it had when it was a `String`
+/// (GH #232: `supersedes` became a list without changing existing elements' hashes).
+mod one_or_many {
+    use serde::Serializer;
+    pub fn serialize<S: Serializer>(v: &Option<Vec<String>>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            None => s.serialize_none(),
+            Some(list) if list.len() == 1 => s.serialize_str(&list[0]),
+            Some(list) => serde::Serialize::serialize(list, s),
+        }
+    }
+}
+
 mod string_or_vec {
     use serde::{Deserialize, Deserializer};
     pub fn deserialize<'de, D>(d: D) -> Result<Option<Vec<String>>, D::Error>
@@ -64,6 +78,52 @@ mod named_string_or_vec {
     }
     pub fn derived_from_cybersecurity_goal<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
         de(d, "derivedFromCybersecurityGoal")
+    }
+    pub fn analyses<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        de(d, "analyses")
+    }
+    pub fn runs_on<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        de(d, "runsOn")
+    }
+    pub fn requires_capabilities<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        de(d, "requiresCapabilities")
+    }
+    pub fn capabilities<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        de(d, "capabilities")
+    }
+    pub fn covers<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        de(d, "covers")
+    }
+}
+
+/// A 0..1 coverage number that tolerates a quoted number (`"0.99"`) and turns any other text
+/// (`"99%"`) into NaN, so the range check (E846) reports it instead of the whole file failing
+/// with a generic type mismatch.
+mod lenient_f64 {
+    use serde::{Deserialize, Deserializer};
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<f64>, D::Error> {
+        match Option::<serde_yaml::Value>::deserialize(d)? {
+            None | Some(serde_yaml::Value::Null) => Ok(None),
+            Some(serde_yaml::Value::Number(n)) => Ok(n.as_f64()),
+            Some(serde_yaml::Value::String(s)) => Ok(Some(s.trim().parse::<f64>().unwrap_or(f64::NAN))),
+            Some(_) => Ok(Some(f64::NAN)),
+        }
+    }
+}
+
+/// A string-typed field that tolerates a YAML number or bool (`calibrationDue: 20270101`,
+/// `calibrationStatus: yes`) by reading its text, so the validator reports the specific code
+/// instead of the whole file failing with a generic type mismatch.
+mod lenient_string {
+    use serde::{Deserialize, Deserializer};
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+        match Option::<serde_yaml::Value>::deserialize(d)? {
+            None | Some(serde_yaml::Value::Null) => Ok(None),
+            Some(serde_yaml::Value::String(s)) => Ok(Some(s)),
+            Some(serde_yaml::Value::Number(n)) => Ok(Some(n.to_string())),
+            Some(serde_yaml::Value::Bool(b)) => Ok(Some(b.to_string())),
+            Some(_) => Err(serde::de::Error::custom("expected a scalar value")),
+        }
     }
 }
 
@@ -215,6 +275,9 @@ pub enum ElementType {
     // GSN safety-argument layer (issue #20)
     Argument,         // ARG-* — a GSN node (claim/strategy/solution)
     AssumptionOfUse,  // AOU-* — safety-related application condition (SRAC)
+    DependentFailureAnalysis, // DFA-* — ISO 26262-9 clause 7 independence argument
+    TestEnvironment,  // TE-* — a rig a test runs on (HIL, bench, chamber, vehicle)
+    SafetyMechanism,  // SM-* — a diagnostic/safety mechanism with coverage and reaction time
     // TARA container (ISO/SAE 21434) — exploded by walker into Tier-2 types
     TARASheet,
     // Single-file feature model (REQ-TRS-FM-005) — a `featureTree:` sheet
@@ -325,6 +388,9 @@ impl ElementType {
         ElementType::FMEAEntry,
         ElementType::Argument,
         ElementType::AssumptionOfUse,
+        ElementType::DependentFailureAnalysis,
+        ElementType::TestEnvironment,
+        ElementType::SafetyMechanism,
         ElementType::TARASheet,
         ElementType::FeatureModel,
         ElementType::Package,
@@ -424,6 +490,9 @@ impl ElementType {
             ElementType::FMEAEntry => "FMEAEntry",
             ElementType::Argument => "Argument",
             ElementType::AssumptionOfUse => "AssumptionOfUse",
+            ElementType::DependentFailureAnalysis => "DependentFailureAnalysis",
+            ElementType::TestEnvironment => "TestEnvironment",
+            ElementType::SafetyMechanism => "SafetyMechanism",
             ElementType::TARASheet => "TARASheet",
             ElementType::FeatureModel => "FeatureModel",
             ElementType::Package => "Package",
@@ -482,6 +551,9 @@ impl ElementType {
                 | ElementType::AttackStep
                 | ElementType::Argument
                 | ElementType::AssumptionOfUse
+                | ElementType::DependentFailureAnalysis
+                | ElementType::TestEnvironment
+                | ElementType::SafetyMechanism
                 | ElementType::Asset
         )
     }
@@ -606,6 +678,12 @@ pub struct RawFrontmatter {
     /// identifier. A decimal is accepted so a new element can be inserted between two
     /// neighbours (e.g. `15` between `10` and `20`) without renumbering. (REQ-TRS-ORDER-001)
     pub display_order: Option<f64>,
+    /// Typed fields whose YAML value is a whole-value feature-parameter placeholder
+    /// (`asilLevel: "{{Features::Safety.level}}"`, GH #268, REQ-TRS-PHOLDFIELD-001): YAML key → the
+    /// placeholder as written. The field itself is unset in the base model; a projection onto a
+    /// matching Configuration fills it. Set by `frontmatter::parse_frontmatter`, never authored.
+    #[serde(skip_deserializing, default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub placeholder_fields: std::collections::BTreeMap<String, String>,
     pub supertype: Option<serde_yaml::Value>,
     pub typed_by: Option<serde_yaml::Value>,
     pub subsets: Option<Vec<String>>,
@@ -674,7 +752,8 @@ pub struct RawFrontmatter {
     /// (id-or-qname); the reverse `children` index and cycle detection are
     /// computed the same way `derivedChildren`/`E017` are for `Requirement`.
     pub parent: Option<String>,
-    /// `achieves:` — one or more native `Requirement`s this `PlanningItem` exists
+    /// `achieves:` — one or more native `Requirement`s (or a `SafetyGoal`, `CybersecurityGoal`,
+    /// `ADR`, `Argument`, `TestPlan` or `Baseline`, GH #240) this `PlanningItem` exists
     /// to achieve (REQ-TRS-PLANITEM-003). Unlike `parent:`, legitimately a list
     /// (scalar or list accepted, like `derivedFrom`). Required (non-empty) on a
     /// top-level item (no `parent:`); optional otherwise. A distinct field from
@@ -798,6 +877,11 @@ pub struct RawFrontmatter {
     /// [`RawFrontmatter::effective_parameter_bindings`].
     #[serde(skip)]
     pub inherited: Option<Box<InheritedConfiguration>>,
+    /// `applies_when` was copied from the owning TARA/FMEA sheet, not authored on this
+    /// row (GH #229). The sheet already carries the authored declaration, so per-element
+    /// validity and nesting checks skip the copy rather than repeat the finding.
+    #[serde(skip)]
+    pub applies_when_inherited: bool,
     /// Rarely-set fields, boxed so an element that uses none of them pays one
     /// pointer instead of ~6 KB of empty `Option`s (`REQ-TRS-MCP-MEM-000`). Read and
     /// written as if they were fields of this struct, through `Deref`/`DerefMut`.
@@ -1032,6 +1116,7 @@ pub struct ColdFrontmatter {
     // §T4 — AttackTree (ISO/SAE 21434 §15.7 attack path analysis)
     pub threat_ref: Option<String>,             // AttackTree → ThreatScenario ref (YAML: threatRef)
     // §T4 — FMEDA diagnostic coverage (ISO 26262-5 §8-9), documented for FaultTreeEvent.
+    #[serde(default, deserialize_with = "lenient_f64::deserialize")]
     pub diagnostic_coverage: Option<f64>,         // DC, 0.0–1.0 (YAML: diagnosticCoverage)
 
     // §T4 — FMEASheet / FMEAEntry (IEC 60812 / SAE J1739)
@@ -1101,6 +1186,40 @@ pub struct ColdFrontmatter {
     /// Resolver (else E858).
     #[serde(default, deserialize_with = "string_or_vec::deserialize")]
     pub applies_to: Option<Vec<String>>,
+    /// `DependentFailureAnalysis.analyses` — the elements argued independent (≥2; each resolves, else E891).
+    #[serde(default, deserialize_with = "named_string_or_vec::analyses")]
+    pub analyses: Option<Vec<String>>,
+    /// `DependentFailureAnalysis.sharedResources` — `{resource, kind, initiators, couplingFactor, mitigation}`.
+    #[serde(default, deserialize_with = "value_or_vec::deserialize")]
+    pub shared_resources: Option<Vec<serde_yaml::Value>>,
+    /// `SafetyMechanism.covers` — failure modes / requirements / goals the mechanism covers (E897).
+    #[serde(default, deserialize_with = "named_string_or_vec::covers")]
+    pub covers: Option<Vec<String>>,
+    /// `SafetyMechanism.reactionTime` — a duration such as `10 ms` (W894 against the covered FTTI).
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub reaction_time: Option<String>,
+    /// `quantities:` — structured timing values `{kind, value, unit}` (kind ftti | latency | wcet |
+    /// reaction; unit s | ms | us | ns). E895 / W893.
+    #[serde(default, deserialize_with = "value_or_vec::deserialize")]
+    pub quantities: Option<Vec<serde_yaml::Value>>,
+    /// `TestCase`/`TestPlan.runsOn` — the `TestEnvironment`(s) the test executes on (E894).
+    #[serde(default, deserialize_with = "named_string_or_vec::runs_on")]
+    pub runs_on: Option<Vec<String>>,
+    /// `TestCase`/`TestPlan.requiresCapabilities` — what the test needs from its environment (W891).
+    #[serde(default, deserialize_with = "named_string_or_vec::requires_capabilities")]
+    pub requires_capabilities: Option<Vec<String>>,
+    /// `TestEnvironment.capabilities` — what the rig offers.
+    #[serde(default, deserialize_with = "named_string_or_vec::capabilities")]
+    pub capabilities: Option<Vec<String>>,
+    /// `TestEnvironment.environmentKind`: hil | bench | chamber | vehicle | simulation | other.
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub environment_kind: Option<String>,
+    /// `TestEnvironment.calibrationStatus`: valid | expired | unknown.
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub calibration_status: Option<String>,
+    /// `TestEnvironment.calibrationDue` (`YYYY-MM-DD`).
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub calibration_due: Option<String>,
 
     // §T2 — TestCase security test method (REQ-TRS-SEC-008; ISO/SAE 21434 §13.3)
     // Valid: fuzz|penetration_test|security_regression|vulnerability_scan|threat_modeling
@@ -1176,6 +1295,8 @@ pub struct ColdFrontmatter2 {
     /// `exclude:` — glob patterns excluded from `include:`'s matches; on a
     /// derived `Diagram`, members of the subject to drop.
     pub exclude: Option<Vec<String>>,
+    /// On a derived BDD `Diagram`: composition levels followed beyond the subject's blocks (default 1).
+    pub depth: Option<usize>,
     pub control_nodes: Option<Vec<serde_yaml::Value>>,
 
     // §8.10.2 — Constraint usage
@@ -1278,9 +1399,11 @@ pub struct ColdFrontmatter3 {
     pub frozen_scope: Option<FrozenScope>,
     /// The generated content seal (REQ-TRS-BL-002).
     pub seal: Option<BaselineSeal>,
-    /// The `Baseline` this one replaces (REQ-TRS-BL-005). Resolver-checked, not a
+    /// What this element replaces: the `Baseline` a baseline replaces (REQ-TRS-BL-005), or the
+    /// `ADR`s an ADR supersedes (GH #232). One reference or a list. Resolver-checked, not a
     /// suspect-tracked trace link.
-    pub supersedes: Option<String>,
+    #[serde(default, serialize_with = "one_or_many::serialize")]
+    pub supersedes: Option<Vec<String>>,
     pub is_composite: Option<bool>,
     pub portion_kind: Option<String>,
 
@@ -1343,6 +1466,7 @@ pub struct ColdFrontmatter3 {
     pub control_table: Option<Vec<serde_yaml::Value>>,  // → SecurityControl rows  (YAML: controlTable)
     pub mission_time: Option<String>,           // e.g. "1e9 h" (YAML: missionTime)
     pub probability: Option<f64>,               // cut-set or top-event probability (YAML: probability)
+    #[serde(default, deserialize_with = "lenient_f64::deserialize")]
     pub latent_diagnostic_coverage: Option<f64>,  // DCl, 0.0–1.0 (YAML: latentDiagnosticCoverage)
     pub ccf_group: Option<String>,               // FaultTreeEvent common-cause group name (YAML: ccfGroup, GH #211)
     pub ccf_beta: Option<f64>,                   // FaultTreeEvent beta factor 0.0–1.0 (YAML: ccfBeta, GH #211)
@@ -1582,6 +1706,7 @@ struct ColdWire {
     // §T4 — AttackTree (ISO/SAE 21434 §15.7 attack path analysis)
     pub threat_ref: Option<String>,             // AttackTree → ThreatScenario ref (YAML: threatRef)
     // §T4 — FMEDA diagnostic coverage (ISO 26262-5 §8-9), documented for FaultTreeEvent.
+    #[serde(default, deserialize_with = "lenient_f64::deserialize")]
     pub diagnostic_coverage: Option<f64>,         // DC, 0.0–1.0 (YAML: diagnosticCoverage)
 
     // §T4 — FMEASheet / FMEAEntry (IEC 60812 / SAE J1739)
@@ -1651,6 +1776,40 @@ struct ColdWire {
     /// Resolver (else E858).
     #[serde(default, deserialize_with = "string_or_vec::deserialize")]
     pub applies_to: Option<Vec<String>>,
+    /// `DependentFailureAnalysis.analyses` — the elements argued independent (≥2; each resolves, else E891).
+    #[serde(default, deserialize_with = "named_string_or_vec::analyses")]
+    pub analyses: Option<Vec<String>>,
+    /// `DependentFailureAnalysis.sharedResources` — `{resource, kind, initiators, couplingFactor, mitigation}`.
+    #[serde(default, deserialize_with = "value_or_vec::deserialize")]
+    pub shared_resources: Option<Vec<serde_yaml::Value>>,
+    /// `SafetyMechanism.covers` — failure modes / requirements / goals the mechanism covers (E897).
+    #[serde(default, deserialize_with = "named_string_or_vec::covers")]
+    pub covers: Option<Vec<String>>,
+    /// `SafetyMechanism.reactionTime` — a duration such as `10 ms` (W894 against the covered FTTI).
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub reaction_time: Option<String>,
+    /// `quantities:` — structured timing values `{kind, value, unit}` (kind ftti | latency | wcet |
+    /// reaction; unit s | ms | us | ns). E895 / W893.
+    #[serde(default, deserialize_with = "value_or_vec::deserialize")]
+    pub quantities: Option<Vec<serde_yaml::Value>>,
+    /// `TestCase`/`TestPlan.runsOn` — the `TestEnvironment`(s) the test executes on (E894).
+    #[serde(default, deserialize_with = "named_string_or_vec::runs_on")]
+    pub runs_on: Option<Vec<String>>,
+    /// `TestCase`/`TestPlan.requiresCapabilities` — what the test needs from its environment (W891).
+    #[serde(default, deserialize_with = "named_string_or_vec::requires_capabilities")]
+    pub requires_capabilities: Option<Vec<String>>,
+    /// `TestEnvironment.capabilities` — what the rig offers.
+    #[serde(default, deserialize_with = "named_string_or_vec::capabilities")]
+    pub capabilities: Option<Vec<String>>,
+    /// `TestEnvironment.environmentKind`: hil | bench | chamber | vehicle | simulation | other.
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub environment_kind: Option<String>,
+    /// `TestEnvironment.calibrationStatus`: valid | expired | unknown.
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub calibration_status: Option<String>,
+    /// `TestEnvironment.calibrationDue` (`YYYY-MM-DD`).
+    #[serde(default, deserialize_with = "lenient_string::deserialize")]
+    pub calibration_due: Option<String>,
 
     // §T2 — TestCase security test method (REQ-TRS-SEC-008; ISO/SAE 21434 §13.3)
     // Valid: fuzz|penetration_test|security_regression|vulnerability_scan|threat_modeling
@@ -1718,6 +1877,8 @@ struct ColdWire {
     /// `exclude:` — glob patterns excluded from `include:`'s matches; on a
     /// derived `Diagram`, members of the subject to drop.
     pub exclude: Option<Vec<String>>,
+    /// On a derived BDD `Diagram`: composition levels followed beyond the subject's blocks (default 1).
+    pub depth: Option<usize>,
     pub control_nodes: Option<Vec<serde_yaml::Value>>,
 
     // §8.10.2 — Constraint usage
@@ -1812,9 +1973,11 @@ struct ColdWire {
     pub frozen_scope: Option<FrozenScope>,
     /// The generated content seal (REQ-TRS-BL-002).
     pub seal: Option<BaselineSeal>,
-    /// The `Baseline` this one replaces (REQ-TRS-BL-005). Resolver-checked, not a
+    /// What this element replaces: the `Baseline` a baseline replaces (REQ-TRS-BL-005), or the
+    /// `ADR`s an ADR supersedes (GH #232). One reference or a list. Resolver-checked, not a
     /// suspect-tracked trace link.
-    pub supersedes: Option<String>,
+    #[serde(default, deserialize_with = "string_or_vec::deserialize", serialize_with = "one_or_many::serialize")]
+    pub supersedes: Option<Vec<String>>,
     pub is_composite: Option<bool>,
     pub portion_kind: Option<String>,
 
@@ -1877,6 +2040,7 @@ struct ColdWire {
     pub control_table: Option<Vec<serde_yaml::Value>>,  // → SecurityControl rows  (YAML: controlTable)
     pub mission_time: Option<String>,           // e.g. "1e9 h" (YAML: missionTime)
     pub probability: Option<f64>,               // cut-set or top-event probability (YAML: probability)
+    #[serde(default, deserialize_with = "lenient_f64::deserialize")]
     pub latent_diagnostic_coverage: Option<f64>,  // DCl, 0.0–1.0 (YAML: latentDiagnosticCoverage)
     pub ccf_group: Option<String>,               // FaultTreeEvent common-cause group name (YAML: ccfGroup, GH #211)
     pub ccf_beta: Option<f64>,                   // FaultTreeEvent beta factor 0.0–1.0 (YAML: ccfBeta, GH #211)
@@ -2012,6 +2176,17 @@ impl ColdWire {
             argument_type: w.argument_type,
             supports: w.supports,
             applies_to: w.applies_to,
+            analyses: w.analyses,
+            shared_resources: w.shared_resources,
+            covers: w.covers,
+            reaction_time: w.reaction_time,
+            quantities: w.quantities,
+            runs_on: w.runs_on,
+            requires_capabilities: w.requires_capabilities,
+            capabilities: w.capabilities,
+            environment_kind: w.environment_kind,
+            calibration_status: w.calibration_status,
+            calibration_due: w.calibration_due,
             security_test_method: w.security_test_method,
             tier2: Boxed::of(ColdFrontmatter2 {
                 conjugates: w.conjugates,
@@ -2045,6 +2220,7 @@ impl ColdWire {
                 marker: w.marker,
                 include: w.include,
                 exclude: w.exclude,
+                depth: w.depth,
                 control_nodes: w.control_nodes,
                 is_asserted: w.is_asserted,
                 is_semantic: w.is_semantic,
@@ -2205,6 +2381,15 @@ macro_rules! tier_deref {
 tier_deref!(RawFrontmatter, cold, ColdFrontmatter);
 tier_deref!(ColdFrontmatter, tier2, ColdFrontmatter2);
 tier_deref!(ColdFrontmatter2, tier3, ColdFrontmatter3);
+
+impl RawFrontmatter {
+    /// A requirement of a kind no architecture element can satisfy (`process`,
+    /// `regulatory`, `deliverable`, GH #250): exempt from `W300`/`W302` and from the
+    /// unsatisfied lists of `audit`, `stats` and the traceability diagram.
+    pub fn is_non_allocatable_requirement(&self) -> bool {
+        matches!(self.requirement_kind.as_deref(), Some("process" | "regulatory" | "deliverable"))
+    }
+}
 
 impl RawFrontmatter {
     /// Whether any rarely-set tier is allocated (memory diagnostics and tests).

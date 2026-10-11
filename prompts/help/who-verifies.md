@@ -7,6 +7,11 @@
 Lists the TestCases that verify a requirement, with their test level, Gherkin
 scenario count, and status.
 
+Evidence status: this command lists every TestCase that links to the requirement
+whatever its status (draft, approved, active, retired). `audit` and `matrix`
+count non-draft TestCases; `verification-depth` and `behavioral-coverage` count only `active`
+ones, so a requirement can be listed here and still read as unverified there.
+
 ## OPTIONS
     --config <C>    Configuration lens (REQ-TRS-PROJ-001): answer over only the
                     elements active in configuration C (a stored Configuration

@@ -29,6 +29,9 @@ static ATS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // GSN argument-layer stable-ID patterns (issue #20)
 static ARG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static AOU_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static DFA_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static TE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static SM_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static SG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static DS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -205,6 +208,9 @@ pub const STABLE_ID_KINDS: &[(&str, &str, bool)] = &[
     ("AttackStep", "ATS", true),
     ("Argument", "ARG", true),
     ("AssumptionOfUse", "AOU", true),
+    ("DependentFailureAnalysis", "DFA", true),
+    ("TestEnvironment", "TE", true),
+    ("SafetyMechanism", "SM", true),
     ("FeatureDef", "FEAT", false),
     ("Baseline", "BL", false),
     ("PlanningItem", "PI", true),
@@ -401,6 +407,9 @@ pub fn is_stable_id(s: &str) -> bool {
         || ats_re().is_match(s)
         || arg_re().is_match(s)
         || aou_re().is_match(s)
+        || dfa_re().is_match(s)
+        || te_re().is_match(s)
+        || sm_re().is_match(s)
         || feat_re().is_match(s)
         || bl_re().is_match(s)
         || pi_re().is_match(s)
@@ -469,12 +478,30 @@ fn ats_re() -> &'static regex::Regex {
 fn arg_re() -> &'static regex::Regex {
     ARG_RE.get_or_init(|| regex::Regex::new(r"^ARG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
+fn sm_re() -> &'static regex::Regex {
+    SM_RE.get_or_init(|| regex::Regex::new(r"^SM(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn te_re() -> &'static regex::Regex {
+    TE_RE.get_or_init(|| regex::Regex::new(r"^TE(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn dfa_re() -> &'static regex::Regex {
+    DFA_RE.get_or_init(|| regex::Regex::new(r"^DFA(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
 fn aou_re() -> &'static regex::Regex {
     AOU_RE.get_or_init(|| regex::Regex::new(r"^AOU(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 /// Returns true for ARG-* IDs (Argument).
 pub fn is_arg_id(s: &str) -> bool { arg_re().is_match(s) || extra_matches("ARG", s) }
+/// Returns true for SM-* IDs (SafetyMechanism).
+pub fn is_sm_id(s: &str) -> bool { sm_re().is_match(s) || extra_matches("SM", s) }
+/// Returns true for TE-* IDs (TestEnvironment).
+pub fn is_te_id(s: &str) -> bool { te_re().is_match(s) || extra_matches("TE", s) }
+/// Returns true for DFA-* IDs (DependentFailureAnalysis).
+pub fn is_dfa_id(s: &str) -> bool { dfa_re().is_match(s) || extra_matches("DFA", s) }
 /// Returns true for AOU-* IDs (AssumptionOfUse).
 pub fn is_aou_id(s: &str) -> bool { aou_re().is_match(s) || extra_matches("AOU", s) }
 
@@ -660,6 +687,23 @@ impl Resolver {
             }
         }
         self.resolve_ref(elements, r)
+    }
+
+    /// True if a `PlanningItem.achieves:` may name `elem`: a native Requirement or one of the
+    /// work products a plan can deliver without a requirement (GH #240).
+    pub fn is_achievable_target(elem: &RawElement) -> bool {
+        Self::is_native_requirement(elem)
+            || matches!(
+                elem.frontmatter.element_type,
+                Some(
+                    ElementType::SafetyGoal
+                        | ElementType::CybersecurityGoal
+                        | ElementType::ADR
+                        | ElementType::Argument
+                        | ElementType::TestPlan
+                        | ElementType::Baseline
+                )
+            )
     }
 
     /// True if `elem` is a native Requirement (type: Requirement with a REQ-* id).
