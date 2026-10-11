@@ -124,16 +124,22 @@ pub struct Run<'m> {
 impl<'m> Run<'m> {
     /// Create a run and start the machine (enter the initial states and settle).
     pub fn new(m: &'m Machine, opts: Options) -> Run<'m> {
-        Self::build(m, opts, None)
+        Self::build(m, opts, None, &[])
     }
 
     /// Like [`Run::new`], with plant models co-simulated on the shared clock (REQ-TRS-FMI-001): their initial
     /// outputs are read into the mapped variables before the machine starts.
     pub fn with_plants(m: &'m Machine, opts: Options, cosim: crate::plant::CoSim) -> Run<'m> {
-        Self::build(m, opts, Some(cosim))
+        Self::build(m, opts, Some(cosim), &[])
     }
 
-    fn build(m: &'m Machine, opts: Options, cosim: Option<crate::plant::CoSim>) -> Run<'m> {
+    /// Like [`Run::new`], with some variables starting at the given values instead of their declared ones (an environment
+    /// that is known before the machine starts, such as the initial outputs of a plant part). Unknown names are ignored.
+    pub fn with_initial_values(m: &'m Machine, opts: Options, values: &[(String, Value)]) -> Run<'m> {
+        Self::build(m, opts, None, values)
+    }
+
+    fn build(m: &'m Machine, opts: Options, cosim: Option<crate::plant::CoSim>, initial: &[(String, Value)]) -> Run<'m> {
         let mut children = vec![Vec::new(); m.states.len()];
         for s in &m.states {
             if let Some(p) = s.parent {
@@ -159,6 +165,11 @@ impl<'m> Run<'m> {
             cosim,
             outbox: Vec::new(),
         };
+        for (name, v) in initial {
+            if let Some(i) = m.variables.iter().position(|x| &x.name == name) {
+                r.vars[i] = v.clone();
+            }
+        }
         let init = r.plants_read();
         r.finish(init);
         if r.error.is_none() {
@@ -350,6 +361,35 @@ impl<'m> Run<'m> {
             self.trace.push(step);
             self.settle()
         })();
+        self.finish(r);
+    }
+
+    /// Write environment values that arrive at virtual time `at` (a plant's outputs at a communication point) without
+    /// running the machine: all of them become visible together at the next `advance_to`, which settles once. The change is
+    /// traced as one `plant` step.
+    pub fn stage_values(&mut self, at: f64, values: &[(String, Value)]) {
+        if self.halted() {
+            return;
+        }
+        let before = self.vars.clone();
+        let r = (|| -> R<()> {
+            for (name, v) in values {
+                let Some(slot) = self.m.variables.iter().position(|x| &x.name == name) else {
+                    return Err(format!("set: '{name}' is not a variable of the machine"));
+                };
+                check_assignable(name, &self.vars[slot], v)?;
+                self.vars[slot] = v.clone();
+            }
+            Ok(())
+        })();
+        let saved = self.time;
+        self.time = at;
+        let mut step = self.begin("plant".into());
+        self.time = saved;
+        self.record_changes(&before, &mut step);
+        if !step.changed.is_empty() {
+            self.trace.push(step);
+        }
         self.finish(r);
     }
 
