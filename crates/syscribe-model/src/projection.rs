@@ -329,6 +329,10 @@ const LENS_SUPPRESS: &[&str] = &[
     // A `done` leaf PlanningItem whose only evidence is inactive here has no resolving evidence (E719):
     // the same cascade, reported as the W019 escape instead.
     "E719",
+    // The lens keeps only the stored Configuration being validated (GH #245), so the base it inherits
+    // from (`derivedFrom:`) is not in the projected set: a dangling base is reported by whole-model
+    // `validate`, not here.
+    "E234",
 ];
 
 /// An `Allocation` is gated by the AND of its endpoints' gates (GH #234): inactive when any
