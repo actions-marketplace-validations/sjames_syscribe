@@ -2911,6 +2911,19 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
         }
 
+        // E930–E934/W936 (REQ-TRS-SYSCOMP-001): a composite part with executable behaviours. Dormant for every part
+        // that has no part with an executable state machine.
+        if matches!(fm.element_type, Some(ElementType::Part) | Some(ElementType::PartDef)) && fm.features.is_some() {
+            let draft = fm.status.as_deref() == Some("draft");
+            for (code, msg) in crate::system::check(elements, &resolver, elem) {
+                if code.starts_with('E') {
+                    findings.push(error(code, &file, &msg));
+                } else if !draft {
+                    findings.push(warning(code, &file, &msg));
+                }
+            }
+        }
+
         // E886: a TestCase whose subject is an executable state machine uses only the executable step
         // vocabulary (REQ-TRS-SMSCEN-001). Dormant for every other TestCase.
         if matches!(fm.element_type, Some(ElementType::TestCase)) && fm.subject.is_some() {
@@ -2919,6 +2932,12 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 if matches!(sf.element_type, Some(ElementType::ActionDef) | Some(ElementType::Action)) {
                     if crate::act_exec::is_executable(sf.variables.as_deref(), sf.sub_actions.as_deref().unwrap_or(&[])) {
                         for (line, msg) in crate::act_scen::vocabulary_findings(&elem.doc) {
+                            findings.push(error("E886", &file, &format!("line {line} of the body: {msg}")));
+                        }
+                    }
+                } else if matches!(sf.element_type, Some(ElementType::Part) | Some(ElementType::PartDef)) {
+                    if crate::system::resolve(elements, &resolver, subject).0.is_some() {
+                        for (line, msg) in crate::system_scen::vocabulary_findings(&elem.doc) {
                             findings.push(error("E886", &file, &format!("line {line} of the body: {msg}")));
                         }
                     }

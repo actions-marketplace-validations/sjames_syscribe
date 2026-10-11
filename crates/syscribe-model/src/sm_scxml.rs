@@ -107,6 +107,12 @@ impl Out {
                     let e = ecma(&expr.ast, bind, &mut self.warnings);
                     self.line(depth, &format!("<assign location=\"{}\" expr=\"{}\"/>", esc(&m.variables[*var].name), esc(&e)));
                 }
+                Action::Send { event, via, .. } => {
+                    // an undirected SCXML <send> targets the machine's own queue, which is not what a composite means
+                    let name = via.as_ref().map(|p| format!("{p}/{event}")).unwrap_or_else(|| event.clone());
+                    self.warnings.push(format!("send {name} of {owner} goes to another part of a composite in syscribe and has no SCXML form; it is not represented"));
+                    self.line(depth, &format!("<!-- send {} (to another part; no SCXML form, not represented) -->", esc(&name)));
+                }
                 Action::Behavior { target, role } => {
                     if *role == Some("do") {
                         self.warnings.push(format!("doAction {target} of {owner} runs to completion on entry in syscribe; it has no SCXML form and is not represented"));

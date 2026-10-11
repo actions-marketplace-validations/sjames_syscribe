@@ -19,6 +19,7 @@ pub(crate) fn field<'a>(m: &'a Mapping, k: &str) -> Option<&'a Y> {
 fn transition_is_executable(m: &Mapping) -> bool {
     field(m, "internal").is_some()
         || field(m, "assign").is_some()
+        || matches!(field(m, "effect"), Some(Y::Mapping(e)) if field(e, "send").is_some())
         || matches!(field(m, "accept"), Some(Y::Mapping(a))
             if field(a, "payload").is_none() || ["after", "when", "done"].iter().any(|k| field(a, k).is_some()))
 }
@@ -147,15 +148,43 @@ pub fn check(variables: Option<&[Y]>, initial_effect: Option<&Y>, subs: &[Y], to
         }
     };
 
+    let check_send = |am: &Mapping, where_: &str, out: &mut Vec<Finding>| {
+        let Some(v) = field(am, "send") else {
+            if field(am, "via").is_some() || field(am, "payload").is_some() {
+                out.push(("E884", format!("{where_}: `via`/`payload` need a `send:` event")));
+            }
+            return;
+        };
+        if !text(v).is_some_and(|s| !s.trim().is_empty()) {
+            out.push(("E884", format!("{where_}: `send:` must name an event")));
+        }
+        if field(am, "via").is_some_and(|p| text(p).is_none()) {
+            out.push(("E884", format!("{where_}: `via:` of a `send:` must be a port name")));
+        }
+        match field(am, "payload") {
+            None => {}
+            Some(Y::Mapping(pm)) => {
+                for (k, e) in pm {
+                    let ok = k.as_str().is_some() && text(e).is_some_and(|s| expr::parse(&s).is_ok());
+                    if !ok {
+                        out.push(("E884", format!("{where_}: `send:` payload entry '{}' must be `name: <expression>`", k.as_str().unwrap_or("?"))));
+                    }
+                }
+            }
+            Some(_) => out.push(("E884", format!("{where_}: `send:` payload must be a mapping of name to expression"))),
+        }
+    };
+
     // initialEffect / entryAction / exitAction maps may carry `assign:`.
     if let Some(Y::Mapping(m)) = initial_effect {
+        check_send(m, "initialEffect", &mut out);
         if let Some(a) = field(m, "assign").and_then(text) {
             check_assign(&a, "initialEffect", &mut out);
         }
     }
 
     // State action maps may carry `assign:` too.
-    fn state_assigns<'a>(subs: &'a [Y], out: &mut Vec<(String, String)>) {
+    fn state_assigns<'a>(subs: &'a [Y], out: &mut Vec<(String, String)>, sends: &mut Vec<(String, &'a Mapping)>) {
         for s in subs.iter().filter_map(|s| s.as_mapping()) {
             let name = field(s, "name").and_then(|v| v.as_str()).unwrap_or("");
             for k in ["entryAction", "doAction", "exitAction"] {
@@ -163,15 +192,20 @@ pub fn check(variables: Option<&[Y]>, initial_effect: Option<&Y>, subs: &[Y], to
                     if let Some(a) = field(am, "assign").and_then(text) {
                         out.push((format!("state '{name}' {k}"), a));
                     }
+                    sends.push((format!("state '{name}' {k}"), am));
                 }
             }
             if let Some(Y::Sequence(inner)) = field(s, "subStates") {
-                state_assigns(inner, out);
+                state_assigns(inner, out, sends);
             }
         }
     }
     let mut sa = Vec::new();
-    state_assigns(subs, &mut sa);
+    let mut state_sends = Vec::new();
+    state_assigns(subs, &mut sa, &mut state_sends);
+    for (w, am) in state_sends {
+        check_send(am, &w, &mut out);
+    }
     for (w, a) in sa {
         check_assign(&a, &w, &mut out);
     }
@@ -246,6 +280,7 @@ pub fn check(variables: Option<&[Y]>, initial_effect: Option<&Y>, subs: &[Y], to
         }
 
         if let Some(Y::Mapping(em)) = field(t, "effect") {
+            check_send(em, &label, &mut out);
             if let Some(a) = field(em, "assign").and_then(text) {
                 check_assign(&a, &label, &mut out);
             }
