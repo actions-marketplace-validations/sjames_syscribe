@@ -21,6 +21,17 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
+        "Execution",
+        &[
+            ("eval", include_str!("../../../prompts/help/eval.md")),
+            ("constraints", include_str!("../../../prompts/help/constraints.md")),
+            ("compile", include_str!("../../../prompts/help/compile.md")),
+            ("simulate", include_str!("../../../prompts/help/simulate.md")),
+            ("mutate", include_str!("../../../prompts/help/mutate.md")),
+            ("export-scxml", include_str!("../../../prompts/help/export-scxml.md")),
+        ],
+    ),
+    (
         "Large-model overview & search",
         &[
             ("stats", include_str!("../../../prompts/help/stats.md")),

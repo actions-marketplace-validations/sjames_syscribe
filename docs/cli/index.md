@@ -770,6 +770,68 @@ $ syscribe -m model/ find . --where custom.supplier                  # presence
 
 ---
 
+## Expression evaluation (`eval`)
+
+```bash
+syscribe eval '<expression>' [--set name=value]... [--unit <unit>] [--json]
+```
+
+Evaluates one expression of the execution engine's typed, dimension-checked language (GH #273): numbers with units (`50 ms + 1 s` is `1.05 s`, `3 V * 2 A` is `6 W`), booleans, strings and enumeration literals; `+ - * / %`, comparisons, `and`/`or`/`not` (short-circuit), `if … then … else …` and `abs min max sqrt floor ceil round pow`. Adding incompatible dimensions or comparing a time with a plain number is an error, as is an unbound name, division by zero or a non-finite result. `--set` binds names (`50ms`, `true`, `'text'`, `Enum::lit`); `--unit` converts a numeric result. The command reads no model and is deterministic; it exits `1` with a message on stderr for any error. See `syscribe help eval`.
+
+## Constraint checking (`constraints`)
+
+```bash
+syscribe -m <root> constraints check [--json] [--strict] [--config <CONF-id> | --all-configs] [--set <qname.feature>=<value>]...
+```
+
+Evaluates every `Constraint` usage and every `requires:`/`assume:` clause against Attribute values, default bindings, Configuration parameters and `--set` overrides (GH #274). Exit `0` all hold, `2` one failed (or, with `--strict`, one is unresolved because an input has no value), `1` usage. 
+
+```bash
+syscribe -m <root> constraints calc <CalculationDef> [--config <C>] [--set name=value]... [--json]
+syscribe -m <root> constraints sweep --param name=<lo>..<hi>:<step> [--param …] [--config <C>] [--set …] [--show '<expr>'] [--json]
+```
+
+`calc` evaluates a `CalculationDef` body with its parameters from `--set` or their defaults and prints the result in SI base units. `sweep` evaluates the whole check set over a grid of parameter ranges (`3..7:1`, `1000kg..2000kg:250kg` or a list `1,2,5`; Cartesian product for several `--param`s; at most 5000 points) and tabulates the pass/fail/unresolved/error counts per point, with an optional `--show` expression: a trade-off sweep across values; it reports, it does not gate. See `syscribe help constraints`.
+
+## State-machine IR (`compile`)
+
+```bash
+syscribe -m <root> compile <StateDef> [--json]
+```
+
+Lowers a `StateDef` to the intermediate representation that simulation, coverage, mutation and SCXML export read (GH #278): flat state and transition tables in document order, variable slots, resolved and parsed guards, and a source pointer on every node; the BLAKE3 hash of the canonical JSON identifies the machine in recorded evidence. Exit `2` with the diagnostics (E882–E885, W933, W076) when the machine cannot be lowered. See `syscribe help compile` and `docs/design/state-machine-execution-semantics.md`.
+
+## State-machine simulation (`simulate`)
+
+```bash
+syscribe -m <root> simulate <StateDef> --do "send Cmd::Open; advance 3 s; set level=5" [--strict] [--json]
+```
+
+Lowers the machine (`compile`) and runs a script on the interpreter (GH #279): SCXML run-to-completion (eventless work, then the internal queue, then one external event; deeper states preempt ancestors; exit, then transition content, then entry; parallel regions in lock step) with the SysML v2 / KerML change trigger (`when`, edge-triggered false→true, armed on state entry, one signal per arming) and time trigger (`after`, on a virtual clock that moves only on `advance`). Prints every microstep with the states exited and entered, actions and variable changes; `--json` adds the machine hash, final configuration and variables. An unbound name, a type or dimension error, a missing payload field or more than 1000 microsteps in one macrostep stops the run (exit `2`). `--strict` makes unhandled events and equal-priority conflicts errors. 
+
+```bash
+syscribe -m <root> simulate <TestCase|StateDef> [--scenario <title>] [--trace] [--record [--run <id>] [--config <C>]] [--json]
+```
+
+With a `TestCase` (or a machine, meaning every scenario `TestCase` whose `subject:` it is) `simulate` runs the Gherkin scenarios (GH #280) over a closed step vocabulary: `Given <machine> is in state <state>`, `Given <variable> is <expression>`, `When <event> is injected [with <field> = <expression>, …]`, `When <variable> becomes <expression>`, `When <duration> elapses`, `Then <machine> is in state <state>`, `Then <boolean expression>`. A step outside it is `E886` and an `error` verdict. `Scenario Outline` rows expand to `<title> [row N]`; each scenario is `pass`, `fail` or `error`; exit `2` unless all pass. `--record` writes the verdicts as session-log evidence in the results sidecar (so `trace`, `matrix`, `audit` and the safety case see them) and the traces under `.syscribe/traces/`. `--coverage` adds measured coverage (GH #281) merged over the scenarios run: states, transitions (uncovered ones listed by trigger and guard), transition pairs, guard and `when` conditions (each atomic condition both true and false, with a unique-cause MC/DC demonstration for multi-condition expressions), timers (each `after` both fired and cancelled) and requirements verified by a fully passing TestCase; `--min-states`, `--min-transitions` and `--min-guards` gate the exit code. This is measured coverage and replaces the traceability proxy of `behavioral-coverage` for machines that have scenarios. See `syscribe help simulate`.
+
+## Mutation analysis (`mutate`)
+
+```bash
+syscribe -m <root> mutate <StateDef|TestCase> [--min-score <percent>] [--json]
+```
+
+Judges the quality of a machine's scenarios by seeding one fault at a time into its IR (GH #282): negated guards and `when`s, relational-operator and literal changes, retargeted and removed transitions, removed actions, an assignment replaced by a self-assignment, scaled `after` delays and swapped transition order. The model files are never modified. A mutant is killed when any scenario then fails or errors, survived when none does, and equivalent-suspect when its traces are identical and the mutated element was never covered (not counted). The score is killed ÷ (killed + survived); survivors are listed with the mutation, its location and the scenario that came closest; `--min-score` gates the exit code. It is the objective check on scenarios written by an LLM. See `syscribe help mutate`.
+
+## SCXML export (`export-scxml`)
+
+```bash
+syscribe -m <root> export-scxml <StateDef> [--output <file>]
+syscribe -m <root> simulate <StateDef> --do "<script>" --crosscheck <engine>
+```
+
+Writes a W3C SCXML document equivalent to the machine (GH #283): substates, `<parallel>` and `<final>`; variables as an ECMAScript `<datamodel>` of SI base-unit numbers; `after` as `<send delay>` with `<cancel>` on exit; `done` as `done.state.<id>`; a `when` change trigger as an `armed_<id>` flag plus a raised `signal.<id>`, because SCXML eventless transitions are level-triggered while the SysML v2 observation is one-shot. Behaviour references, `doAction` and attribute paths have no SCXML form: they are written as comments and listed as `note:` lines. `--crosscheck` runs the document with an external engine (`[scxml.engines.<name>] command` in `.syscribe.toml`, or the command itself; stdin/stdout JSON contract in `syscribe help export-scxml`) and reports any step where its active states differ from syscribe's. No engine is bundled.
+
 ## Safety mechanisms (`mechanisms`)
 
 ```

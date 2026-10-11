@@ -13,6 +13,7 @@ mod covtree;
 mod runhist;
 mod reqif_import;
 mod compliance;
+mod exec_cmd;
 mod mechanisms;
 mod cyberrisk;
 mod connectivity;
@@ -694,6 +695,25 @@ fn main() {
         e.exit();
     }
 
+    // `eval` is model-free and takes an arbitrary expression, which may begin with `-m…` (`-max(1, 2)`):
+    // dispatch it before the `-m` short-flag stripping below ever sees its arguments. An optional
+    // `-m <root>` / `--model <root>` / `--model=<root>` / `-m<root>` may precede the command.
+    {
+        let mut at = 1;
+        while let Some(a) = args.get(at) {
+            if a == "-m" || a == "--model" {
+                at += 2;
+            } else if a.starts_with("--model=") || (a.starts_with("-m") && a.len() > 2) {
+                at += 1;
+            } else {
+                break;
+            }
+        }
+        if args.get(at).map(String::as_str) == Some("eval") {
+            std::process::exit(exec_cmd::cmd_eval(&args[at + 1..]));
+        }
+    }
+
     // Strip --model <path> or --model=<path> from args; collect remaining args.
     let mut remaining: Vec<String> = Vec::new();
     let mut model_flag: Option<String> = None;
@@ -1258,6 +1278,48 @@ fn main() {
                         eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit|session-log] [--run <run-id>] [--config <CONF-id>] <file>");
                         std::process::exit(1);
                     }
+                }
+            }
+            "simulate" => {
+                // State-machine interpreter (GH #279). Read-only. Exit 0 · 1 usage · 2 run error.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let lens = |cfg: Option<&str>| lensed_elements(&elems, None, cfg);
+                let code = exec_cmd::cmd_simulate(&elems, rest, &lens, &model_root);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "mutate" => {
+                // Mutation analysis of state-machine scenarios (GH #282). Read-only. Exit 0 · 1 usage · 2 gate.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = exec_cmd::cmd_mutate(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "export-scxml" => {
+                // SCXML export of a state machine (GH #283). Read-only. Exit 0 · 1 usage · 2 diagnostics.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = exec_cmd::cmd_export_scxml(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "compile" => {
+                // State-machine IR (GH #278). Read-only. Exit 0 · 1 usage · 2 lowering diagnostics.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = exec_cmd::cmd_compile(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "constraints" => {
+                // Parametric constraint checking (GH #274). Read-only. Exit 0 · 1 usage · 2 a check failed.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let lens = |cfg: Option<&str>| lensed_elements(&elems, None, cfg);
+                let code = exec_cmd::cmd_constraints(&elems, rest, &lens);
+                if code != 0 {
+                    std::process::exit(code);
                 }
             }
             "mechanisms" => {

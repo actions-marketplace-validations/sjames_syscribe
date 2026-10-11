@@ -288,6 +288,10 @@ fn transitions_from(
 ) -> Vec<StateEdge> {
     fn parse_transition(t: &serde_yaml::Value, implicit_source: Option<&str>) -> Option<StateEdge> {
         let m = t.as_mapping()?;
+        // An internal transition does not leave its state, so it is not an outgoing edge (REQ-TRS-SMSCHEMA-001).
+        if yaml_field(m, "internal").and_then(|v| v.as_bool()) == Some(true) {
+            return None;
+        }
         let src = yaml_field(m, "source").or_else(|| yaml_field(m, "from")).and_then(|v| v.as_str());
         let tgt = yaml_field(m, "target").or_else(|| yaml_field(m, "to")).and_then(|v| v.as_str());
         let payload = match yaml_field(m, "accept") {
@@ -492,13 +496,14 @@ fn incomplete_transitions(
     for t in top.unwrap_or(&[]) {
         let Some(m) = t.as_mapping() else { continue };
         let (src, tgt) = (endpoint(m, "source", "from"), endpoint(m, "target", "to"));
+        let internal = yaml_field(m, "internal").and_then(|v| v.as_bool()) == Some(true);
         if src.is_none() {
             out.push(format!(
                 "top-level {} has no `source:` — a transition not nested under its source substate must name it (§8.8.3)",
                 describe(m, tgt, "to")
             ));
         }
-        if tgt.is_none() {
+        if tgt.is_none() && !internal {
             out.push(format!(
                 "top-level {} has no `target:` — every transition must name its target state (§8.8.3)",
                 describe(m, src, "from")
@@ -511,6 +516,9 @@ fn incomplete_transitions(
         if let Some(serde_yaml::Value::Sequence(ts)) = yaml_field(sm, "transitions") {
             for t in ts {
                 let Some(m) = t.as_mapping() else { continue };
+                if yaml_field(m, "internal").and_then(|v| v.as_bool()) == Some(true) {
+                    continue;
+                }
                 if endpoint(m, "target", "to").is_none() {
                     let src = endpoint(m, "source", "from").or(state);
                     out.push(format!(
@@ -2847,6 +2855,19 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 findings.push(error("E011", &file, "TestCase body has no ```gherkin fenced block"));
             }
 
+        // E886: a TestCase whose subject is an executable state machine uses only the executable step
+        // vocabulary (REQ-TRS-SMSCEN-001). Dormant for every other TestCase.
+        if matches!(fm.element_type, Some(ElementType::TestCase)) && fm.subject.is_some() {
+            if let Ok(subject) = crate::sm_scen::subject_of(elements, elem) {
+                let sf = &subject.frontmatter;
+                if crate::sm_exec::is_executable(sf.variables.as_deref(), sf.initial_effect.as_ref(), sf.sub_states.as_deref().unwrap_or(&[]), sf.transitions.as_deref().unwrap_or(&[])) {
+                    for (line, msg) in crate::sm_scen::vocabulary_findings(&elem.doc) {
+                        findings.push(error("E886", &file, &format!("line {line} of the body: {msg}")));
+                    }
+                }
+            }
+        }
+
         // E012: native Requirement normative text must be non-empty
         if let Some(ElementType::Requirement) = &fm.element_type {
             if fm.id.as_deref().map(is_req_id).unwrap_or(false) {
@@ -3735,6 +3756,16 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             incomplete_transitions(subs_opt.unwrap_or(&[]), fm.transitions.as_deref(), &mut incomplete);
             for msg in incomplete {
                 findings.push(warning("W929", &file, &msg));
+            }
+
+            // E882–E885 / W933 — the executable-machine schema (REQ-TRS-SMSCHEMA-001).
+            for (code, msg) in crate::sm_exec::check(
+                fm.variables.as_deref(),
+                fm.initial_effect.as_ref(),
+                subs_opt.unwrap_or(&[]),
+                fm.transitions.as_deref().unwrap_or(&[]),
+            ) {
+                findings.push(if code.starts_with('E') { error(code, &file, &msg) } else { warning(code, &file, &msg) });
             }
 
             if let Some(subs) = subs_opt {
