@@ -293,6 +293,10 @@ pub struct GoalReport {
     pub exposure_defaulted: bool,
     /// Fault trees of this goal whose analysis failed (cycle, no top node, …).
     pub analysis_errors: Vec<String>,
+    /// A contributing event holds `failureRate` / `diagnosticCoverage` / `latentDiagnosticCoverage` as
+    /// a whole-value placeholder (GH #268): the figures exist per Configuration, so the base model
+    /// computes none and reports no miss.
+    pub pending_placeholders: bool,
 }
 
 impl GoalReport {
@@ -332,6 +336,8 @@ pub struct GoalContributions {
     pub lambda_dpf: f64,
     pub exposure_defaulted: bool,
     pub analysis_errors: Vec<String>,
+    /// See [`GoalReport::pending_placeholders`].
+    pub pending_placeholders: bool,
 }
 
 /// Collect the contributing failures for a SafetyGoal: for every `FaultTree`
@@ -369,6 +375,13 @@ pub fn contributions_for_goal(
         };
         let mut by_id = std::collections::HashMap::new();
         for ev in &analysis.events {
+            if matches!(ev.origin, EventOrigin::Model)
+                && resolver.get_by_id(elements, &ev.id).is_some_and(|e| {
+                    ["failureRate", "diagnosticCoverage", "latentDiagnosticCoverage"].iter().any(|k| e.frontmatter.placeholder_fields.contains_key(*k))
+                })
+            {
+                out.pending_placeholders = true;
+            }
             if !matches!(ev.role, EventRole::SinglePoint | EventRole::DualPoint | EventRole::MultiPoint) {
                 continue;
             }
@@ -439,6 +452,23 @@ pub fn report_for_goal(
 
     let gc = contributions_for_goal(goal, elements, resolver);
 
+    // A figure that is per Configuration cannot be judged in the base model (GH #268).
+    if gc.pending_placeholders {
+        return GoalReport {
+            id,
+            file_path: goal.file_path.clone(),
+            asil,
+            sil,
+            metrics: None,
+            targets,
+            gate: None,
+            missing: Vec::new(),
+            exposure_defaulted: false,
+            analysis_errors: gc.analysis_errors,
+            pending_placeholders: true,
+        };
+    }
+
     // Opt-in: compute only if at least one contributing event declares DC.
     let has_dc = gc.contributions.iter().any(|c| c.has_dc);
     if !has_dc || gc.contributions.is_empty() {
@@ -453,6 +483,7 @@ pub fn report_for_goal(
             missing: Vec::new(),
             exposure_defaulted: false,
             analysis_errors: gc.analysis_errors,
+            pending_placeholders: false,
         };
     }
 
@@ -470,6 +501,7 @@ pub fn report_for_goal(
         missing: gc.missing,
         exposure_defaulted: gc.exposure_defaulted && gc.lambda_dpf > 0.0,
         analysis_errors: gc.analysis_errors,
+        pending_placeholders: false,
     }
 }
 

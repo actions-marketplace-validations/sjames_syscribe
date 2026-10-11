@@ -2871,6 +2871,7 @@ leaf hardware parts (Motor, Rotor, IMU, etc.) that are not directly allocated a 
             !parent_ids.contains(id) // leaf only
                 && e.frontmatter.sil_level.is_none()
                 && e.frontmatter.asil_level.is_none()
+                && !e.frontmatter.integrity_pending()
         })
         .filter_map(|e| e.frontmatter.id.as_deref())
         .collect();

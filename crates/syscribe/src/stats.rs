@@ -133,6 +133,9 @@ fn facet_values(e: &RawElement, facet: &str) -> Vec<String> {
     match facet {
         "status" => vec![e.frontmatter.status.clone().unwrap_or_else(|| "unset".to_string())],
         "reqDomain" => vec![e.frontmatter.req_domain.clone().unwrap_or_else(|| "unset".to_string())],
+        "silLevel" | "asilLevel" if e.frontmatter.integrity_pending() && e.frontmatter.sil_level.is_none() && e.frontmatter.asil_level.is_none() => {
+            vec!["(per configuration)".to_string()]
+        }
         "silLevel" => {
             let neither =
                 e.frontmatter.sil_level.is_none() && e.frontmatter.asil_level.is_none();

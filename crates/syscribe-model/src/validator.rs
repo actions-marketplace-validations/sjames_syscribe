@@ -174,10 +174,7 @@ struct StateEdge {
 /// Whether an element carries an ASIL or SIL — a whole-value placeholder in `asilLevel` / `silLevel`
 /// (GH #268) counts: the base model has the field unset only because its value is per configuration.
 fn has_integrity_level(fm: &crate::element::RawFrontmatter) -> bool {
-    fm.asil_level.is_some()
-        || fm.sil_level.is_some()
-        || fm.placeholder_fields.contains_key("asilLevel")
-        || fm.placeholder_fields.contains_key("silLevel")
+    fm.asil_level.is_some() || fm.sil_level.is_some() || fm.integrity_pending()
 }
 
 /// The `requirementKind` vocabulary (E022). The last three are not architecture-allocatable.
@@ -7016,6 +7013,10 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // expected minimum CAL for the max risk over the threats it lists.
         for csg in elements.iter().filter(|e| Resolver::is_cybersecurity_goal(e)) {
             let Some(ref refs) = csg.frontmatter.threat_scenarios else { continue };
+            // A CAL held as a whole-value placeholder (GH #268) is judged per Configuration, not here.
+            if csg.frontmatter.placeholder_fields.contains_key("calLevel") {
+                continue;
+            }
             let mut max_level: Option<RiskLevel> = None;
             let mut max_cal: Option<u8> = None;
             for r in refs {
