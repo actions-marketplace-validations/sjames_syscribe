@@ -96,11 +96,16 @@ fn names(v: &Y) -> Vec<String> {
 
 /// `def` and its supertypes, nearest first.
 fn chain<'a>(elements: &'a [RawElement], resolver: &Resolver, def: &'a RawElement) -> Vec<&'a RawElement> {
+    chain_with(elements, resolver, def, true)
+}
+
+/// [`chain`], optionally following only `supertype` (a composite inherits from its supertypes, not from what it is typed by).
+fn chain_with<'a>(elements: &'a [RawElement], resolver: &Resolver, def: &'a RawElement, follow_typed_by: bool) -> Vec<&'a RawElement> {
     let mut out: Vec<&RawElement> = vec![def];
     let mut i = 0;
     while i < out.len() && out.len() < 32 {
         let fm = &out[i].frontmatter;
-        let supers: Vec<String> = [fm.supertype.as_ref(), fm.typed_by.as_ref()].into_iter().flatten().flat_map(names).collect();
+        let supers: Vec<String> = [fm.supertype.as_ref(), if follow_typed_by { fm.typed_by.as_ref() } else { None }].into_iter().flatten().flat_map(names).collect();
         for s in supers {
             if let Some(e) = resolver.resolve_ref(elements, &s) {
                 if !out.iter().any(|x| x.qualified_name == e.qualified_name) {
@@ -129,10 +134,90 @@ fn endpoint(s: &str) -> Option<(&str, &str)> {
     (!a.is_empty() && !b.is_empty() && !b.contains('.')).then_some((a, b))
 }
 
-/// The parts of `elem` and what they carry. `Ok(None)` when `elem` is not a composite (no part features).
-pub fn parts_of(elements: &[RawElement], resolver: &Resolver, elem: &RawElement, out: &mut Vec<Finding>) -> Vec<Instance> {
+/// A composite as authored plus what it inherits: `features:` (parts and ports), `connections:`, `bindingConnections:` and
+/// `plantStep:` merged along the supertype chain. A feature of the same name is overridden by the nearest definition;
+/// the base's connections and bindings come first, and an identical entry is kept once.
+pub struct CompositeView {
+    pub features: Vec<Y>,
+    pub connections: Vec<Y>,
+    pub bindings: Vec<Y>,
+    pub plant_step: Option<Y>,
+}
+
+pub fn composite_view(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) -> CompositeView {
+    let ch = chain_with(elements, resolver, elem, false);
+    let mut v = CompositeView { features: Vec::new(), connections: Vec::new(), bindings: Vec::new(), plant_step: None };
+    for d in ch.iter().rev() {
+        for f in d.frontmatter.features.iter().flatten() {
+            let name = f.as_mapping().and_then(|m| field(m, "name")).and_then(|n| n.as_str());
+            match name.and_then(|n| v.features.iter().position(|x| x.as_mapping().and_then(|m| field(m, "name")).and_then(|n| n.as_str()) == Some(n))) {
+                Some(i) => v.features[i] = f.clone(),
+                None => v.features.push(f.clone()),
+            }
+        }
+        // A connection is identified by its ends and a binding by its sink: an entry for the same key in a subtype replaces
+        // the base's in place (so a variant can change a `delay:` or re-source a variable). The same entry written twice in
+        // one definition stays twice (E933).
+        let key = |c: &Y, a: &str, b: &str| -> Option<(String, String)> { c.as_mapping().and_then(|m| Some((field(m, a).and_then(text)?, field(m, b).and_then(text)?))) };
+        let (base_conns, base_binds) = (v.connections.len(), v.bindings.len());
+        for c in d.frontmatter.connections.iter().flatten() {
+            match key(c, "from", "to").and_then(|k| v.connections[..base_conns].iter().position(|x| key(x, "from", "to").as_ref() == Some(&k))) {
+                Some(i) => v.connections[i] = c.clone(),
+                None => v.connections.push(c.clone()),
+            }
+        }
+        for c in d.frontmatter.binding_connections.iter().flatten() {
+            let sink = |x: &Y| x.as_mapping().and_then(|m| field(m, "to")).and_then(text);
+            match sink(c).and_then(|k| v.bindings[..base_binds].iter().position(|x| sink(x).as_ref() == Some(&k))) {
+                Some(i) => v.bindings[i] = c.clone(),
+                None => v.bindings.push(c.clone()),
+            }
+        }
+    }
+    v.plant_step = ch.iter().find_map(|d| d.frontmatter.plant_step.clone());
+    v
+}
+
+/// The ports a part definition declares inline: `features:` of `type: Port`.
+fn inline_ports(d: &RawElement) -> Vec<PortSpec> {
+    let mut ports: Vec<PortSpec> = Vec::new();
+    for pf in d.frontmatter.features.iter().flatten() {
+        let Some(pm) = pf.as_mapping() else { continue };
+        if let (true, Some(pn)) = (is_port(pm), field(pm, "name").and_then(|n| n.as_str())) {
+            ports.push(PortSpec { name: pn.to_string(), dir: Dir::parse(field(pm, "direction").and_then(|d| d.as_str())) });
+        }
+    }
+    ports
+}
+
+/// Add the child `Port` elements (`Def::out`, named by the identity segment) of each part's definition chain. Done once per
+/// composite and only for executable ones, since it scans the model.
+fn add_child_ports(elements: &[RawElement], resolver: &Resolver, instances: &mut [Instance]) {
+    let mut by_parent: std::collections::HashMap<&str, Vec<(&str, Dir)>> = std::collections::HashMap::new();
+    for e in elements.iter().filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::Port))) {
+        if let Some((parent, last)) = e.qualified_name.rsplit_once("::") {
+            by_parent.entry(parent).or_default().push((last, Dir::parse(e.frontmatter.direction.as_deref())));
+        }
+    }
+    if by_parent.is_empty() {
+        return;
+    }
+    for inst in instances {
+        let Some(def) = resolver.resolve_ref(elements, &inst.def) else { continue };
+        for d in chain(elements, resolver, def) {
+            for (name, dir) in by_parent.get(d.qualified_name.as_str()).into_iter().flatten() {
+                if !inst.ports.iter().any(|p| p.name == *name) {
+                    inst.ports.push(PortSpec { name: name.to_string(), dir: *dir });
+                }
+            }
+        }
+    }
+}
+
+/// The parts among `features` (the composite's own and inherited ones) and what they carry.
+pub fn parts_of(elements: &[RawElement], resolver: &Resolver, elem: &RawElement, features: &[Y], out: &mut Vec<Finding>) -> Vec<Instance> {
     let mut instances: Vec<Instance> = Vec::new();
-    for (i, f) in elem.frontmatter.features.iter().flatten().enumerate() {
+    for (i, f) in features.iter().enumerate() {
         let Some(m) = f.as_mapping() else { continue };
         if is_port(m) {
             continue;
@@ -153,12 +238,9 @@ pub fn parts_of(elements: &[RawElement], resolver: &Resolver, elem: &RawElement,
         let ch = chain(elements, resolver, def);
         let mut ports: Vec<PortSpec> = Vec::new();
         for d in &ch {
-            for pf in d.frontmatter.features.iter().flatten() {
-                let Some(pm) = pf.as_mapping() else { continue };
-                if let (true, Some(pn)) = (is_port(pm), field(pm, "name").and_then(|n| n.as_str())) {
-                    if !ports.iter().any(|p| p.name == pn) {
-                        ports.push(PortSpec { name: pn.to_string(), dir: Dir::parse(field(pm, "direction").and_then(|d| d.as_str())) });
-                    }
+            for p in inline_ports(d) {
+                if !ports.iter().any(|x| x.name == p.name) {
+                    ports.push(p);
                 }
             }
         }
@@ -205,16 +287,19 @@ pub fn resolve(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) 
     if !matches!(elem.frontmatter.element_type, Some(ElementType::Part) | Some(ElementType::PartDef)) {
         return (None, out);
     }
-    let instances = parts_of(elements, resolver, elem, &mut out);
+    let view = composite_view(elements, resolver, elem);
+    let instances = parts_of(elements, resolver, elem, &view.features, &mut out);
     if !has_executable_part(elements, resolver, &instances) {
         return (None, Vec::new());
     }
+    let mut instances = instances;
+    add_child_ports(elements, resolver, &mut instances);
     let q = &elem.qualified_name;
-    let feature_names: Vec<&str> = elem.frontmatter.features.iter().flatten().filter_map(|f| f.as_mapping().and_then(|m| field(m, "name")).and_then(|n| n.as_str())).collect();
+    let feature_names: Vec<&str> = view.features.iter().filter_map(|f| f.as_mapping().and_then(|m| field(m, "name")).and_then(|n| n.as_str())).collect();
     // an end `a.b` whose `a` is no feature of the composite at all is a typo, not a structural connection
     let unknown_part = |e: &str| endpoint(e).filter(|(p, _)| !feature_names.contains(p)).map(|(p, _)| p.to_string());
     let mut links = Vec::new();
-    for (i, c) in elem.frontmatter.connections.iter().flatten().enumerate() {
+    for (i, c) in view.connections.iter().enumerate() {
         let Some(m) = c.as_mapping() else { continue };
         let (Some(f), Some(t)) = (field(m, "from").and_then(text), field(m, "to").and_then(text)) else { continue };
         let ends = (endpoint(&f), endpoint(&t));
@@ -252,7 +337,7 @@ pub fn resolve(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) 
         links.push(Link { from: (a, fp.to_string()), to: (b, tp.to_string()), delay });
     }
     let mut bindings = Vec::new();
-    for (i, c) in elem.frontmatter.binding_connections.iter().flatten().enumerate() {
+    for (i, c) in view.bindings.iter().enumerate() {
         let Some(m) = c.as_mapping() else { continue };
         let (Some(f), Some(t)) = (field(m, "from").and_then(text), field(m, "to").and_then(text)) else { continue };
         if let Some(p) = endpoint(&f).filter(|(p, _)| !feature_names.contains(p)).or_else(|| endpoint(&t).filter(|(p, _)| !feature_names.contains(p))).map(|(p, _)| p) {
@@ -307,6 +392,26 @@ fn traffic(m: &Machine) -> (BTreeSet<(Option<String>, String)>, BTreeSet<(String
 /// The findings for one element: `E930`/`E931`/`E934` from resolution, `E932` (a port a machine uses that its part lacks),
 /// `E933` (a binding that cannot hold) and `W936` (traffic nobody on the other end handles).
 pub fn check(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) -> Vec<Finding> {
+    let mut mine = check_all(elements, resolver, elem);
+    if mine.is_empty() || elem.frontmatter.supertype.is_none() {
+        return mine;
+    }
+    // what a base composite already reports is reported there, not again on every subtype
+    let bare = |q: &str, m: &str| m.strip_prefix(&format!("{q}: ")).unwrap_or(m).to_string();
+    let mut inherited: std::collections::HashSet<(&'static str, String)> = std::collections::HashSet::new();
+    for s in elem.frontmatter.supertype.iter().flat_map(names) {
+        if let Some(base) = resolver.resolve_ref(elements, &s) {
+            if matches!(base.frontmatter.element_type, Some(ElementType::Part) | Some(ElementType::PartDef)) {
+                inherited.extend(check_all(elements, resolver, base).into_iter().map(|(c, m)| (c, bare(&base.qualified_name, &m))));
+            }
+        }
+    }
+    mine.retain(|(c, m)| !inherited.contains(&(*c, bare(&elem.qualified_name, m))));
+    mine
+}
+
+/// Every finding of a composite, including those that come from wiring it inherits.
+pub fn check_all(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) -> Vec<Finding> {
     let (spec, mut out) = resolve(elements, resolver, elem);
     let Some(spec) = spec else { return out };
     let q = &spec.composite;
@@ -347,7 +452,7 @@ pub fn check(elements: &[RawElement], resolver: &Resolver, elem: &RawElement) ->
             }
         }
     }
-    if crate::plant::backend().is_some() && spec.instances.iter().any(|i| matches!(i.behavior, Behavior::Plant(_))) && elem.frontmatter.plant_step.is_none() {
+    if crate::plant::backend().is_some() && spec.instances.iter().any(|i| matches!(i.behavior, Behavior::Plant(_))) && composite_view(elements, resolver, elem).plant_step.is_none() {
         out.push(("E888", format!("{q}: a composite with plant parts needs a `plantStep:` (the communication step)")));
     }
 
