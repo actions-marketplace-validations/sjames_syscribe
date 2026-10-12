@@ -83,7 +83,7 @@ It is also honest about the rough edges. Midway the agent stopped rather than fa
 
 ## Built for safety-critical work
 
-The model behind those guardrails is a subset of [SysMLv2](https://www.omg.org/sysml/sysmlv2/) with 200+ validation rules drawn from safety-critical practice: enforced requirement → architecture → code → test traceability, ASIL/SIL integrity-level consistency, hazard and threat analysis, and content-hashed release baselines. The repo ships four demo models — an ISO 26262 ASIL D engine ECU, an IEC 61508 SIL 4 railway interlocking, a UAV flight system and an EV charging station ([Demo Models](#demo-models)). You don't need to know SysMLv2 to use any of it, and nothing about the write guardrails is specific to that domain.
+The model behind those guardrails is a subset of [SysMLv2](https://www.omg.org/sysml/sysmlv2/) with 200+ validation rules drawn from safety-critical practice: enforced requirement → architecture → code → test traceability, ASIL/SIL integrity-level consistency, hazard and threat analysis, and content-hashed release baselines. The repo ships five demo models — an ISO 26262 ASIL D engine ECU, an IEC 61508 SIL 4 railway interlocking, a UAV flight system, an EV charging station and a grid-tie inverter ([Demo Models](#demo-models)). You don't need to know SysMLv2 to use any of it, and nothing about the write guardrails is specific to that domain.
 
 ---
 
@@ -353,7 +353,7 @@ syscribe -m model_auto/ plantuml
 syscribe -m model_auto/ plantuml render
 ```
 
-Diagrams also render live in the web UI — server-side SVG plus client-side Mermaid — where non-Mermaid diagrams can be edited directly (create, connect, move, delete; every edit is validated before it is written).
+Diagrams also render live in the web UI — laid out in the browser by sprotty/ELK (Mermaid diagrams client-side; there is no server-side SVG renderer) — where non-Mermaid diagrams can be edited directly (create, connect, move, delete; every edit is validated before it is written).
 
 ### Browse in a web UI
 
@@ -391,7 +391,7 @@ syscribe --version          # also -V, or `syscribe version` → "syscribe <semv
 | `model_mg/` | EV DC Fast-Charging Station | MagicGrid (problem/solution × 4 pillars) |
 | `model_gti/` | Grid-tie inverter, US and India (multi-string HV PV, STM32) | IEEE 1547 / UL 1741 SB, CEA / IS 16221 (limits flagged unverified), executable state machines, fault injection |
 
-All four demo models validate with 0 errors and demonstrate full requirements traceability, safety analysis (HARA, FTA, FMEA), and security analysis (TARA); CI gates on `validate` for every model.
+All five demo models validate with 0 errors and demonstrate full requirements traceability, safety analysis (HARA, FTA, FMEA), and security analysis (TARA); CI gates on `validate` for every model.
 
 ## LLM Authoring
 
@@ -427,7 +427,7 @@ The prompt and the validator are always in sync — `--agent-instructions` is em
 - **MCP server** — `syscribe mcp` exposes structured tools to LLM agents: read/query/trace/validate plus *guarded* writes (dry-run → validation delta → referential-integrity commit gate)
 - **LSP server** — `syscribe lsp` gives editors live diagnostics and model-aware navigation over stdio (a VS Code extension lives in `editors/vscode/`)
 - **Static HTML export** — `syscribe export-html` renders the whole model as a standalone, offline site for reviewers without the toolchain
-- **Diagrams** — server-rendered SVG, client-side Mermaid, an editable diagram view in the web UI, and PlantUML companion generation/rendering
+- **Diagrams** — an editable sprotty/ELK diagram view in the web UI (laid out in the browser), client-side Mermaid, and PlantUML companion generation/rendering
 - **Coverage & product-line matrices** — Requirement × Configuration coverage grids, variant-aware verification depth, SAT-backed feature analysis
 - **LLM-scale corpus tools** — `stats` / `digest` / `search-text` / `summarize` / `topics` / `clusters` for navigating large models, plus `impact` change analysis and ReqIF/SBOM export
 
@@ -442,6 +442,7 @@ model/                # UAV autonomous flight system demo model
 model_auto/           # Engine ECU demo model (ISO 26262 / ISO/SAE 21434)
 model_sil/            # SIL 4 railway interlocking demo model (IEC 61508 / EN 50128)
 model_mg/             # EV DC fast-charging station demo model (MagicGrid)
+model_gti/            # Grid-tie inverter demo model (IEEE 1547 / UL 1741 SB; executable state machines)
 prompts/              # LLM authoring prompt (embedded in the CLI binary)
 spec/                 # Syscribe format specification
 docs/                 # MkDocs documentation source

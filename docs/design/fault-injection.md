@@ -15,6 +15,7 @@ The safety analyses and the executable models are separate worlds: an FMEA row i
 | `stuck` | a stuck-at sensor or register | `Run::pin(Pin::Stuck)`: every write to the variable is replaced |
 | `offset` | a biased measurement | `Run::pin(Pin::Offset)`: every write is increased by the offset |
 | `silent` | fail-stop of a part | `Run::silence`: no events, no timers, no messages; variables frozen |
+| `parameter` | a drifted parameter of an in-process plant (`parameter`, `value`): a changed grid impedance, a drifted gain (GH #340) | the plant parameter takes the value of the expression |
 | `drop` / `delay` / `corrupt` | loss, lateness or corruption on a connection | applied in `System::collect` as the message leaves the part |
 
 The kinds are the classic set of fault-injection (stuck-at, bias, fail-silent, omission, timing, value) and deliberately small: each one has an unambiguous deterministic semantics, which a probabilistic or time-triggered fault would not (time-triggered activation is a scenario step: `When 2 s elapses` then `When fault … is injected`).

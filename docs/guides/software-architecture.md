@@ -851,7 +851,7 @@ syscribe -m model matrix --allocations                   # function → L2 → L
 syscribe -m model connectivity Architecture::Logical::Scheduler --depth 3 --format dot
 
 # Coverage — which L3 units satisfy no requirements?
-syscribe -m model matrix                                 # W300 = unsatisfied leaf requirement
+syscribe -m model validate                               # W300 = unsatisfied leaf requirement (matrix is the requirement x configuration test-coverage grid)
 syscribe -m model export --ndjson \
   | jq -r 'select(.type=="PartDef" and .frontmatter.domain=="software") | .qname'  # SW units: cross-reference with matrix gaps
 

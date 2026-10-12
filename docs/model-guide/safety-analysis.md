@@ -611,10 +611,10 @@ Structural errors: E847 (missing `id`/`name`/`status`), E848 (`id` not `CM-*`), 
 (invalid `measureType`/`independenceLevel`/`status`), E851 (unresolved `confirms:`).
 
 **W039** flags a high-integrity item that lacks its required independent assessment: an
-`asilLevel: D` `SafetyGoal`/native `Requirement` with no I3 `functional_safety_assessment`
-confirming it, or a `calLevel: CAL4` `CybersecurityGoal` with no I3 `cybersecurity_assessment`.
-The mapping is minimal — only ASIL D → I3 FS assessment and CAL4 → I3 cybersecurity assessment
-are gated; lower levels are future tightening. **Opt-in:** W039 is dormant unless at least one
+`asilLevel: D` or `silLevel: 3`/`4` `SafetyGoal`/native `Requirement` with no I3
+`functional_safety_assessment` confirming it, a `calLevel: CAL4` `CybersecurityGoal` with no I3
+`cybersecurity_assessment`, or a `calLevel: CAL3` `CybersecurityGoal` with no I2-or-I3
+`cybersecurity_assessment`. Lower levels are not gated. **Opt-in:** W039 is dormant unless at least one
 `ConfirmationMeasure` exists, so bundled models stay silent. Both W038 and W039 are warnings,
 gateable (`--deny W038` / `--deny W039`) and profile-promotable.
 

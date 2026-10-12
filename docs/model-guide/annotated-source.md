@@ -135,7 +135,7 @@ other synthesized element nested under its owning package.
 | `E561` | A marker's accumulated block isn't valid YAML |
 | `W560` | Valid YAML, but not a legal `RawElement` for its declared `type:` — element dropped |
 | `W561` | No `type:`/no resolvable identity in a marker — element dropped |
-| `W562` | `annotationFormat:`/`marker`/`include`/`exclude` on a non-`Package`, or combined with `foreignFormat:`/`sysmlSubmodel:` on the same package |
+| `W562` | `annotationFormat:`/`marker`/`include`/`exclude` combined with `foreignFormat:`/`sysmlSubmodel:` on the same package |
 | `W563` | A marker's `implementedBy:` was auto-filled (a warning — set `implementedBy:` in the marker to silence it) |
 
 `E108` (duplicate qualified name, any origin) already covers a marker-declared id/name colliding with

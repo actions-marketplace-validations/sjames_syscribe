@@ -50,6 +50,23 @@ proposed → accepted → deprecated
 
 An ADR is `proposed` while under review. It must be `accepted` before it can be cited in `breakdownAdr:`. Citing a `proposed` ADR from an `approved` requirement fires **W303**.
 
+## Superseding an ADR
+
+A newer ADR replaces an older one with `supersedes:` (an ADR id or qualified name, or a list):
+
+```yaml
+id: ADR-SYS-012
+status: accepted
+supersedes: ADR-SYS-004
+```
+
+| Code | Meaning |
+|---|---|
+| `E320` | `supersedes:` names an element that does not resolve or is not an `ADR` |
+| `E321` | The ADR is on a `supersedes:` cycle (a self-reference included) |
+| `W313` | An `accepted` ADR supersedes an ADR whose status is not `superseded` (set the old one to `superseded`) |
+| `W314` | A non-draft element's `breakdownAdr:` resolves to a `superseded` ADR (cite its successor) |
+
 ## Where ADRs are required
 
 The validator (rule §12.2) requires a `breakdownAdr:` on every requirement that has `derivedFrom:`. This means every time you split a parent requirement into children, you must:

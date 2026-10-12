@@ -70,10 +70,10 @@ Deployed as: Vehicle::PowertrainECU
 | ID | Title | ASIL |
 |---|---|---|
 | REQ-ENG-SAFE-001 | Safety monitor shall detect all safety faults within 100 ms | D |
-| REQ-ENG-SAFE-002 | Hardware watchdog shall reset ECU within 50 ms of software lock-up | D |
-| REQ-ENG-SAFE-003 | TPS dual-track divergence shall trigger safe state within 50 ms | C |
-| REQ-ENG-SAFE-004 | Rev limiter shall enforce fuel cut independently of TPS | B |
-| REQ-ENG-SAFE-005 | Throttle close command shall be verified by TPS position feedback | D |
+| REQ-ENG-SAFE-002 | Hardware watchdog shall reset ECU within 30 ms of software failure | D |
+| REQ-ENG-SAFE-003 | Engine stall monitor shall detect CPS loss and initiate deceleration | B |
+| REQ-ENG-SAFE-004 | Rev limiter shall cut fuel and retard ignition above 6500 rpm within 20 ms | A |
+| REQ-ENG-SAFE-005 | Throttle close command shall be verified by position feedback within 200 ms | A |
 
 ### Security (ISO/SAE 21434)
 
@@ -81,8 +81,8 @@ Deployed as: Vehicle::PowertrainECU
 |---|---|
 | REQ-ENG-SEC-001 | Safety-critical CAN messages shall be authenticated using MAC |
 | REQ-ENG-SEC-002 | ECU calibration programming sessions shall require cryptographic authentication |
-| REQ-ENG-SEC-003 | Firmware updates shall require ECDSA P-256 signature verification |
-| REQ-ENG-SEC-004 | Diagnostic memory read access shall be restricted to authorised sessions |
+| REQ-ENG-SEC-003 | ECU firmware update shall require valid ECDSA P-256 signature and monotonic version counter |
+| REQ-ENG-SEC-004 | UDS readMemoryByAddress shall be restricted to authenticated diagnostic sessions |
 
 ---
 
@@ -93,8 +93,8 @@ Deployed as: Vehicle::PowertrainECU
 | ID | Title | ASIL | FTTI |
 |---|---|---|---|
 | SG-ENG-001 | Prevent unintended engine acceleration | D | 100 ms |
-| SG-ENG-002 | Prevent engine stall at high vehicle speed | B | 500 ms |
-| SG-ENG-003 | Prevent fuel system failure causing fire | C | 200 ms |
+| SG-ENG-002 | Prevent critical engine stall during high-speed operation | B | 500 ms |
+| SG-ENG-003 | Prevent engine over-speed above rev limiter threshold | A | 200 ms |
 
 **Fault Trees** (`FT-ENG-001`, `FT-ENG-002`) quantify the contribution of ThrottleControl, SafetyMonitor, and WatchdogTimer failures to the top hazard events.
 
@@ -106,7 +106,7 @@ Deployed as: Vehicle::PowertrainECU
 
 `TARA-ENG-001` covers the CAN bus and OBD-II interface with 4 damage scenarios, 4 threat scenarios, 4 cybersecurity goals, and 4 security controls.
 
-`VR-ENG-001` (CAN replay, **closed** — mitigated by AUTOSAR SecOC) and `VR-ENG-002` (firmware rollback via OBD-II, **open** — tracked) are the two VulnerabilityReport entries.
+`VR-ENG-001` (CAN replay, status **mitigated** by AUTOSAR SecOC) and `VR-ENG-002` (firmware rollback via OBD-II, **open** — tracked) are the two VulnerabilityReport entries.
 
 ---
 
@@ -117,9 +117,9 @@ Deployed as: Vehicle::PowertrainECU
 | ID | Title | Level |
 |---|---|---|
 | TC-ENG-SAFE-001 | HIL — safety system end-to-end fault response under all single-point faults | L5 |
-| TC-ENG-SAFE-002 | HIL — TPS dual-track divergence triggers safe state within 50 ms | L5 |
-| TC-ENG-SAFE-003 | HIL — hardware watchdog resets ECU within 50 ms of software lock-up | L5 |
-| TC-ENG-SAFE-004 | Integration — SafetyMonitor detects all single-point faults within 100 ms | L4 |
+| TC-ENG-SAFE-002 | HIL — safety monitor detects all defined fault modes within 100 ms | L5 |
+| TC-ENG-SAFE-003 | HIL — hardware watchdog resets ECU within 30 ms of missed service window | L5 |
+| TC-ENG-SAFE-004 | HIL — engine stall monitor initiates deceleration on CPS loss | L5 |
 | TC-ENG-SAFE-005 | HIL — rev limiter enforces fuel cut and ignition retard independently of TPS | L5 |
 | TC-ENG-SAFE-006 | HIL — stuck-open throttle detected by position feedback verification | L5 |
 
@@ -127,10 +127,10 @@ Deployed as: Vehicle::PowertrainECU
 
 | ID | Title | Level |
 |---|---|---|
-| TC-ENG-SEC-001 | Integration — CAN security module rejects frames with invalid MAC | L2 |
-| TC-ENG-SEC-002 | Integration — UDS programming session requires cryptographic challenge-response | L3 |
-| TC-ENG-SEC-003 | Integration — firmware flash rejects image without valid ECDSA signature | L3 |
-| TC-ENG-SEC-004 | Integration — readMemoryByAddress restricted to security access level 0x11/0x12 | L3 |
+| TC-ENG-SEC-001 | Integration test — CAN security module rejects frames with invalid MAC | L2 |
+| TC-ENG-SEC-002 | Integration test — UDS programming session requires cryptographic authentication | L2 |
+| TC-ENG-SEC-003 | Firmware signature verification rejects unsigned and rollback images | L4 |
+| TC-ENG-SEC-004 | UDS readMemoryByAddress is blocked without authenticated session | L4 |
 
 ---
 

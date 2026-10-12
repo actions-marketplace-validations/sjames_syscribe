@@ -168,10 +168,28 @@ Each leaf requirement carries `derivedFrom:` pointing to its parent and `breakdo
 
 ## Verification
 
-Nine test cases cover the leaf requirements. Each is a `TestCase` element with a stable `TC-*` ID, a `testLevel` (L1–L5), and a Gherkin `scenario:` block.
+Sixteen test cases (under `model/Verification/`) cover the leaf and parent requirements: leaf requirements are verified at unit/system level, parent requirements by integration-level cases (L3–L5) plus a review. Each is a `TestCase` element with a stable `TC-*` ID, a `testLevel` (L1–L5), and a Gherkin `scenario:` block.
 
 | File | Level | Verifies |
 |---|---|---|
+| `MassVerificationCase` | L5 | REQ-UAV-MASS-001 |
+| `EnduranceTestCase` | L5 | REQ-UAV-ENDUR-001 |
+| `NavigationAnalysisCase` | L2 | REQ-UAV-NAV-001 |
+| `DataLinkTestCase` | L5 | REQ-UAV-COMM-001 |
+| `FCFaultInjectionTest` | L5 | REQ-UAV-FC-001 |
+| `SafeLandingTest` | L5 | REQ-UAV-SAFE-001 |
+| `CargoReleaseTest` | L4 | REQ-UAV-CARGO-001 |
+| `MappingDensityTest` | L4 | REQ-UAV-MAP-001 |
+| `DualFCFailoverTest` | L4 | REQ-UAV-REDUN-001 |
+| `VariantIntegrationTest` | L4 | REQ-UAV-VAR-000 |
+| `MissionPerformanceIntegrationTest` | L5 | REQ-UAV-PERF-000 |
+| `SystemSafetyIntegrationTest` | L5 | REQ-UAV-SAFE-000 |
+| `RegulatoryComplianceIntegrationTest` | L4 | REQ-UAV-REG-000 |
+| `PerformanceCaseReview` | L2 | REQ-UAV-PERF-000 |
+| `SafetyCaseReview` | L2 | REQ-UAV-SAFE-000 |
+| `RegulatoryComplianceReview` | L2 | REQ-UAV-REG-000 |
+
+---|---|---|
 | `MassVerificationCase` | L1 (analysis) | REQ-UAV-MASS-001 |
 | `EnduranceTestCase` | L2 (ground) | REQ-UAV-ENDUR-001 |
 | `NavigationAnalysisCase` | L3 (simulation) | REQ-UAV-NAV-001 |

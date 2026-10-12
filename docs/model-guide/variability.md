@@ -280,7 +280,7 @@ syscribe -m model/ feature-check
 |---|---|
 | `E212` | `requires`/`excludes` target is not a `FeatureDef` |
 | `E219` / `E220` | a selected feature's `requires` unmet / `excludes` violated in a `Configuration` |
-| `W011` / `W012` | feature selected in no `Configuration` / optional (not `mandatory: true`) feature selected in every `Configuration` |
+| `W011` / `W012` | `groupKind: optional` feature selected in no `Configuration` / `groupKind: optional` feature (not `mandatory: true`) selected in every `Configuration` |
 | `E207` | circular `derivedFrom:` among a feature's parameters |
 | `E202` | a `bindTo:`-propagated value is outside the component parameter's `range:` |
 | `E229` | a parameter's `bindingTime:` is earlier than a `derivedFrom`/`bindTo` source it depends on |

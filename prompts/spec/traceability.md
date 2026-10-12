@@ -14,7 +14,7 @@ upstream. No reverse links are stored in model files.
 |---|---|---|
 | `derivedFrom:` | child → parent | child `Requirement` |
 | `verifies:` | test → requirement | `TestCase` |
-| `satisfies:` | arch element → requirement | `Part`/`PartDef` |
+| `satisfies:` | element → requirement | the satisfying element (any kind; not type-restricted — structural or behavioral, §12.3) |
 | `allocatedTo:` | source → target | the element being allocated (logical function, software package, security control) |
 | `allocatedFrom:` + `allocatedTo:` | source → target | a standalone `Allocation` element (it *is* the relationship, so it names both ends) |
 | `breakdownAdr:` | requirement → ADR | child `Requirement` |
@@ -36,7 +36,7 @@ element.
 |---|---|
 | `breakdownAdr:` absent | `E310` |
 | `breakdownAdr:` resolves to non-ADR or unresolvable | `E311` |
-| Referenced ADR is still `proposed` | `W303` |
+| Referenced ADR is still `proposed` while the requirement is `approved`, `implemented` or `verified` | `W303` |
 
 **Procedure:**
 1. Author ADR (`type: ADR`, `status: proposed`).
@@ -49,14 +49,14 @@ element.
 
 A requirement is a **leaf** when no other requirement has `derivedFrom:` pointing to it.
 
-**Rule:** A leaf `Requirement` at `status: approved` or higher must be assigned to
+**Rule:** A leaf `Requirement` at `status: approved` or `implemented` must be assigned to
 at least one architecture element (an element has `satisfies:` pointing to it). Several
 elements may jointly satisfy a leaf (e.g. a `PartDef` plus its `StateDef`); leaf/parent is
 decided by `derivedChildren` alone, never by the satisfier count.
 
 | Violation | Code |
 |---|---|
-| Zero satisfying elements | `W300` |
+| Zero satisfying elements | `W300` (not raised for `requirementKind` `process`/`regulatory`/`deliverable`) |
 | More than one satisfying element | none — `W301` is retired (GH #121) |
 
 Assignment should point to the **deepest known** architecture element responsible for
@@ -134,12 +134,16 @@ allocatedTo: Hardware::FlightComputer
 
 ## R-007 — Integrity level propagation (§12.7)
 
-**Rule:** Once any element in the traceability chain carries `asilLevel:`, `silLevel:`,
-or `plLevel:`, all downstream elements reached via `derivedFromSafetyGoal:`,
-`derivedFrom:`, or `satisfies:` must also carry the same field.
+**Rule:** Once any element in the traceability chain carries `asilLevel:` or `silLevel:`,
+all downstream elements reached via `derivedFromSafetyGoal:`, `derivedFrom:`, or
+`satisfies:` must also carry an integrity level — **either** `asilLevel:` **or**
+`silLevel:` satisfies the presence check (the same field is not required). `plLevel:`
+takes no part: it neither triggers the rule on a source nor satisfies it downstream (a
+requirement with only `plLevel:` under an ASIL goal is `E841`).
 
 A downstream element may carry a **lower** level (ASIL/SIL decomposition), but only
-when `breakdownAdr:` is set to document the decomposition rationale.
+when `breakdownAdr:` is set to document the decomposition rationale. Levels are compared
+only on the same scale (both ASIL or both SIL).
 
 | Link | Missing field | Lower level without ADR |
 |---|---|---|
@@ -150,7 +154,7 @@ when `breakdownAdr:` is set to document the decomposition rationale.
 Level ranking:
 - `asilLevel`: A < B < C < D
 - `silLevel`: 1 < 2 < 3 < 4
-- `plLevel`: a–e (not compared cross-element with ASIL/SIL)
+- `plLevel`: a–e (ignored by this rule)
 
 **Example — ASIL D decomposed to ASIL B:**
 

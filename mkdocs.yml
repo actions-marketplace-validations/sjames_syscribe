@@ -111,6 +111,13 @@ nav:
   - Design Notes:
       - Suspect Links: design/suspect-links.md
       - Visualisation: design/visualisation.md
+      - MCP Memory: design/mcp-memory.md
+      - Feature Model Editor: design/feature-model-editor.md
+      - Fault Injection: design/fault-injection.md
+      - FMI Plant Co-simulation: design/fmi-plant-cosimulation.md
+      - State Machine Execution Semantics: design/state-machine-execution-semantics.md
+      - Static Typing: design/static-typing.md
+      - System Composition: design/system-composition.md
   - Releases: releases/index.md
 
 extra_css:

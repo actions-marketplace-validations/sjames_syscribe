@@ -103,7 +103,7 @@ securityTestMethod: penetration_test   # or: fuzz · security_regression ·
 W809 fires if the method is set to an unrecognised value.
 
 Use a `TestPlan` with `scope: security` and `demonstrates:` pointing to your CSGs as the
-formal security verification evidence package (see §7.6 below).
+formal security verification evidence package (see §7.8 of the ISO/SAE 21434 guide, `iso-21434.md`).
 
 ### 4.5 Coverage and gap analysis
 

@@ -45,6 +45,7 @@ All JavaScript (HTMX, Mermaid, the bundled diagram editor including `sprotty-elk
 | `POST /api/feature-model/edit` | One semantic edit (`add`, `remove`, `rename`, `setGroup`, `setMandatory`, `move`, `addConstraint`, `removeConstraint`), with the validity delta; `preview` and `acceptWorse` options; returns the undo operation |
 | `GET /api/feature-model/impact?feature=` | What a feature gates, who selects it, what depends on it |
 | `GET /api/feature-model/export?format=svg\\|plantuml\\|mermaid` | The feature diagram as a download |
+| `GET /heat` | Heat tables page: HARA ASIL matrix, FMEA severity x occurrence grid and TARA risk matrix, rendered server-side from the current model |
 | `GET /planning` | The live planning dashboard page |
 | `GET /ui/planning/board?who=&done=` | HTMX — the board fragment the dashboard re-fetches |
 | `GET /ui/element-card/<qname>` | HTMX — the read-only card in the diagram editor's side panel: identity and the rendered Markdown body; an inline feature resolves to its owner or type |

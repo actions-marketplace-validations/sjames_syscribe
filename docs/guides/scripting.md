@@ -74,7 +74,7 @@ frontmatter as parsed. This gives a script complete, structured access to the mo
 without having to parse Markdown files directly.
 
 ```bash
-# Full graph as JSON (all 405 elements in one document)
+# Full graph as JSON (all elements in one document)
 syscribe -m model export > model-graph.json
 
 # Streaming NDJSON — one JSON object per line; memory-efficient for large models
@@ -421,7 +421,7 @@ imported content before switching over entirely.
 
 ### D.9 Summary: the extensibility model
 
-syscribe's extensibility rests on four surfaces that compose cleanly:
+syscribe's extensibility rests on the surfaces below, which compose cleanly:
 
 | Surface | Interface | Use for |
 |---|---|---|
@@ -433,11 +433,15 @@ syscribe's extensibility rests on four surfaces that compose cleanly:
 | **LLM context** | `--agent-instructions [topic]` | LLM system prompt for model authoring sessions |
 | **External refs** | `extRef:` field + `extref` command | DOORS/Polarion/Jira bridges |
 | **Graph rendering** | `connectivity --format dot`, `fault-tree render` | Automated diagram generation |
+| **Foreign-format plugins** | `foreignFormat:` + `[plugins.<alias>]` stdio subprocess | Ingest a custom notation in any language (see model-guide/stdio-plugins.md) |
+| **Annotated source** | `annotationFormat:` + `marker:` | Pull model elements out of source-code comments (see model-guide/annotated-source.md) |
 
 The design principle is that syscribe remains a focused validator and analysis engine —
 it does not try to be a report generator, a dashboard, or an external tool adapter.
 Those responsibilities belong to the scripts and pipelines that consume its JSON output.
 This keeps the tool simple, fast, and predictable, and means any language or framework
-can integrate with it without waiting for a plugin system.
+can consume it through these surfaces; where a custom input notation is needed, stdio
+`foreignFormat:` plugins and `annotationFormat:` source ingestion bring it in without
+modifying syscribe.
 
 ---

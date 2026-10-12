@@ -117,7 +117,7 @@ typedBy: Avionics::FlightControllerDef  # (Part) type
 domain: software         # system | hardware | software
 isAbstract: false
 isDeploymentPackage: false
-asilLevel: C             # propagated from satisfied requirements
+asilLevel: C             # must be authored (E843 if a satisfied requirement carries an integrity level and this element has none)
 satisfies: [REQ-UAV-FC-001]
 features:
   - name: powerIn
@@ -184,7 +184,7 @@ allocatedFrom: Software::SchedulerModule   # upstream source
 allocatedTo: Hardware::FlightComputer      # downstream target
 ```
 
-On architecture elements: `allocatedFrom: SC-BRAKE-001` (or list) references upstream controls.
+To link a `SecurityControl` to the architecture that realises it, put `allocatedTo:` on the control (or use a standalone `Allocation`). `allocatedFrom` is the derived reverse; authoring it on a non-`Allocation` element is a legacy input form only.
 
 ### native Requirement
 

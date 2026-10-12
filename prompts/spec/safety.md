@@ -30,9 +30,10 @@ avoidance: Pa               # Pa · Pb
 demandRate: W2              # W1 · W2 · W3
 ```
 
-ASIL is derived automatically from S × E × C. IEC 61508 SIL is derived from the risk
-graph. Both are informational; the integrity level on the `SafetyGoal` is the normative
-value.
+An ASIL is derived from S × E × C only to compare against the `SafetyGoal`'s authored
+`asilLevel` (`W811`). No SIL is derived from the IEC 61508 risk-graph parameters — they are
+only enum-checked (`E833`–`E836`). The integrity level authored on the `SafetyGoal` is the
+normative value.
 
 ### SafetyGoal — `SG-*`
 
@@ -323,8 +324,9 @@ E851 (unresolved `confirms`).
 **W039** — a high-integrity item lacking its required independent assessment: an `asilLevel: D`
 **or `silLevel: 3`/`silLevel: 4`** `SafetyGoal`/native `Requirement` not confirmed by an I3
 `functional_safety_assessment` (ISO 26262-2 §6 / IEC 61508-1 §8); a `calLevel: CAL4`
-`CybersecurityGoal` not confirmed by an I3 `cybersecurity_assessment`. `silLevel: 1`/`2`
-and `asilLevel: A`–`C` are future tightening. **Opt-in:** dormant unless at least one
+`CybersecurityGoal` not confirmed by an I3 `cybersecurity_assessment`; a `calLevel: CAL3`
+`CybersecurityGoal` not confirmed by an I2-or-I3 `cybersecurity_assessment`. `silLevel: 1`/`2`,
+`asilLevel: A`–`C` and `calLevel: CAL1`/`CAL2` are not gated. **Opt-in:** dormant unless at least one
 `ConfirmationMeasure` exists. Gateable (`--deny W039`).
 
 ---

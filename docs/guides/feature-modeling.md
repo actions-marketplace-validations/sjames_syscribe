@@ -397,7 +397,7 @@ syscribe -m model metrics --config CONF-RP-PICO2-HIL
 # Step 4: Run the safety-readiness audit for this variant
 syscribe -m model audit --config CONF-RP-PICO2-HIL
 
-# Step 5: Baseline it in git
+# Step 5: Baseline it in git (optionally also seal a first-class Baseline element, see below)
 git tag v1.0-CONF-RP-PICO2-HIL-2026-06-14
 
 # Step 6: Capture the evidence artefacts
@@ -407,7 +407,10 @@ syscribe -m model metrics --config CONF-RP-PICO2-HIL --json \
   > artifacts/metrics-CONF-RP-PICO2-HIL-$(git describe --tags).json
 ```
 
-The `git tag` is the baseline. The JSON artefacts are the evidence record tied to that
+The `git tag` is the baseline. For a tamper-evident, content-hashed record inside the model
+itself, `syscribe -m model baseline create --tag <tag> --frozen-scope <sel>` seals a
+first-class `Baseline` element (`BL-*`, E520/W520 on drift; see `syscribe help baseline` and
+`baseline verify|diff|list|show`). The JSON artefacts are the evidence record tied to that
 baseline. An auditor can reproduce either by checking out the tagged commit and re-running
 the same commands.
 
@@ -417,9 +420,15 @@ When a new product variant needs to be defined, the `configure` command helps na
 feature model:
 
 ```bash
-# Start with a partial selection; see what is forced and what remains free
-syscribe -m model configure "Features::CortexM33: true, Features::Amp: true"
+# Start with a draft Configuration holding the partial selection
+# (model/Configurations/CONF-NEW-001.md, status: draft, with
+#  features: {Features::CortexM33: true, Features::Amp: true}),
+# then see what is forced and what remains free
+syscribe -m model configure CONF-NEW-001
 ```
+
+`configure` takes a stored `Configuration` (id or qualified name); inline selection strings
+are accepted only by the `--config` lenses of other commands.
 
 Output tells you:
 - Which features are **forced true** by the `requires:` constraints on your selection
@@ -483,6 +492,7 @@ common to all variants, even if the *mechanism* that satisfies it varies. The me
 and safety case structure stable across the product line.
 
 **Baseline discipline**: every Configuration that ships to a customer must have a git tag
+(and, where a tamper-evident record is wanted, a sealed `Baseline` element via `baseline create`)
 before release. The tag name should encode the Configuration ID and the date. The `audit`
 output at that tag is the acceptance record.
 

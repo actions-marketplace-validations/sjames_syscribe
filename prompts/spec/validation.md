@@ -98,7 +98,7 @@
 | `W300` | Leaf `Requirement` at `approved`/`implemented` has no satisfying architecture element (not raised for `requirementKind` `process`/`regulatory`/`deliverable`) |
 | `W301` | **Retired** (GH #121) — no longer emitted; a leaf may be satisfied by several elements |
 | `W302` | Leaf `Requirement` at `implemented`/`verified` still has `reqDomain: system` (not raised for non-allocatable kinds) |
-| `W303` | `breakdownAdr:` references an ADR with `status: proposed` |
+| `W303` | `breakdownAdr:` references an ADR with `status: proposed` while the requirement is `approved`, `implemented` or `verified` |
 | `W304` | `isDeploymentPackage: true` combined with `domain: hardware` |
 | `W305` | Parent `Requirement` at `approved`/`implemented`/`verified` has no active `TestCase` at `testLevel: L3`–`L5` |
 | `W313` | An `accepted` `ADR` supersedes an ADR whose status is not `superseded` |
@@ -390,7 +390,7 @@ Level ranking: `asilLevel` A < B < C < D; `silLevel` 1 < 2 < 3 < 4.
 
 | Code | Condition |
 |---|---|
-| `W050` | A selected feature contributes no build variable (no `buildExports:`/`buildVar:`). Opt-in; gate with `--deny W050` (`E050` is in the parse-time table) |
+| `W050` | A selected feature contributes no build variable (no `buildExports:`/`buildVar:`). Catalogued but not currently emitted (the resolver computes it; no command surfaces it, so `--deny W050` has no effect). `E050` is in the parse-time table |
 
 ## Allocation and derive errors, structural warnings (E500–E506, W500–W503, W930)
 
@@ -838,7 +838,7 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `W046` | An `[ids.prefixes]` entry in `.syscribe.toml` is malformed: the key is not an id-identified element type, or a prefix does not match `^[A-Z][A-Z0-9]{1,11}$`. The offending entry/prefix is ignored; well-formed siblings still apply |
 | `W047` | A top-level frontmatter key is not a recognised schema field (and is not `custom_fields:`) — likely a typo (`reqDomian`, `verifis`). One finding per key; move author-defined data under `custom_fields:` (§3.15). Gate with `--deny W047` |
 | `W049` | `qualifiedName:` on a file without `locale:` differs from the element's path-derived qualified name. It is not an identity override (the qualified name is purely path-derived, §4.5/§11.3) and is ignored — move or rename the file instead (§3.1) |
-| `W058` | A name-identified element's `name:` differs from the file (or directory) name that forms its qualified name, so references written with the `name:` do not resolve |
+| `W058` | A name-identified element's `name:` differs from the file (or directory) name that forms its qualified name, so references written with the `name:` do not resolve (exempt: a `name:` containing a space or starting with `<`; `FeatureModel` and `FMEASheet`) |
 | `W059` | A `visibility: private` element is referenced (`supertype:`/`typedBy:`) from outside the namespace that owns it |
 | `W051` | A §3.10 locale variant is partly ignored: its target already has documentation for that locale (an earlier variant, or the element's own `locale:` — the first wins), its `type:` differs from the target's, or it declares fields other than `type`/`name`/`locale`/`qualifiedName` (a variant never redefines the element's structure) (§3.10) |
 | `W052` | A §3.10 `about:` comment is partly ignored: it declares fields other than `type`/`name`/`about`/`locale` (a comment defines no element), an `about:` entry is not a non-empty string, or `about:` lists nothing; or `about:` is set on a package `_index.md`, which defines its package and is never a comment (§3.10) |

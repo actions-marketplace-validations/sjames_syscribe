@@ -12,7 +12,7 @@ syscribe -m model validate
 # Gate W031 (untreated high-risk threats) and W015 (coverage gaps for critical reqs)
 syscribe -m model validate --deny W031,W015
 
-# Matrix for drift detection (non-zero exit if errors)
+# Requirement x Configuration test-coverage grid, gaps only (informational: exits 0; only `validate` gates)
 syscribe -m model matrix --gaps-only
 ```
 

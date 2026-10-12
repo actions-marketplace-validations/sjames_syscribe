@@ -45,7 +45,7 @@
    - 8.16 [Diagram Elements](#816-diagram-elements)
    - 8.17 [Architecture Decision Records (ADR)](#817-architecture-decision-records-adr)
    - 8.18 [Safety and Security Analysis Elements](#818-safety-and-security-analysis-elements)
-     - 8.18.7 [`Asset` (ISO/SAE 21434 §15.3)](#8187-asset-isosae-21434-153)
+     - 8.18.10 [`Asset` (ISO/SAE 21434 §15.3)](#81810-asset-isosae-21434-153)
    - 8.19 [Release Baselines (`Baseline`)](#819-release-baselines-baseline)
 9. [Variability and Variation Points](#9-variability-and-variation-points)
    - 9.1–9.4 [Structural Variation (isVariation / isVariant)](#91-variation-definitions)
@@ -278,7 +278,7 @@ Native, id-identified element types for functional safety (ISO 26262, IEC 61508,
 |---|---|---|
 | `HazardousEvent` | `HE-*` | Hazard in an operational situation, with HARA risk parameters. §8.18.1 |
 | `SafetyGoal` | `SG-*` | Top-level safety requirement from the HARA, carrying an integrity level. §8.18.1 |
-| `Asset` | `ASSET-*` | Item of value to protect, with the cybersecurity properties at stake. §8.18.7 |
+| `Asset` | `ASSET-*` | Item of value to protect, with the cybersecurity properties at stake. §8.18.10 |
 | `DamageScenario` | `DS-*` | Adverse consequence to a stakeholder if an asset is compromised. §8.18.2 |
 | `ThreatScenario` | `TS-*` | Potential attack causing damage scenarios; carries attack feasibility and risk treatment. §8.18.2 |
 | `CybersecurityGoal` | `CSG-*` | High-level security requirement countering threat scenarios, with a CAL. §8.18.2 |
@@ -318,26 +318,26 @@ All fields are **optional unless marked Required**. Defaults listed apply when t
 | Field | YAML type | Required | Default | SysML mapping |
 |---|---|---|---|---|
 | `type` | string | **Required** | — | Kind of element (Section 2) |
-| `name` | string | optional | filename stem | Element name (display name); used in qualified name resolution if present |
+| `name` | string | optional | filename stem | Element label (display name). Does **not** contribute to the qualified name — the qname segment is always the file/directory stem; a name-identified element whose `name:` differs from the stem raises `W058` |
 | `shortName` | string | optional | absent | Short name (written `<shortName>` in SysML textual notation); abbreviated identifier |
 | `qualifiedName` | string | optional | absent | **Not an identity override.** The qualified name is always derived from the path (§4.2, §4.5, §11.3). `qualifiedName:` is meaningful only on a §3.10 locale documentation variant (a file that also sets `locale:`), where it names the element the variant documents. Anywhere else a value that differs from the path-derived name is warning `W049` and is ignored. |
 | `visibility` | string | optional | `public` | Membership visibility: `public`, `protected`, `private`. This is a property of the *membership* — it controls whether this element is visible to namespaces outside its owner, not a property of the element itself. `private` means visible only within the owning package; `protected` means visible within the owning package and its specializations. |
 | `extRef` | string or list of strings | optional | absent | **External reference(s)** — this element represents an artifact managed in another tool (a requirement in DOORS Next, an element in a SysML tool, a ticket, …). See *External references* below. |
 | `responsibility` | string | optional | absent | **Accountable party/organisation** for this work product (the DIA/CIA split, e.g. `OEM` / `Supplier-X`; ISO 26262-8 §5 / ISO/SAE 21434 §7). A non-draft work product with no `responsibility:` warns `W038` (opt-in; see §11.12). |
 
-**Name resolution rule:** The element's qualified name segment is the `name:` field value if present, otherwise the filename stem (filename without `.md`). The full qualified name is the `::` join of all ancestor package names and the element's own name, starting from the model root (excluding the model root's own name unless it is a named package).
+**Name resolution rule:** The element's qualified name segment is always the filename stem (filename without `.md`), or the directory name for a package; `name:` is only a label and never changes the qualified name. A name-identified element whose `name:` differs from its stem raises `W058` (exempt: a `name:` containing a space or starting with `<`, and `FeatureModel` / `FMEASheet` elements); references must use the stem. The full qualified name is the `::` join of all ancestor directory names and the element's own stem, starting below the model root (the root's own name is never part of a qualified name).
 
-**Basic-name grammar (naming convention).** An element name (and therefore each qualified-name segment that references it) **should** be a SysMLv2 **basic name**: `^[A-Za-z_][A-Za-z0-9_]*$` — a letter or `_`, then letters, digits or `_`. Hyphens, spaces and other punctuation are not permitted: a hyphen is the subtraction operator in the `appliesWhen:` and `parameterConstraints` expression grammars, so a name like `Anti-Lock` parses fine as a file/qname but **cannot** be referenced in those expressions (it raises `E209`). A non-basic name raises warning `W042`; rename using `_` or CamelCase (`Anti-Lock` → `Anti_Lock` / `AntiLock`). Stable ids (`REQ-*`, `TC-*`, …) are exempt — they have their own grammar and legitimately contain `-`. (SysMLv2 *unrestricted* quoted names, e.g. `'Anti-Lock'`, are not supported.)
+**Basic-name grammar (naming convention).** Each qualified-name segment — the file stem (or directory name) of an element — **should** be a SysMLv2 **basic name**: `^[A-Za-z_][A-Za-z0-9_]*$` — a letter or `_`, then letters, digits or `_`. Hyphens, spaces and other punctuation are not permitted: a hyphen is the subtraction operator in the `appliesWhen:` and `parameterConstraints` expression grammars, so a name like `Anti-Lock` parses fine as a file/qname but **cannot** be referenced in those expressions (it raises `E209`). A non-basic stem raises warning `W042` (it checks the file/directory stem, not the `name:` label); rename using `_` or CamelCase (`Anti-Lock` → `Anti_Lock` / `AntiLock`). Stable ids (`REQ-*`, `TC-*`, …) are exempt — they have their own grammar and legitimately contain `-`. (SysMLv2 *unrestricted* quoted names, e.g. `'Anti-Lock'`, are not supported.)
 
 This applies to **every** qualified-name segment, including **package / directory names** — both a package declared with an `_index.md` and a plain directory without one. Requirements and other stable-id elements are unaffected (their `REQ-*`/`TC-*` ids are exempt); only the directories that contain them must be basic names.
 
 **`name` is the single, universal label field.** Every element type — id-identified and name-identified alike — carries **`name`** as its one human-readable label (SysMLv2 `declaredName`). There is no longer a per-identity-class split between `name` and `title`.
 
-- **`name`** is the label on all types. It is optional in general but **required** on every type that previously required a label — the id-identified types: `Requirement`, `TestCase`, `TestPlan`, `Configuration`, `ADR`, `ConfirmationMeasure`, `HazardousEvent`, `SafetyGoal`, `DamageScenario`, `ThreatScenario`, `CybersecurityGoal`, `SecurityControl`, `VulnerabilityReport`, `TARASheet`, `FaultTree`, `FaultTreeGate`, `FaultTreeEvent`, `FMEASheet`, `FMEAEntry`, `AttackTree`, `AttackTreeGate`, `AttackStep`, `Argument`, `AssumptionOfUse`. For these id-identified types `name` is **free prose** (spaces and punctuation allowed; the basic-name grammar `W042` does **not** apply, because identity is the stable `id`). For name-identified types (all SysML structural types — `PartDef`, `Part`, `Port`, `ActionDef`, … — plus `Package`, `Diagram`, and `FeatureDef`) `name` is **both** the label **and** the qualified-name/identity segment, so the basic-name grammar applies to it.
+- **`name`** is the label on all types. It is optional in general but **required** on every type that previously required a label — the id-identified types: `Requirement`, `TestCase`, `TestPlan`, `Configuration`, `ADR`, `ConfirmationMeasure`, `HazardousEvent`, `SafetyGoal`, `DamageScenario`, `ThreatScenario`, `CybersecurityGoal`, `SecurityControl`, `VulnerabilityReport`, `TARASheet`, `FaultTree`, `FaultTreeGate`, `FaultTreeEvent`, `FMEASheet`, `FMEAEntry`, `AttackTree`, `AttackTreeGate`, `AttackStep`, `Argument`, `AssumptionOfUse`. For these id-identified types `name` is **free prose** (spaces and punctuation allowed; the basic-name grammar `W042` does **not** apply, because identity is the stable `id`). For name-identified types (all SysML structural types — `PartDef`, `Part`, `Port`, `ActionDef`, … — plus `Package`, `Diagram`, and `FeatureDef`) `name` is the label, and — by convention — should equal the file/directory stem that forms the qualified-name segment (a differing `name:` is `W058`); the basic-name grammar `W042` is applied to the stem.
 - **`id`** (the stable shortName, such as `REQ-*`, `TC-*`, `HE-*`) remains the identity of the id-identified types — files stay `<id>.md` and cross-references resolve by id. The `id` axis and the `name` (label) axis are independent.
 - **`title` is removed.** It is no longer a recognized label field on any element. Declaring a `title:` on **any** element — id-identified or name-identified — is error **`E025`** ("the `title` field is removed — rename it to `name`"). Error **`E024`** (formerly: a `name:` on an id-identified type) is **retired** — `name` is now the correct, required label on those types.
 
-`FeatureDef` is name-identified (its `name` is its label *and* qualified-name segment) and *also* carries a **mandatory** stable `id` (its `FEAT-*` shortName, §9.6 — a feature with no `id` is `E201`). The `id` axis (shortName) and the `name` (label) axis are independent: under the unified rule a `FeatureDef` carries `name` + `id` and no `title`.
+`FeatureDef` is name-identified (its `name` is its label; its file stem is the qualified-name segment) and *also* carries a **mandatory** stable `id` (its `FEAT-*` shortName, §9.6 — a feature with no `id` is `E201`). The `id` axis (shortName) and the `name` (label) axis are independent: under the unified rule a `FeatureDef` carries `name` + `id` and no `title`.
 
 **External references (`extRef`).** A Syscribe element often mirrors an artifact that lives in another tool. `extRef:` records that correspondence as one or more **opaque** strings — a URI (`https://dng.example/resources/4521`) or a tool-qualified token (`DNG:4521`, `cameo://model/Engine#id-99`) — given either as a single string or a list. The field is optional and its syntax is unconstrained (external systems use widely varying identifier schemes). `extRef` is an *external* pointer: it is **not** a model cross-reference and is never a valid target for `supertype:`, `verifies:`, `derivedFrom:`, connections, etc. Look up the element(s) that carry a given reference with `syscribe -m <root> extref <ref>`. The same `extRef` value on two or more elements is permitted but warned (`W028`), since an external artifact normally maps to a single element.
 
@@ -355,12 +355,12 @@ extRef:
 | `isAbstract` | bool | optional | `false` | `abstract` keyword; definition or usage is abstract |
 | `isVariation` | bool | optional | `false` | `variation` keyword; element is a variation point |
 | `isVariant` | bool | optional | `false` | `variant` keyword; element is one variant within a variation |
-| `isIndividual` | bool | optional | `false` | `individual` keyword on occurrence *usages*; declares that this usage represents a specific unique individual, not an abstract role. Applies to usages only (for definitions use `type: IndividualDef`). Implies multiplicity `"0..1"` at most; a parser should warn if multiplicity upper bound exceeds 1. |
+| `isIndividual` | bool | optional | `false` | `individual` keyword on occurrence *usages*; declares that this usage represents a specific unique individual, not an abstract role. Applies to usages only (for definitions use `type: IndividualDef`). Implies multiplicity `"0..1"` at most (an upper bound above 1 is not currently diagnosed). |
 | `isReadonly` | bool | optional | `false` | `readonly` keyword; usage value cannot be changed after initialization |
 | `isDerived` | bool | optional | `false` | `derived` keyword; value is fully determined by an expression |
 | `isEnd` | bool | optional | `false` | Marks a connection end feature |
 | `isPortion` | bool | optional | `false` | `portion` kind on occurrences; marks this usage as a temporal sub-extent of its owning occurrence |
-| `portionKind` | string | optional | `timeslice` | Required when `isPortion: true`; `timeslice` (contiguous temporal extent) or `snapshot` (zero-duration instantaneous point) |
+| `portionKind` | string | optional | `timeslice` | Intended for `isPortion: true` (not currently enforced); `timeslice` (contiguous temporal extent) or `snapshot` (zero-duration instantaneous point) |
 | `isReference` | bool | optional | `false` | `ref` keyword; usage is referential (not composite) |
 | `isComposite` | bool | optional | `true` (for part/item usages owned by a def/usage) | Composite vs. referential ownership |
 | `isConstant` | bool | optional | `false` | `constant` keyword; value fixed for the lifetime of the featuring occurrence |
@@ -375,7 +375,7 @@ Default compositeness by context:
 - Usages owned inside a `PartDef`, `ItemDef`, `ActionDef`, or similar definition → composite (`isReference: false`) by default.
 - Usages directly owned by a `Package` → referential by default.
 
-Certain usage kinds **imply** `isReference: true` regardless of the field value. A conformant parser must enforce this and emit a warning if `isReference: false` is explicitly set on these kinds:
+Certain usage kinds **imply** `isReference: true` regardless of the field value. These kinds are always referential; setting `isReference: false` explicitly on them is not currently diagnosed:
 
 | Usage kind | Reason |
 |---|---|
@@ -791,7 +791,7 @@ A **suspect link** is a trace link whose target changed after the link was last 
 
 | Field | YAML type | Required | Default | Description |
 |---|---|---|---|---|
-| `traceBaselines` | map of string → string | optional | absent | Key: the link target exactly as authored on the link (stable id or qualified name). Value: `blake3:<hex>` of the target's **normative projection** — its Markdown body plus its frontmatter minus the editorial fields `name`, `displayOrder`, `extRef`, `title`, `traceBaselines`, `layout`, `shapes`, `edges`, `svgFile`, `pumlFile`. One map covers every link kind on the element. |
+| `traceBaselines` | map of string → string | optional | absent | Key: the link target exactly as authored on the link (stable id or qualified name). Value: `blake3:<hex>` of the target's **normative projection** — its Markdown body plus its frontmatter minus the editorial fields `name`, `displayOrder`, `extRef`, `title`, `traceBaselines`, `layout`, `shapes`, `edges`, `svgFile`, `pumlFile`, and the workflow fields `claimedBy`, `claimedAt`, `assignedTo` and `status` (`status` is excluded only while it is ordinary lifecycle progress; it stays in the projection once it is a retiring status — `deprecated`, `superseded`, `obsolete`, `rejected`, `withdrawn`, `wont_fix`, `false_positive`, `not_affected`). One map covers every link kind on the element. |
 
 Frontmatter excerpt (the TestCase's Gherkin body is omitted; the hash is illustrative):
 
@@ -884,16 +884,15 @@ The following packages are part of the SysML v2 standard library. A parser must 
 
 | Package | Contents |
 |---|---|
-| `ScalarValues` | Primitive scalar types: `Integer`, `Real`, `String`, `Boolean`, `Natural` |
-| `Base` | Base types: `Anything`, `DataValue` |
+| `ScalarValues` | Primitive scalar types: `Integer`, `Real`, `Natural`, `Boolean`, `String`, `Rational`, `Complex`, `Number`, `NumericalValue`, `ScalarValue`, `Positive` |
+| `Base` | Base types: `Anything`, `DataValue` (plus the multiplicity features `things`, `dataValues`, `naturals`, `exactlyOne`, `zeroOrOne`, `oneToMany`, `zeroToMany`) |
 
 These two packages have a **fully known** membership, so a type reference to a recognised
 member (e.g. `typedBy: ScalarValues::Real`, `supertype: Base::DataValue`) resolves cleanly
-— it raises **no** `W404`/unresolved-reference finding — while a reference into one of them
+— it raises no unresolved-reference finding — while a reference into one of them
 to a member it does **not** declare (e.g. `ScalarValues::Flota`) is flagged as a likely typo
 with warning **`W043`**, listing the package's known members. The import-only packages below
-are **not** enumerated, so references into them stay lenient (an unresolved `typedBy:` is at
-most `W404`; never `W043`).
+are **not** enumerated, so references into them are never `W043` and resolve leniently as standard-library references (`W404` applies only to an operation's parameter and return types, §8.3).
 
 **Available via explicit import:**
 
@@ -927,8 +926,7 @@ large open packages, the tool recognises a **curated subset** — the `ISQ` quan
 types (`MassValue`, `ForceValue`, `EnergyValue`, `VoltageValue`/`ElectricPotentialValue`,
 …) and the `SI` units (the seven base units plus common derived units), accepting both the
 **full name** (`SI::kilogram`) and the common **symbol** (`SI::kg`, or a bare `kg`). A
-recognised member resolves cleanly (no `W404`); an *unrecognised* `ISQ`/`SI` member is
-**lenient** (never `W043`, unlike the closed `ScalarValues`/`Base` packages), and the
+recognised member resolves cleanly; an *unrecognised* `ISQ`/`SI` member on an inline feature's `typedBy:` or `unit:` is warning **`W057`** (a likely typo, since the tool's tables are a subset of the library — never `W043`, unlike the closed `ScalarValues`/`Base` packages), and the
 `unit:` field stays fully permissive (non-SI/domain units like `USD`, `kWh`, `percent` are
 accepted). When an element/feature declares **both** a recognised quantity type
 (`typedBy: ISQ::…`) **and** a recognised unit (`unit: SI::…`), the tool checks their
@@ -1037,7 +1035,7 @@ Common forms:
 - If only a single token is given (`"4"` or `"maxItems"`), both bounds equal that value.
 - `*` is the only shorthand for an unbounded upper; it may not appear as the lower bound.
 - The lower bound must resolve to a non-negative integer at evaluation time.
-- When a bound is not a valid integer literal or `*`, it is treated as a qualified-name reference and resolved during the same cross-reference resolution pass as all other qualified names (§11.3). A parser must report an unresolved bound reference as a validation error.
+- When a bound is not a valid integer literal or `*`, it is treated as a qualified-name reference and resolved during the same cross-reference resolution pass as all other qualified names (§11.3). The tool does not currently resolve bound names: an unresolved name bound is not reported (only a malformed bound such as `*..3` or a negative number is `E118`).
 
 **Feature-reference bound example:**
 
@@ -2310,7 +2308,7 @@ Exhibits the top-level operating state machine, binding speed to the vehicle's c
 ```
 
 **Type-specific rules:**
-- `isReference` is always `true`; the parser must enforce this and may emit a warning if explicitly set to `false`.
+- `isReference` is always `true`; an explicit `false` is not currently diagnosed.
 - `typedBy` is required (an exhibit-state usage must reference a `StateDef`).
 - `bindingConnections` follow the same schema as §8.4.3.
 
@@ -2585,7 +2583,7 @@ Top-level satisfaction and verification fields on any element:
 | Field | YAML type | Default | Description |
 |---|---|---|---|
 | `satisfies` | list of strings | absent | Qualified names of Requirement usages this element satisfies |
-| `implementedBy` | string or list | absent | Path(s) to the source artifact(s) realising this `Part`/`PartDef`. Resolved like `sourceFile`; missing local paths emit W023 (§12.8) |
+| `implementedBy` | string or list | absent | Path(s) to the source artifact(s) realising this `Part`/`PartDef`/`Interface`/`InterfaceDef`. Resolved like `sourceFile`; missing local paths emit W023 (§12.8) |
 
 `verifiedBy` is **not** an authored field. It is the reverse index of `verifies:`, computed at load time (§11.11) and never written to a file (§12.1); author the link on the verifying element with `verifies:`.
 
@@ -2628,7 +2626,7 @@ This is distinct from the SysML-usage `Requirement` (§8.11.3), which is typed b
 |---|---|---|---|
 | `type` | literal `Requirement` | **Required** | Discriminator. |
 | `id` | string | **Required** | Stable opaque ID matching `^REQ(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`. Unique across the model. Never changes. |
-| `name` | string | **Required** | One-line human-readable label — free prose (spaces/punctuation allowed; `W042` does not apply). Max 120 chars. No newlines. |
+| `name` | string | **Required** | One-line human-readable label — free prose (spaces/punctuation allowed; `W042` does not apply). No newlines. |
 | `status` | enum | **Required** | Lifecycle state: `draft`, `review`, `approved`, `implemented`, `verified`. |
 | `reqClass` | enum | optional | Position in the stakeholder→system **decomposition**: `stakeholder`, `system`, or `derived`. Recognised, first-class field (REQ-TRS-SCHEMA-002); records authoring intent independently of `derivedFrom`. Informational only: the value is **not** validated and drives no rule. |
 | `requirementKind` | enum | optional | **Kind of requirement by its subject**: `stakeholder`, `system`, `software`, `hardware`, `process`, `regulatory`, or `deliverable` (the last three — process capability, regulatory compliance, deliverables — are not architecture-allocatable: a leaf of such a kind raises neither `W300` nor `W302`). Emitted by `syscribe template Requirement`. The value **is** validated — anything else is error `E022`. Apart from that exemption it drives no traceability rule; the domain rules of §12.5 use `reqDomain`. |
@@ -2679,7 +2677,7 @@ Recommended layout:
 <WCET analysis, implementation pointers, related standards clauses>
 ```
 
-Validation: normative text must be non-empty (`E012`); should contain `shall` (warning `W001` if absent).
+Validation: normative text must be non-empty (`E012`); should contain `shall` (warning `W001` if absent). The normative text is everything before the first line that begins `## ` (or `# `) after the start of the body; a body that begins directly with a `## ` heading is therefore treated as all normative text, so `E012` does not fire and `W001` is the result.
 
 **Complete example:**
 
@@ -2862,7 +2860,7 @@ The native `TestCase` type is a **first-class element** for structured, executab
 |---|---|---|---|
 | `type` | literal `TestCase` | **Required** | Discriminator. |
 | `id` | string | **Required** | Stable opaque ID matching `^TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`. Unique across the model. |
-| `name` | string | **Required** | One-line human-readable label — free prose (spaces/punctuation allowed). Max 120 chars. |
+| `name` | string | **Required** | One-line human-readable label — free prose (spaces/punctuation allowed). |
 | `status` | enum | **Required** | Lifecycle state: `draft`, `review`, `approved`, `active`, `retired`. |
 | `testLevel` | enum L1–L5 | **Required** | Verification layer (see table below). |
 | `verifies` | list of id-or-qualname | **Required** | Requirements this test exercises. At least one entry. All must resolve. |
@@ -2889,6 +2887,8 @@ The native `TestCase` type is a **first-class element** for structured, executab
 | `L3` | Formal proof | `cargo kani` |
 | `L4` | Integration — emulator | `cargo test --target thumbvNm-none-eabi` + QEMU |
 | `L5` | Hardware-in-the-loop | HIL bench + probe-rs |
+
+The tool attaches only these semantics to the levels: `L1`/`L2` are *leaf-level* checks and never satisfy a parent requirement's integration-coverage rule (`W305`); `L3`, `L4` and `L5` count as *integration-level* for `W305` (and for the `W310` bar on a `done` `PlanningItem`); `L5` (HIL) is the level an `asilLevel: D` requirement needs (`W702`) and, unless a timing/wcet-tagged test is used, the measuring level a `wcet:` budget needs (`W029`). The `verification-depth` report flags a requirement verified at `L5` only as `hil-only`. The runner column is a typical choice, not enforced.
 
 **ID pattern:** `^TC(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`
 - Examples: `TC-SCHED-BITMAP-001`, `TC-BRAKE-FADE-002`
@@ -3342,7 +3342,7 @@ A `Diagram` file (`type: Diagram`) depicts part of the model. Its `diagramKind:`
 |---|---|
 | has a `shapes:` block | **manifest** — the author listed the content in `shapes:`/`edges:` (§8.16.3–8.16.4) |
 | has a `subject:` and no `shapes:` | **derived** — the generator for `diagramKind:` walks the subject and produces the content |
-| has neither | nothing to draw; `W400`/`W401` already cover the missing pieces |
+| has neither | nothing to draw; a diagram with a `diagramKind:` but neither `shapes:` nor `subject:` raises no finding (`W400` is a missing `diagramKind:`, `W401` an unresolved `subject:`) |
 
 A `shapes:` key with a null value does not select the manifest. Only kinds that build an IR (everything but `Mermaid` and `PlantUML`) have a source at all.
 
@@ -3707,7 +3707,7 @@ edges:
 A conformant parser must:
 
 1. **Reference validation** — every `ref` value in `shapes:` must resolve to a model element. An unresolved shape `ref` is warning `W402` (suppressed when an ancestor qualified name resolves, which covers inline features such as `Part::port`). A shape `link:` that does not resolve is `W411`; an SVG `href` that matches no model element is `W412`.
-2. **Type compatibility** — the CSS class on an SVG shape must match the `type:` of the referenced model element (e.g., a shape with `class="PartDef"` whose `ref` resolves to a `RequirementDef` is an error).
+2. **Type compatibility** — the CSS class on an SVG shape is intended to match the `type:` of the referenced model element (e.g., a shape with `class="PartDef"` whose `ref` resolves to a `RequirementDef` would be a mismatch). This is not currently checked.
 3. **ID consistency** — for inline SVG, every `id` key in the frontmatter `shapes:` and `edges:` maps must appear as an `id` attribute in the SVG (`W406`), and every SVG `id` must appear in the manifest (`W407`). The check applies **only** to a diagram whose SVG is inline (`svgMode: inline`, or `svgMode:` absent on a hand-authored-SVG diagram). It is skipped for every rendering path that has no inline SVG by design: a PlantUML companion diagram (`pumlMode: companion` — its manifest feeds the generated `.puml`, and the `.puml`/`.svg` companions are the source of truth), a companion-SVG diagram (`svgMode: companion` or `svgFile:` set), a `diagramKind: Mermaid`/`PlantUML` diagram, and a structured diagram with a `layout:` block and no ` ```svg ` block in its body (the server renders its SVG).
 4. **Edge endpoint validity** — `source` and `target` values in `edges:` must be keys present in `shapes:`; otherwise warning `W403`.
 5. **Subject existence** — the `subject:` qualified name must resolve to a model element; otherwise warning `W401`.
@@ -4565,7 +4565,7 @@ An `ADR` file is a first-class model element that documents a significant design
 |---|---|---|---|
 | `type` | literal `ADR` | **Required** | Discriminator. |
 | `id` | string | **Required** | Stable opaque ID matching `^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`. Unique across the model. Never changes. |
-| `name` | string | **Required** | One-line human-readable label — free prose. Max 120 chars. |
+| `name` | string | **Required** | One-line human-readable label — free prose. |
 | `status` | enum | **Required** | Lifecycle state: `proposed`, `accepted`, `deprecated`, `superseded`. |
 | `date` | string | optional | ISO-8601 date the decision was made (e.g., `"2026-05-26"`). |
 | `deciders` | list of strings | optional | Qualified names of stakeholder `PartDef` elements or free-text names of the decision-makers. Display metadata, not a cross-reference: entries are not resolved (a free-text name is legitimate) and are printed by `show`. A single string is accepted as a one-entry list. Recognized only on `ADR`; on any other type it is an unrecognized field (`W047`). |
@@ -4721,7 +4721,7 @@ Safety/FTA/FT-BRAKE-001/
 
 | Element type | ID pattern | Description |
 |---|---|---|
-| `FMEASheet` | `FMEA-*` | Container with an `entries:` list; each entry is a failure mode row with `failureMode:`, `effect:`, `cause:`, `fmeaSeverity:`, `occurrence:`, `detection:` (1–10 each), optional `rpn:` (auto-computed when absent), and a `recommendedAction:` mitigation. |
+| `FMEASheet` | `FMEA-*` | Container with an `entries:` list; each entry is a failure mode row with `failureMode:`, `effect:`, `cause:`, `fmeaSeverity:`, `occurrence:`, `detection:` (1–10 each), optional `rpn:` (auto-computed when absent), and a `recommendedAction:` mitigation. A row may also carry FMEDA data — `failureRate:` (λ, /h), `diagnosticCoverage:` and `latentDiagnosticCoverage:` (0.0–1.0) — plus `ftaRef:` (the reconciling `FaultTreeEvent`; an unresolved or non-event target is `W927`). A row with a `failureRate:` whose `ftaRef:` resolves supplies that event's λ/DC/DCl to the SPFM/LFM/PMHF roll-up (§ Quantitative HW safety metrics, `W033`), unless the event declares its own `failureRate:` (the event wins; never double-counted). |
 
 Each row is synthesised at parse time into a virtual `FMEAEntry` element (`FM-*` ID) for cross-reference and validation purposes.
 
@@ -4750,7 +4750,7 @@ Security/Attacks/AT-TORQUE-001/
 
 #### 8.18.9 Safety mechanisms (`SafetyMechanism`)
 
-`SafetyMechanism` (`SM-*`, GH #236) makes "which mechanism covers which failure mode, with what diagnostic coverage and reaction time" answerable from the model. `status` is `draft`, `review`, `approved` or `retired`. `covers:` (string or list) names the `FMEAEntry`, `FaultTreeEvent`, `Requirement`, `SafetyGoal` or `HazardousEvent` elements covered (unresolved or of another type → E897). `diagnosticCoverage` and `latentDiagnosticCoverage` are numbers in 0..1 (the generic E846 reports a value outside, or text); `reactionTime` is a duration (`10 ms`; not a duration → E896); `safeState` is text; `allocatedTo:` names where the mechanism runs. A non-draft, non-retired mechanism whose `reactionTime` exceeds the `ftti` (or `ftti` quantity) of a goal it covers — directly, or through a covered requirement's `derivedFromSafetyGoal` found along its `derivedFrom` chain — is W894 (FMEA rows, fault-tree events and hazardous events are not followed to a goal). `syscribe mechanisms` lists them; `--uncovered` lists the `FMEAEntry` rows no mechanism covers. The hardware FMEDA table feeding SPFM/LFM is not yet modelled.
+`SafetyMechanism` (`SM-*`, GH #236) makes "which mechanism covers which failure mode, with what diagnostic coverage and reaction time" answerable from the model. `status` is `draft`, `review`, `approved` or `retired`. `covers:` (string or list) names the `FMEAEntry`, `FaultTreeEvent`, `Requirement`, `SafetyGoal` or `HazardousEvent` elements covered (unresolved or of another type → E897). `diagnosticCoverage` and `latentDiagnosticCoverage` are numbers in 0..1 (the generic E846 reports a value outside, or text); `reactionTime` is a duration (`10 ms`; not a duration → E896); `safeState` is text; `allocatedTo:` names where the mechanism runs. A non-draft, non-retired mechanism whose `reactionTime` exceeds the `ftti` (or `ftti` quantity) of a goal it covers — directly, or through a covered requirement's `derivedFromSafetyGoal` found along its `derivedFrom` chain — is W894 (FMEA rows, fault-tree events and hazardous events are not followed to a goal). `syscribe mechanisms` lists them; `--uncovered` lists the `FMEAEntry` rows no mechanism covers. The hardware FMEDA data feeding SPFM/LFM is carried on FMEA rows (§8.18.4), not on `SafetyMechanism`.
 
 #### 8.18.8 Structured timing quantities (`quantities:`)
 
@@ -4778,7 +4778,7 @@ supporting `Argument` tree (recursing into sub-Arguments), each Argument's evide
 `SafetyGoal ← Requirement (derivedFromSafetyGoal) ← TestCase (verifies)` so it is useful
 on models that have goals + requirements + tests but no explicit `Argument` nodes.
 
-#### 8.18.7 `Asset` (ISO/SAE 21434 §15.3)
+#### 8.18.10 `Asset` (ISO/SAE 21434 §15.3)
 
 An `Asset` is an item of value that an attacker may want to compromise — the starting point of a TARA. Damage scenarios name the assets they harm with `assets:`.
 
@@ -4966,7 +4966,7 @@ A `FeatureDef` represents one node in a feature model tree. It may be a leaf fea
 | Field | YAML type | Required | Default | Description |
 |---|---|---|---|---|
 | `type` | literal `FeatureDef` | **Required** | — | Discriminator. |
-| `name` | string | optional | filename stem | Label and qualified-name segment of the feature (a `FeatureDef` is name-identified). A `title:` here is error `E025`. |
+| `name` | string | optional | filename stem | Label of the feature (a `FeatureDef` is name-identified; the qualified-name segment is the file/directory stem, and a differing `name:` is `W058`). A `title:` here is error `E025`. |
 | `id` | string | **Required** | — | Stable short-name matching `^FEAT(-[A-Z0-9]{2,12})+$` (e.g. `FEAT-ABS`, `FEAT-QUADROTOR`, `FEAT-ABS-001`). Every feature **must** declare one — a missing `id` is `E201`. Unlike other stable ids it **need not** end in a number. The feature may be referenced by this id **or** its qualified name in `appliesWhen:` and `Configuration` `features:` keys (§9.8). A malformed `FEAT` id is `E006`; a duplicate is `E101`. The `id` and `name` are independent axes. |
 | `groupKind` | enum | optional | `optional` | How this feature's **children** are grouped (see table below). |
 | `mandatory` | bool | optional | `false` | **Membership** of this feature relative to its parent, orthogonal to `groupKind`: `true` means the feature is selected whenever its parent is (parent ⇒ feature), or always selected when top-level. A node may be both `mandatory: true` and `groupKind: alternative` — a mandatory XOR group (every product selects exactly one child). The legacy `groupKind: mandatory` is a shorthand for `mandatory: true` on a feature that sets no `mandatory:` field. |
@@ -5118,7 +5118,7 @@ Each entry in a `FeatureDef`'s `parameters:` list is a map with the following fi
 | `name` | string | **Required** | — | Parameter name, unique within this `FeatureDef`. |
 | `type` | string | **Required** | — | Qualified name of the parameter type. Must resolve to a scalar type (`ScalarValues::Real`, `ScalarValues::Integer`, `ScalarValues::String`, `ScalarValues::Boolean`, `ScalarValues::Natural`) or an `EnumerationDef`. |
 | `unit` | string | optional | absent | Qualified name of the SI unit. Applies only when `type` is a quantity type. |
-| `range` | string | optional | absent | Inclusive bounds as a multiplicity-style string `"min..max"`. Both bounds are literal numbers. Applies to numeric types only. |
+| `range` | string | optional | absent | Inclusive bounds as a multiplicity-style string `"min..max"` (the explicit-inclusive form `"min..=max"` is also accepted). Both bounds are literal numbers. Applies to numeric types only. |
 | `enumValues` | list of strings | optional | absent | Explicit set of valid string values when `type` is `ScalarValues::String` and finer constraint than a full `EnumerationDef` is desired. |
 | `default` | scalar | optional | absent | Default value used when the parameter is not explicitly bound in a `Configuration`. If absent and `isRequired: true`, every selecting `Configuration` must bind it. |
 | `isFixed` | bool | optional | `false` | If `true`, the parameter value is fixed by the feature definition itself (the `default` or `value` field) and may not be overridden in a `Configuration`. Validation error if a `Configuration` attempts to bind it. |
@@ -5280,10 +5280,10 @@ Configuration IDs follow the pattern `^CONF(-[A-Z0-9]{2,12})+$`. Like `FEAT-*` a
 |---|---|---|---|---|
 | `type` | literal `Configuration` | **Required** | — | Discriminator. |
 | `id` | string | **Required** | — | Stable ID matching `CONF-*` pattern. |
-| `name` | string | **Required** | — | One-line human-readable label — free prose (spaces/punctuation allowed). Max 120 chars. |
+| `name` | string | **Required** | — | One-line human-readable label — free prose (spaces/punctuation allowed). |
 | `status` | enum | **Required** | — | `draft`, `review`, `approved`, `released`, `retired`. |
 | `featureModel` | string | **Required** | — | Qualified name of the feature model package this configuration selects from. |
-| `features` | map | **Required** (optional with `derivedFrom:`) | — | Feature selection: `FeatureDef qualified name: true/false`. All features in the model must appear; defaults apply for absent entries (see §9.6). A configuration with a `derivedFrom:` base declares only the entries it overrides (see *Configuration inheritance* below). |
+| `features` | map | optional | — | Feature selection: `FeatureDef qualified name: true/false`. A feature that does not appear takes its default (§9.10); an absent or empty `features:` map selects nothing and raises `W016`. A configuration with a `derivedFrom:` base declares only the entries it overrides (see *Configuration inheritance* below). |
 | `parameterBindings` | map | optional | absent | Parameter value assignments keyed by the canonical dotted reference: `<FeatureDef qname>.<paramName>: <value>`. Resolves transitively through `subConfigurations:` (§14.7) at any depth, using the parameter's ordinary, already-mounted qname. |
 | `subConfigurations` | string or list | optional | absent | One or more other `Configuration` elements this one consolidates — reachable locally or via a `[repos]`-mounted peer repo (§14.7, `ADR-SYS-HPLE-001`). |
 | `satisfies` | list of strings | optional | absent | For component `Configuration` only: qualified names of system-level `FeatureDef` elements this configuration realises. This is the sole top-down binding in the two-level model. |
@@ -5361,7 +5361,7 @@ Long-range variant using 2.4 GHz band for better penetration in forested areas.
 2. **Effective selection.** The child's effective `features:` is the base's *effective* selection overlaid by the child's own `features:` entries — a child entry wins over the inherited entry for the same feature (a `FEAT-*` id key and the FeatureDef's qualified name name the same feature). Inheritance chains compose (a grandchild inherits through its parent).
 3. **Effective bindings.** The child keeps every `parameterBindings:` entry it declares; an inherited entry is kept unless the child binds the same `<feature>.<param>` itself, or the child's own `features:` sets that feature to `false` (a binding for a feature the child switched off is not carried over).
 4. **Nothing else is inherited** — `status`, `featureModel`, `subConfigurations:`, `buildOverrides:`, `baselineRef`, `tags` stay per-file.
-5. **Everything reads the effective selection** — projection (`--config`), `matrix`, `configure`, `validate --config`/`--all-configs`, `feature-check` (incl. `--deep` configuration validity), `build-config`, the per-Configuration rules (`E203`–`E206`, `E216`–`E220`, `W015`–`W017`) and `subConfigurations:` consolidation (a consolidated Configuration's inherited bindings close its parameters for `E523`/`W513`). `show` marks inherited entries. The authored file is never rewritten. The effective selection is a property of the **whole** model (it depends on the base chain), so a tool that re-parses a single `Configuration` on its own — such as the language server's rename-safety check — re-derives inheritance over the full element set rather than reading the re-parsed file in isolation.
+5. **Everything reads the effective selection** — projection (`--config`), `matrix`, `configure`, `validate --config`/`--all-configs`, `feature-check` (incl. `--deep` configuration validity), `build-config`, the per-Configuration rules (`E203`–`E206`, `E219`/`E220`, `W015`–`W017`; `E216`–`E218` are never emitted — `feature-check --deep` reports group violations as `E225`) and `subConfigurations:` consolidation (a consolidated Configuration's inherited bindings close its parameters for `E523`/`W513`). `show` marks inherited entries. The authored file is never rewritten. The effective selection is a property of the **whole** model (it depends on the base chain), so a tool that re-parses a single `Configuration` on its own — such as the language server's rename-safety check — re-derives inheritance over the full element set rather than reading the re-parsed file in isolation.
 6. **Checks.** A Configuration's `derivedFrom:` is not a requirement derivation: it never raises `E105`/`E017` and never enters `derivedChildren`. Instead: `E234` the base does not resolve, `E235` it resolves to a non-`Configuration`, `E236` the configuration is on an inheritance cycle, `E237` more than one base is named (a child with any of these inherits nothing), and `E215` the base is not `approved`/`released`.
 
 ---
@@ -5705,6 +5705,8 @@ These edges enable the following standard queries without full model traversal:
 
 ## 10 Worked Examples
 
+> **Illustrative fragments.** The examples in this section show the shape of each construct. They are *fragments*, not self-contained models: they reference elements, types and library members (for example `REQ-VEH-TRANSPORT-001`, the vehicle part definitions, `ModelingMetadata::StatusInfo`) that are defined elsewhere or not at all, so pasting one into a model as written will raise unresolved-reference findings. Complete models are under `examples/`.
+
 ### 10.1 Vehicle System Structure (BDD + IBD)
 
 **Directory layout:**
@@ -5967,7 +5969,7 @@ name: Allocations
 ```yaml
 ---
 type: Allocation
-name: functionalAllocation
+name: FunctionalAllocation
 typedBy: Allocations::FunctionalToPhysical
 allocatedFrom: VehicleBehavior::ProvidePower
 allocatedTo: PhysicalArch::EngineControlUnit
@@ -6030,20 +6032,17 @@ This section defines the normative behavior required of a conformant Markdown-Sy
 1. The parser is initialized with a **model root** directory path.
 2. The parser **recursively** walks all subdirectories of the model root.
 3. All files with the `.md` extension are candidate element files.
-4. Files and directories matching any of the following patterns are ignored:
-   - `.git/`, `.github/`, `node_modules/`, `target/`, `dist/`
-   - Files/directories whose names begin with `.` (hidden files)
-   - A `.sysmlignore` file at the model root may list additional ignore glob patterns, one per line, using standard gitignore syntax.
+4. There is **no built-in ignore list**: `.git/`, `node_modules/`, dot-files and every other `.md` file under the root are loaded (keep the model root free of unrelated Markdown). A `.sysmlignore` file at the model root may list ignore patterns, one per line (blank lines and lines starting with `#` are skipped). Only three pattern forms are supported — this is **not** full gitignore syntax: an exact file name or root-relative path (`README.md`, `Notes/todo.md`); a `dir/` prefix, matching everything under that root-relative directory; and a `*` glob matched against the file name only (`*.draft.md`). Patterns apply to `.md` files only; there is no negation (`!`) and no `**`.
 5. A file named `_index.md` represents the package for its containing directory.
-6. Files whose YAML frontmatter is absent or cannot be parsed MUST produce a parser warning and be skipped; they do not cause a fatal error.
+6. A file whose frontmatter is absent is error `E001`, and one whose YAML cannot be parsed is error `E002`; neither is fatal to the load — the file contributes no typed element and the remaining files are still processed.
 
 ### 11.2 Frontmatter Extraction
 
 1. The YAML frontmatter is delimited by two `---` lines at the beginning of the file. The opening `---` must be the first line (no preceding whitespace).
 2. The content between the two `---` delimiters is parsed as YAML 1.2.
 3. The remaining content after the closing `---` is the Markdown documentation body.
-4. Files with no frontmatter are skipped with a warning.
-5. Files where the frontmatter does not contain a `type:` field are skipped with a warning.
+4. A file with no frontmatter is error `E001`; frontmatter that is not valid YAML is error `E002`. The file is not loaded as a typed element.
+5. A file whose frontmatter has no `type:` field is warning `W008` (it is ignored by most commands); an unrecognised `type:` value is error `E005`.
 
 ### 11.3 Qualified Name Derivation Algorithm
 
@@ -6102,7 +6101,7 @@ When no `supertype:` is given on a definition element, the parser implicitly app
 
 For a reference string `R` encountered within element `E` in package `P`:
 
-1. If `R` begins with a valid top-level package name or the model root name, resolve as an **absolute qualified name**: split on `::`, resolve each segment as a namespace member from the global root.
+1. If `R` begins with a valid top-level package name, resolve as an **absolute qualified name**: split on `::`, resolve each segment as a namespace member from the global root.
 2. If `R` begins with `./`, strip `./` and resolve as a sibling of `E` within package `P`.
 3. Otherwise, attempt **relative resolution**:
    a. Look up `R` as a member of package `P`.
@@ -6137,11 +6136,9 @@ A conformant parser MUST report errors for:
 
 - `type:` values not in the defined inventory (Section 2).
 - `multiplicity:` strings that do not conform to the syntax in Section 6.
-- `direction:` values other than `in`, `out`, `inout`, or `return` (where `return` is valid only for parameters).
 - `visibility:` values other than `public`, `protected`, or `private`.
 - Two elements with the same qualified name (`E108`) — possible only through a file/directory clash or a synthesized element, since qualified names are path-derived (§4.5).
 - `supertype:` used on a usage (should be `typedBy:` and/or `subsets:`).
-- `typedBy:` used on a definition (should be `supertype:`).
 - `isVariant: true` on an element not owned by a variation element (an element with `isVariation: true`).
 - `EnumerationDef` with a `supertype:` that resolves to another `EnumerationDef`.
 - `values:` absent on `EnumerationDef`.
@@ -6149,8 +6146,9 @@ A conformant parser MUST report errors for:
 
 A conformant parser MUST emit warnings for:
 
-- Unknown frontmatter fields (for forward compatibility, unknown fields are preserved but warned about).
-- Elements with `isAbstract: false` (or defaulted as concrete) that directly subtype an abstract definition without providing concrete instantiation elsewhere.
+- Unknown frontmatter fields (for forward compatibility, unknown fields are preserved but warned about — `W047`).
+
+> **Not currently enforced.** The following are specified as invalid but the tool does not report them: `direction:` values other than `in`, `out`, `inout`, `return`; `typedBy:` on a definition (use `supertype:`); and a concrete element that subtypes an abstract definition without a concrete instantiation.
 
 ### 11.8 Built Graph Structure
 
@@ -6224,7 +6222,7 @@ For each native `Requirement`, the list of native `Requirement` ids whose `deriv
 
 A native `Requirement` is **covered** when `verifiedBy` is non-empty and at least one entry has `status: active`. The following warnings apply:
 
-- `W002`: A `Requirement` with `status: approved` or `status: implemented` has no `active` TestCase in `verifiedBy`.
+- `W002`: A **leaf** `Requirement` (no `derivedChildren`) with `status: approved` or `status: implemented` has no `active` TestCase in `verifiedBy`. A parent requirement is checked by `W305` (integration-level L3–L5 coverage) instead.
 - `W003`: A `Requirement` with `status: verified` has an empty `verifiedBy` or all entries have `status: retired`.
 
 ### 11.12 Validation Rule Reference
@@ -6250,7 +6248,7 @@ A finding code's first letter is its severity: `E` = error, `W` = warning, `I` =
 | `E550`–`E551`, `W550`–`W553` | Foreign-format stdio plugins (`foreignFormat:`) | `ADR-SYS-PLUGIN-002`; catalogue |
 | `E560`–`E561`, `W560`–`W563` | Annotated-source ingestion (`annotationFormat:`) | `ADR-SYS-ANNOTATE-001`; catalogue |
 | `E600`–`E606`, `W610`–`W616` | Native `TestPlan` | §8.12.6 |
-| `E800`–`E837`, `E859`–`E864`, `W809`, `W810` | Tier 2 HARA/TARA elements, their cross-references, GSN assumption targets, confirmation targets, `Asset` | §8.18.1, §8.18.2, §8.18.6, §8.18.7 |
+| `E800`–`E837`, `E859`–`E864`, `W809`, `W810` | Tier 2 HARA/TARA elements, their cross-references, GSN assumption targets, confirmation targets, `Asset` | §8.18.1, §8.18.2, §8.18.6, §8.18.10 |
 | `E900`–`E923`, `E927`, `E940`, `E941`, `W036`, `W037`, `W900`–`W905`, `W926`–`W928`, `W931`, `W932` | Tier 4 fault trees, FMEA, attack trees, TARA sheets | §8.18.3–§8.18.5 |
 | `E980`–`E984`, `W980`–`W984`, `W987` | Fault-tree structure (cycles, arity, ranges, reachability, strays, CCF groups, `missionTime`) | below |
 | `E985`–`E986`, `W988`–`W989` | Safety targets: `SafetyGoal.target:`, rate provenance, plausibility, `[reliability]` | § Quantitative HW safety metrics, Safety targets |
@@ -6278,7 +6276,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E009` | `silLevel:` value is not an integer in 1–4 |
 | `E010` | `asilLevel:` value is not `QM`, `A`–`D` (or decomposition notation `B(D)`); the message lists the valid values |
 | `E011` | Native `TestCase` body has no ` ```gherkin ` fenced block |
-| `E012` | Native `Requirement` body has no normative text (text before the first `##` heading is empty or whitespace only) |
+| `E012` | Native `Requirement` body has no normative text (text before the first `\n##` heading is empty or whitespace only; a body that begins directly with a `## ` heading is not `E012` — it gives `W001`) |
 | `E013` | A native `TestCase` has no `verifies:` entry (the field is absent or an empty list) |
 | `E014` | A `Scenario Outline:` block has no `Examples:` table |
 | `E015` | The first Gherkin block in a `TestCase` has no `Feature:` line |
@@ -6361,7 +6359,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W300` | Leaf `Requirement` at `status: approved` or `status: implemented` has no satisfying element (no element — structural or behavioral — has `satisfies:` pointing to it); not raised for `requirementKind` `process`/`regulatory`/`deliverable` |
 | `W301` | **RETIRED** (GH #121) — formerly flagged a leaf `Requirement` satisfied by more than one element. A leaf may be jointly satisfied by several elements (§12.3), so this code is no longer emitted. |
 | `W302` | Leaf `Requirement` at `status: implemented` or `status: verified` still has `reqDomain: system` — refine to `hardware` or `software` (not raised for non-allocatable kinds) |
-| `W303` | `breakdownAdr:` references an ADR with `status: proposed`, but the `Requirement` itself has `status: approved` or higher |
+| `W303` | `breakdownAdr:` references an ADR with `status: proposed`, but the `Requirement` itself has `status: approved`, `implemented` or `verified` |
 | `W304` | `isDeploymentPackage: true` combined with `domain: hardware` — deployment packages must be software |
 | `W305` | Parent `Requirement` (has `derivedFrom` children) at `status: approved`, `implemented`, or `verified` has no active `TestCase` at `testLevel: L3`, `L4`, or `L5` — leaf-level tests on derived requirements are insufficient to verify emergent composed behaviour |
 | `W313` | An `accepted` `ADR` supersedes an ADR whose status is not `superseded` |
@@ -6372,7 +6370,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
 | `W049` | `qualifiedName:` on a file without `locale:` differs from the element's path-derived qualified name. It is not an identity override (the qualified name is purely path-derived, §4.5/§11.3) and is ignored — move or rename the file instead (§3.1) |
 | `W065` | An id-identified element is stored in a file whose stem differs from its `id` (convention `<id>.md`); opt-in via `[ids] check_file_names = true`, draft-suppressed, gate with `--deny W065` |
-| `W058` | A name-identified element's `name:` differs from the file (or directory) name that forms its qualified name |
+| `W058` | A name-identified element's `name:` differs from the file (or directory) name that forms its qualified name (exempt: a `name:` containing a space or starting with `<`; `FeatureModel` and `FMEASheet` elements) |
 | `W059` | A `visibility: private` element is referenced from outside the namespace that owns it |
 | `W068` | A redefining feature's `multiplicity:` is not contained in the redefined feature's multiplicity (a redefinition may only narrow) |
 | `W051` | A §3.10 locale variant is partly ignored: its target already has documentation for that locale (an earlier variant, or the element's own `locale:` — the first wins), its `type:` differs from the target's, or it declares fields other than `type`/`name`/`locale`/`qualifiedName` (a variant never redefines the element's structure) (§3.10) |
@@ -6758,8 +6756,8 @@ ISO 26262-2 §6 confirmation measures, ISO 26262-8 §5 DIA, ISO/SAE 21434 §7 CI
 cybersecurity assessment with `measureType:`, `independenceLevel:` (`I1`–`I3`), `status:`, and
 `confirms:` (work-product ref(s)). Both warnings are **opt-in**: W038 is dormant unless some
 element declares `responsibility:`; W039 is dormant unless at least one `ConfirmationMeasure`
-exists. The ASIL/CAL → independence mapping is minimal — only ASIL D → I3 functional-safety
-assessment and CAL4 → I3 cybersecurity assessment are gated.
+exists. The ASIL/CAL → independence mapping is minimal — only ASIL D and `silLevel` 3/4 → I3 functional-safety
+assessment, CAL4 → I3 cybersecurity assessment, and CAL3 → I2-or-I3 cybersecurity assessment are gated.
 
 | Code | Severity | Condition |
 |---|---|---|
@@ -7052,7 +7050,7 @@ The same convention governs user-defined link types (§12.10): the element holdi
 
 When a requirement is broken down into multiple child requirements, the breakdown must be documented in an Architecture Decision Record (ADR, §8.17).
 
-**Rule R-002:** Every native `Requirement` that has one or more `derivedFrom:` entries **must** set `breakdownAdr:` to the `id` or qualified name of an `accepted` ADR that documents the rationale for the breakdown. (Error `E310` if absent; warning `W303` if the referenced ADR is still `proposed`.)
+**Rule R-002:** Every native `Requirement` that has one or more `derivedFrom:` entries **must** set `breakdownAdr:` to the `id` or qualified name of an `accepted` ADR that documents the rationale for the breakdown. (Error `E310` if absent; warning `W303` only when the requirement is `approved`, `implemented` or `verified` while the referenced ADR is still `proposed`.)
 
 **Breakdown procedure:**
 1. Author the ADR (`type: ADR`, `status: proposed`) documenting context, decision, and consequences.
@@ -7079,7 +7077,7 @@ breakdownAdr: ADR-SW-SCHED-001
 
 A requirement is a **leaf requirement** when no other requirement has `derivedFrom:` pointing to it (i.e., the computed `derivedChildren` index is empty for this requirement's id).
 
-**Rule R-003:** A leaf requirement at `status: approved` or higher must be assigned to **at least one** element — meaning at least one element must have `satisfies:` referencing this requirement. Several elements may jointly satisfy a leaf (for example a `PartDef` and the `StateDef` that gives it its behaviour, or redundant channels): the satisfier count never changes whether a requirement is a leaf or a parent, which is decided by `derivedChildren` alone, and a requirement is decomposed only when the decomposition adds requirement content — never to force one-to-one allocation. `Part`/`PartDef` is the common case, but `satisfies:` is not type-restricted. The following count identically to a `Part`/`PartDef` satisfier:
+**Rule R-003:** A leaf requirement at `status: approved` or `status: implemented` must be assigned to **at least one** element — meaning at least one element must have `satisfies:` referencing this requirement. Several elements may jointly satisfy a leaf (for example a `PartDef` and the `StateDef` that gives it its behaviour, or redundant channels): the satisfier count never changes whether a requirement is a leaf or a parent, which is decided by `derivedChildren` alone, and a requirement is decomposed only when the decomposition adds requirement content — never to force one-to-one allocation. `Part`/`PartDef` is the common case, but `satisfies:` is not type-restricted. The following count identically to a `Part`/`PartDef` satisfier:
 
 - A behavioral definition (`StateDef`/`ActionDef`) — a state machine or an activity can be the artifact directly responsible for fulfilling a requirement, not only the structural element that owns it.
 - `Connection`/`ConnectionDef`, `Interface`/`InterfaceDef`, `Item`/`ItemDef`, `Attribute`/`AttributeDef`, `Port`/`PortDef`, `Allocation` — the same fixed set of requirement/architecture-shaped kinds `E104` (§11.10) already recognises as legal `verifies:` targets when synthesized by SysMLv2 submodel ingestion or a stdio-subprocess plugin; extended here for consistency, since the natural direction of the claim (an architecture element declaring what it satisfies) is the mirror image of that check.
@@ -7087,7 +7085,7 @@ A requirement is a **leaf requirement** when no other requirement has `derivedFr
 
 No other element kind is restricted from declaring `satisfies:` either — the validator never gates on the *source* element's type — but only the kinds above are formally endorsed and regression-tested; anything else is permitted by absence of a check, not by design.
 
-- Zero satisfying elements → warning `W300`
+- Zero satisfying elements → warning `W300` (only at `status: approved` or `implemented`; skipped for non-allocatable `requirementKind` values `process`, `regulatory` and `deliverable`)
 - More than one satisfying element → **no finding** (`W301` is retired — GH #121). Satisfying a *parent* requirement is still error `E312` (§12.4).
 
 The assignment can evolve iteratively:
@@ -7228,7 +7226,7 @@ breakdownAdr: ADR-BRAKE-DECOMP-001    # documents the decomposition rationale
 
 ### 12.8 Implementation Trace
 
-**Rule R-008:** A `Part` or `PartDef` may carry an optional `implementedBy:` field linking the architecture element to the source artifact(s) that realise it. This closes the downstream leg of the V-model:
+**Rule R-008:** A `Part`, `PartDef`, `Interface` or `InterfaceDef` may carry an optional `implementedBy:` field linking the architecture element to the source artifact(s) that realise it. This closes the downstream leg of the V-model:
 
 ```
 Requirement ─satisfies→ Architecture ─implementedBy→ Code ─verifies→ Test
@@ -7236,7 +7234,7 @@ Requirement ─satisfies→ Architecture ─implementedBy→ Code ─verifies→
 
 `implementedBy:` accepts a single string or a list of strings. Each value is a path into the codebase, resolved with the **same rules as a TestCase's `sourceFile`** (§8.12.5, §11.12): model-root-relative (the default for bare paths), `model:`-prefixed (model-root-relative), `repo:`-prefixed (repository-root-relative), absolute, `file://`, remote `scheme://` URIs, and package-registry references `<registry>:<package>@<version>` (`crates.io:`, `npm:`, `pypi:`, `maven:`, `nuget:`, `github:` — §18.3). Local paths are checked on disk; remote URIs and package-registry references are accepted as external pointers and not verified locally. The registry prefixes are exactly those `sbom` maps to a Package URL — one shared definition, so a value the SBOM emits as a package component is never also reported missing on disk. A value that merely resembles one (unknown prefix, no `@<version>`, a Windows drive such as `C:\src`) stays a local path.
 
-**Validation (W023):** When a non-`draft` `Part`/`PartDef` declares `implementedBy:` and a **local** path does not exist on disk, the tool emits **W023** (one finding per missing path) — the architecture-to-code analog of `W004` for `sourceFile`. The rule is:
+**Validation (W023):** When a non-`draft` `Part`/`PartDef`/`Interface`/`InterfaceDef` declares `implementedBy:` and a **local** path does not exist on disk, the tool emits **W023** (one finding per missing path) — the architecture-to-code analog of `W004` for `sourceFile`. The rule is:
 
 - **Opt-in** — an element with no `implementedBy:` is never flagged.
 - **Draft-suppressed** — elements with `status: draft` are skipped (the implementation may not exist yet).
@@ -7855,9 +7853,9 @@ brakes    ../brakes-subsystem    v2.1.0   ✓         in sync
 shared    ../shared-library      main     ✓         behind (3 commits)
 ```
 
-**`syscribe repos sync [--all | <alias>]`** — For repos with a `ref:` configured, run `git fetch` and `git checkout <ref>` in the repo's directory. Without `--all`, syncs the named alias only.
+**`syscribe repos sync [--all | <alias>]`** — For repos with a `ref:` configured, run `git fetch --tags` and then `git checkout <ref>` in the repo's directory. Without `--all`, syncs the named alias only.
 
-**`syscribe repos status [--json]`** — Show whether each repo is at its configured ref (uses `git describe --exact-match`). Exits `2` if any pinned repo is out of sync.
+**`syscribe repos status [--json]`** — Show whether each repo is at its configured ref (compares the work-tree `HEAD` with the commit the configured `ref:` resolves to, via `git rev-parse --verify`; not `git describe`). Exits `2` if any pinned repo is out of sync.
 
 ### 14.6 Validation Rules
 
@@ -8081,10 +8079,10 @@ Syscribe generates N² matrices from the model's existing port, connection, flow
 
 | Flag | Default | Description |
 |---|---|---|
-| `<qname>` | model root | Scope: only `PartDef`/`Part` elements in this namespace (subtree) are included |
-| `--depth N` | 1 | How many levels of nesting below `<qname>` to include (1 = direct children only) |
+| `<qname>` | model root | Scope. With no `<qname>` every `PartDef`/`Part` in the model is on the axis; with a `<qname>` the axis is that composite's subparts, expanded `--depth` levels |
+| `--depth N` | 1 | Levels of nesting below `<qname>` to include (1 = direct subparts only) |
 | `--format` | `text` | Output format: `text` (ASCII table), `html` (styled HTML fragment), `json` |
-| `--interfaces-only` | false | Only show cells with at least one interface (hides empty cells) |
+| `--interfaces-only` | false | Drop axis elements that have no interfaces; remaining empty cells still print `—` |
 | `--allocations` | false | Include allocation edges in addition to port/flow/connection edges |
 
 **Algorithm:**
@@ -8095,7 +8093,7 @@ Syscribe generates N² matrices from the model's existing port, connection, flow
    - **Flow edges**: a `Flow` connecting a port on `R` to a port on `C`
    - **Port edges**: `PortDef`/`Port` on `R` whose `typedBy:` matches a conjugated port on `C`
    - **Allocation edges** (with `--allocations`): `allocatedTo:` from `R` to `C`
-3. Render: diagonal cell = element name; `(R, C)` off-diagonal cell = list of interface names (or count + kind summary in text mode).
+3. Render: the diagonal cell is `■`; a `(R, C)` off-diagonal cell is `—` when empty, otherwise the edge labels (the edge's `typedBy` last segment, else its `name`, else its kind) comma-joined — or `<n> ifaces` in text mode when there are more than two. The JSON form carries `{kind, name}` per edge.
 
 **Text output:**
 
@@ -8146,7 +8144,7 @@ This is a read-only analysis command. It does not modify the model.
 | `--direction` | `downstream` | Traversal direction: `downstream` follows links from the element outward; `upstream` follows them back to root; `both` does both |
 | `--depth N` | unlimited | Maximum hop distance to report |
 | `--format` | `text` | Output: `text` (indented tree), `json`, `dot` (Graphviz) |
-| `--kinds csv` | all | Restrict to specific edge kinds: `verifies`, `derivedFrom`, `satisfies`, `supertype`, `appliesWhen`, `allocatedTo`, `refines` |
+| `--kinds csv` | all | Restrict to specific edge kinds: `verifies`, `derivedFrom`, `satisfies`, `supertype`, `appliesWhen`, `allocatedTo`, `refines`, `derivedFromSafetyGoal`, or a declared link-type name |
 
 **Downstream traversal** follows these outgoing edge kinds from the named element:
 
@@ -8159,6 +8157,7 @@ This is a read-only analysis command. It does not modify the model.
 | `refinedBy` | UseCases/behaviors with `refines:` pointing here |
 | `conditionalOn` | Elements whose `appliesWhen:` includes a feature here |
 | `allocatedFrom` | Elements allocated to this element |
+| `safetyGoalChildren` | Requirements with `derivedFromSafetyGoal:` pointing at this `SafetyGoal` |
 
 **Upstream traversal** follows:
 
@@ -8169,6 +8168,7 @@ This is a read-only analysis command. It does not modify the model.
 | `verifies` | Requirements this TestCase verifies |
 | `derivedFromSafetyGoal` | Safety goal tracing |
 | `satisfies` | Requirements this element satisfies (structural or behavioral — §12.3) |
+| `refines` | Requirements this use case or behavior refines |
 | `allocatedTo` | Allocation targets of this element |
 
 **User-defined link types (§12.10)** are traversed as well: upstream along the link (source → target), downstream against it (target → source). `--kinds` accepts custom link-type names. A type that `extends` a built-in link is also traversed as that base kind.
@@ -8289,7 +8289,7 @@ The `externalReferences` array on locally-derived components links back to the S
 
 ### 18.5 SPDX Output
 
-SPDX 2.3 JSON format with `spdxVersion: "SPDX-2.3"`. Local file components become `Package` entries with `filesAnalyzed: true`; remote URI components become `Package` entries with `filesAnalyzed: false` and a `packageVersion`. Relationships: `DESCRIBES`, `CONTAINS`, `GENERATED_FROM`.
+SPDX 2.3 JSON format with `spdxVersion: "SPDX-2.3"`. Local file components become `Package` entries with `filesAnalyzed: true`; remote URI components become `Package` entries with `filesAnalyzed: false`; a component version is emitted as `versionInfo`. Relationships: `DESCRIBES`, `CONTAINS`, `GENERATED_FROM`.
 
 No new element types. No new validation rules.
 
@@ -8388,17 +8388,18 @@ and wheel-speed sensor elements.
 
 ### 19.4 CLI Commands
 
-**`syscribe reviews [<qname>] [--open-only] [--json]`** — List `ReviewRecord` elements, optionally scoped to a namespace. With `--open-only`, shows only records with `status: open` or at least one open action item.
+**`syscribe reviews [<qname>] [--open-only] [--json]`** — List `ReviewRecord` elements as a table (`ID | Status | Type | Date | Covers | Open items`, the last column `open/total` action items). With a positional `<qname>` (an element id or qualified name), lists only the reviews covering that element. With `--open-only`, shows only records that have at least one action item whose `disposition` is `open` (the record's own `status` is not consulted).
 
 ```
-ID              Name                               Status  Date        Open items
-RR-SW-ARCH-001  Software Architecture Review — ABS  closed  2026-05-14  0
-RR-SYS-REQ-001  System Requirements Review v1        open    2026-06-01  3
+| ID | Status | Type | Date | Covers | Open items |
+|---|---|---|---|---|---|
+| RR-SW-ARCH-001 | closed | design_review | 2026-05-14 | 4 | 0/2 |
+| RR-SYS-REQ-001 | open | requirements_review | 2026-06-01 | 7 | 3/5 |
 ```
 
 **`syscribe review <RR-id> [--json]`** — Detail a single review: elements covered, reviewer list, action items with dispositions.
 
-**`syscribe reviews --coverage [<qname>] [--json]`** — Cross-table: element → most recent `ReviewRecord` covering it → date → open items. Elements with no covering `ReviewRecord` are listed last.
+**`syscribe reviews --coverage [--json]`** — Native-`Requirement` review-coverage cross-table: `Requirement | Status | Covered | Reviews` (`✓`/`✗`, with the ids of the covering `ReviewRecord`s), followed by a `Coverage: n/m requirements reviewed` line.
 
 ---
 
@@ -8416,7 +8417,7 @@ A behavioral element `B` is **covered** by a `TestCase` `TC` when any of the fol
 
 1. **Direct source overlap:** `TC.sourceFile:` resolves to a path under (or equal to) any path in `B.implementedBy:` (for `PartDef`/`ActionDef` — directory containment check).
 2. **Requirement chain:** `TC.verifies:` contains a requirement `R`, and `R` is satisfied by an architecture element `E`, and `E` is typed by or specialises `B`.
-3. **Test function:** `TC.testFunctions[].function` resolves to a function in a file that is under `B.implementedBy:`.
+3. **Test function:** a `TC.testFunctions[].file` is under `B.implementedBy:`.
 4. **Transitive via allocation:** `TC.verifies:` → `R.satisfies:` → architecture element `E` allocated to `B` (via `allocatedTo:`).
 
 Only `active` `TestCase` elements contribute to coverage. `draft`/`review`/`approved` test cases are counted separately as "planned coverage."
@@ -8544,10 +8545,27 @@ The Markdown body of each `Requirement` is converted to XHTML for `SPEC-OBJECT.D
 
 ### 21.5 Limitations
 
-- **Import not supported** — `export-reqif` is export-only; importing a ReqIF file into a Syscribe model is out of scope in this version.
+- **Import is limited** — `import-reqif` (§21.6) creates `Requirement` elements from SPEC-OBJECTs only; ReqIF relations, attribute enumerations (status/domain), nested SPEC-HIERARCHY folders and CSV/Excel mapping files are not imported.
 - **SysML structural elements excluded** — Only `Requirement` (and optionally `TestCase`) elements are exported. `PartDef`, `Port`, `Action`, etc. have no ReqIF mapping.
 - **XHTML conversion is best-effort** — Complex Markdown (tables, nested lists, HTML passthrough) may lose fidelity.
 - **Cross-tool round-trip** — Attributes added by the receiving tool during import are not preserved by Syscribe and will be lost on re-export.
+
+### 21.6 Import
+
+**`syscribe import-reqif <file.reqif> [--into <package>] [--id-prefix <PFX>] [--class <reqClass>] [--domain <reqDomain>] [--update] [--dry-run]`**
+
+Reads the SPEC-OBJECTs of a ReqIF document (an OEM export, or a file written by `export-reqif`) and creates one native `Requirement` per object. Objects typed `Package` or `TestCase` are skipped.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--into package` | `Requirements` | Target package |
+| `--id-prefix PFX` | `REQ-IMP` | Stable-id prefix; ids are `<PFX>-NNN`, numbered after any existing id with that prefix |
+| `--class c` | `stakeholder` | `reqClass` of created requirements |
+| `--domain d` | `system` | `reqDomain` of created requirements |
+| `--update` | off | Rewrite name and body of already-imported requirements |
+| `--dry-run` | off | List what would be created or updated; write nothing |
+
+Each requirement is `status: draft`; its `name` comes from the `NAME` / `ReqIF.Name` / `ReqIF.ChapterName` / `Title` attribute (else the object's `LONG-NAME`) and its body from the `DESC` / `ReqIF.Text` / `Text` / `Description` attribute reduced to plain paragraphs (an object with no text gets a placeholder, since an empty body is `E012`). The OEM identifier (`ReqIF.ForeignID`, `ID` or `SYSCRIBE_ID`, else the object `IDENTIFIER`) is kept in `extRef: ["reqif:<id>"]`. Import is idempotent: an object whose `reqif:<id>` already exists is reported as `exists` and left alone; a `SYSCRIBE_ID` that is already a requirement id matches it, so an `export-reqif` file imports back onto its own model without creating anything. With `--update` the name and body are rewritten when they differ (every other frontmatter field is kept; a body the author has since extended with headings or code fences is kept and only the name refreshed). A changed text is then picked up by the suspect-link and baseline machinery. Exit 1 on an unreadable or malformed file, a document without requirement objects, or a write failure.
 
 No new element types. No new validation rules.
 
@@ -8888,7 +8906,7 @@ since `status: in_progress` alone already signals active work.
 | `parameters` | ActionDef/CalcDef/etc. | list | absent | 8.7.2 |
 | `returnType` | CalculationDef/VerificationCaseDef | string | absent | 8.9.1, 8.12.3 |
 | `body` | CalculationDef/ActionDef | string | absent | 8.7.1, 8.9.1 |
-| `bodyLanguage` | CalculationDef/ActionDef | string | `"ocl"` | 8.7.1, 8.9.1 |
+| `bodyLanguage` | CalculationDef/ActionDef | string | absent | 8.7.1, 8.9.1 |
 | `subActions` | ActionDef/Action/CaseDef | list | absent | 8.7.3 |
 | `controlNodes` | ActionDef/Action | list | absent | 8.7.4 |
 | `entryAction` | StateDef/State | string or map | absent | 8.8.1 |
@@ -8907,7 +8925,7 @@ since `status: in_progress` alone already signals active work.
 | `framedConcerns` | RequirementDef | list | absent | 8.11.1 |
 | `derivedFrom` | RequirementDef/Requirement | list | absent | 8.11.1 |
 | `satisfies` | Part/PartDef is the common case; not type-restricted — see §12.3 for the full endorsed shape list | list | absent | 8.11.4, 12.3 |
-| `implementedBy` | Part/PartDef | string or list | absent | 8.11.4 / 12.8 |
+| `implementedBy` | Part/PartDef/Interface/InterfaceDef | string or list | absent | 8.11.4 / 12.8 |
 | `verifies` | VerificationCase | list | absent | 8.12.3 |
 | `verdictExpression` | VerificationCase | string | absent | 8.12.3 |
 | `verdictType` | VerificationCaseDef | string | `VerificationCases::VerdictKind` | 8.12.3 |
@@ -8976,14 +8994,14 @@ since `status: in_progress` alone already signals active work.
 
 | Area | Fields | Section |
 |---|---|---|
-| Common / cross-cutting | `appliesWhen`, `domain`, `customFields`, `displayOrder`, `traceBaselines`, `refines`, `rationale`, `locale`, `about`, `text`, `steps`, `valueKind`, `value`, `portionKind` | 3.8–3.19, 8.2–8.11, 12.10 |
+| Common / cross-cutting | `appliesWhen`, `domain`, `custom_fields`, `displayOrder`, `traceBaselines`, `refines`, `rationale`, `locale`, `about`, `text`, `steps`, `valueKind`, `value`, `portionKind` | 3.8–3.19, 8.2–8.11, 12.10 |
 | Native `Requirement` | `reqClass`, `requirementKind`, `reqDomain`, `breakdownAdr`, `decompositionKind`, `dalLevel`, `decomposedFrom` | 8.11.6, 12.2, 12.5, 22.3 |
 | Native `TestCase` / `TestPlan` | `coverageTarget`, `securityTestMethod`, `scope`, `configurations`, `demonstrates`, `testCases`, `selection` | 8.12.5, 8.12.6 |
 | Structural extras | `isDeploymentPackage`, `operations`, `clients`, `suppliers`, `evaluate`, `objective`, `viewpoint` | 2.4, 8.3.4, 8.12, 8.14, 12.6, 22.2 |
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
-| `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.7 |
+| `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |
 | Executable models and plants | `plant`, `fmu`, `plants`, `plantStep`, `plantConnections` (parts and TestCases); on a `PlantDef`: `parameters`, `inputs`, `outputs`, `states`, `equations`, `method`, `maxStep` | 8.8.6; `docs/model-guide/plant-models.md`, `fmi-plants.md` |
 | `Baseline` | `date`, `approver`, `gitTag`, `gitCommit`, `frozenScope`, `seal`, `supersedes` | 8.19 |

@@ -364,7 +364,7 @@ A `TradeStudy` (`TRD-*`) is a weighted-criteria evaluation; the tool computes no
 | Code | Condition |
 |---|---|
 | E869 | Missing `id`, `name`, `status`, `criteria`, `alternatives`, or `scores`. |
-| E870 | `id` does not match the `TRD-*` pattern. |
+| E870 | `id` does not match the `TRD-*` pattern (`^TRD(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `TRD-001` is invalid). |
 | E871 | A `criteria:` entry is missing `name`, `weight`, or `direction`. |
 | E872 | A `criteria[].weight` is not in [0.0, 1.0], or all weights are zero. |
 | E873 | A `criteria[].direction` is not `maximize` or `minimize`. |
@@ -403,7 +403,7 @@ Scenario-level `@verifies` claims, checked against the TestCase's `verifies:`. `
 
 ## Fault-injection campaigns and residual risk (E942–E944, W940–W946, §12.14)
 
-Decisions on the defeats of recorded `inject` campaigns (GH #341). See [Safety analysis](../model-guide/safety-analysis.md#residual-risk-decisions--residualrisk).
+Decisions on the defeats of recorded `inject` campaigns (GH #341). See [Safety analysis](../model-guide/safety-analysis.md#residual-risk-decisions-residualrisk).
 
 | Code | Severity | Condition |
 |---|---|---|
@@ -463,7 +463,7 @@ A `ReviewRecord` (`RR-*`) is a baselined, thin traceability anchor for a formal 
 | Code | Condition |
 |---|---|
 | E700 | Missing `id`, `name`, `status`, `reviewType`, or `reviews` (≥1). |
-| E701 | `id` does not match the `RR-*` pattern. |
+| E701 | `id` does not match the `RR-*` pattern (`^RR(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `RR-001` is invalid). |
 | E702 | `status` not in `open \| closed \| waived`. |
 | E703 | `reviewType` not in the allowed enum. |
 | E704 | A `reviews:` entry does not resolve. |
@@ -683,7 +683,7 @@ A `FeatureDef` or `Configuration` may declare `buildExports:` mapping selected f
 | Code | Condition |
 |---|---|
 | E050 | Two selected features export the same `buildExports` variable name and the conflict is not resolved by `buildOverrides:` |
-| W050 | A selected feature contributes no build variable (no `buildExports:` and no parameter with `buildVar:`). Opt-in; gate with `--deny W050` |
+| W050 | A selected feature contributes no build variable (no `buildExports:` and no parameter with `buildVar:`). Catalogued but **not currently emitted**: the resolver computes it, but no command surfaces it, so `--deny W050` cannot gate it |
 
 ## Allocation errors (E500–E503)
 
@@ -749,7 +749,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | E801 | `severity` is not one of `S0 · S1 · S2 · S3` (ISO 26262 HARA) |
 | E802 | `exposure` is not one of `E0 · E1 · E2 · E3 · E4` (ISO 26262 HARA) |
 | E803 | `controllability` is not one of `C0 · C1 · C2 · C3` (ISO 26262 HARA) |
-| E804 | `id` does not match `HE-*` pattern |
+| E804 | `id` does not match `HE-*` pattern (`^HE(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `HE-001` is invalid) |
 | E833 | `consequence` is not one of `Ca · Cb · Cc · Cd` (IEC 61508 risk graph) |
 | E834 | `freqExposure` is not one of `Fa · Fb` (IEC 61508 risk graph) |
 | E835 | `avoidance` is not one of `Pa · Pb` (IEC 61508 risk graph) |
@@ -760,7 +760,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E805 | `id`, `name`, or `status` is absent |
-| E806 | `id` does not match `SG-*` pattern |
+| E806 | `id` does not match `SG-*` pattern (`^SG(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `SG-001` is invalid) |
 | E837 | `plLevel` is not one of `a · b · c · d · e` (ISO 13849-1) |
 | W801 | SafetyGoal has no integrity level — set `asilLevel` (ISO 26262), `silLevel` (IEC 61508), or `plLevel` (ISO 13849-1) |
 | W806 | SafetyGoal has no `hazardousEvents` — it is not grounded in any hazard analysis |
@@ -770,7 +770,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E807 | `id`, `name`, or `status` is absent |
-| E808 | `id` does not match `DS-*` pattern |
+| E808 | `id` does not match `DS-*` pattern (`^DS(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `DS-001` is invalid) |
 | E809 | `damageSeverity` is not one of `severe · major · moderate · negligible` |
 | E810 | `impactCategories` entry is not one of `safety · financial · operational · privacy` |
 | E844 | `hazardRef` does not resolve, or resolves to an element that is not a `HazardousEvent`/`SafetyGoal` (safety↔security co-engineering) |
@@ -780,7 +780,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E811 | `id`, `name`, or `status` is absent |
-| E812 | `id` does not match `TS-*` pattern |
+| E812 | `id` does not match `TS-*` pattern (`^TS(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `TS-001` is invalid) |
 | E813 | `attackFeasibility` is not one of `high · medium · low · very_low` |
 | E814 | `attackVector` is not one of `network · adjacent · local · physical` |
 | E845 | `riskTreatment` is not one of `avoid · reduce · share · retain` |
@@ -791,7 +791,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E815 | `id`, `name`, or `status` is absent |
-| E816 | `id` does not match `CSG-*` pattern |
+| E816 | `id` does not match `CSG-*` pattern (`^CSG(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `CSG-001` is invalid) |
 | E817 | `securityProperty` is not one of `confidentiality · integrity · availability · authenticity` |
 | E818 | `calLevel` is not one of `CAL1 · CAL2 · CAL3 · CAL4` |
 
@@ -800,7 +800,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E819 | `id`, `name`, or `status` is absent |
-| E820 | `id` does not match `SC-*` pattern |
+| E820 | `id` does not match `SC-*` pattern (`^SC(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `SC-001` is invalid) |
 | E821 | `controlType` is not one of `prevention · detection · response · recovery` |
 
 ### VulnerabilityReport (E822–E824, W803)
@@ -808,7 +808,7 @@ Tier 2 element types support ISO 26262 HARA and ISO/SAE 21434 TARA workflows. Ea
 | Code | Condition |
 |---|---|
 | E822 | `id`, `name`, or `status` is absent |
-| E823 | `id` does not match `VR-*` pattern |
+| E823 | `id` does not match `VR-*` pattern (`^VR(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `VR-001` is invalid) |
 | E824 | `cvssScore` is outside range 0.0–10.0 |
 
 ## Tier 2 cross-reference errors (E825–E832)
@@ -974,7 +974,7 @@ levels are not gated.
 | Code | Severity | Condition |
 |---|---|---|
 | E847 | Error | `ConfirmationMeasure` is missing `id`, `name`, or `status` |
-| E848 | Error | `ConfirmationMeasure.id` does not match the `CM-*` pattern |
+| E848 | Error | `ConfirmationMeasure.id` does not match the `CM-*` pattern (`^CM(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `CM-001` is invalid) |
 | E849 | Error | `measureType` is not one of `confirmation_review · functional_safety_audit · functional_safety_assessment · cybersecurity_assessment` |
 | E850 | Error | `independenceLevel` is not one of `I1 · I2 · I3` |
 | E851 | Error | a `confirms:` ref does not resolve to any model element |
@@ -998,30 +998,12 @@ nodes argue for a `SafetyGoal` or a parent `Argument`, discharged by `evidence`
 | Code | Severity | Condition |
 |---|---|---|
 | E852 | Error | `Argument` is missing `id`, `name`, or `status` |
-| E853 | Error | `Argument.id` does not match the `ARG-*` pattern |
+| E853 | Error | `Argument.id` does not match the `ARG-*` pattern (`^ARG(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `ARG-001` is invalid) |
 | E854 | Error | `Argument.argumentType` is not one of `claim · strategy · solution · context · justification · assumption · undeveloped` (absent → treated as `claim`) |
 | E855 | Error | an `Argument.supports` or `Argument.evidence` ref does not resolve to any model element |
 | E718 | Error | an `Argument.evidence` entry is not a scalar reference (a string id/qname is expected — e.g. a `PlanningItem`-style `{ref:, path:}` mapping was used on an `Argument`) |
 | W040 | Warning | a `claim`/`strategy` `Argument` has **both** an empty `supports` and an empty `evidence` (an orphan GSN node arguing nothing) |
 | E881 | Error | an `Argument` is part of a cycle: it (transitively) supports itself through `supports:` / `evidence:` links (circular reasoning) |
-| E882 | Error | a state-machine transition's `accept:` has more than one trigger kind, an unknown trigger key, `via`/`as` without a `payload`, an `after` that is not a non-negative duration, a `when` that does not parse, or a `done` naming no state of the machine (GH #277) |
-| E883 | Error | a `variables:` entry of a `StateDef` is malformed: not a mapping, no `name`, an invalid or duplicate name, or an initial `value` that does not evaluate (GH #277) |
-| E884 | Error | a transition's or `initialEffect`'s `assign:` has a statement that is not `name := expression`, or assigns a name that is not a declared variable (GH #277) |
-| E885 | Error | `internal:` on a transition is not a boolean, or an internal transition has a `target:` (GH #277) |
-| E886 | Error | a `TestCase` whose `subject:` is an executable state machine has a Gherkin step outside the executable vocabulary (GH #280); for a composite also a malformed `Where`/`Except under` line, an `Except under` with no `Where` before it, a step naming an undeclared property, or a property named twice in one scope; for a state machine or action also any `Where`/`Except under` line (GH #342, §8.12.8) |
-| E887 | Error | an executable `ActionDef` has a wiring error: more than one `else` succession of a decision, an `else` that is not last, a decision with no outgoing succession, a decision guard not in the expression language, a `while`/`until` loop without `condition:`, `loopKind: for`, or an `AcceptAction` whose `after:` is not a non-negative duration (GH #276) |
-| E888 | Error | a plant declaration or wiring is malformed (needs the `fmi` feature): an `fmu:` with an unknown key, no `file`, a `kind` other than `cosimulation` or unusable `parameters`; a TestCase `plantStep` that is not a positive duration, `plants` that do not resolve to a Part with `fmu:`, or plants without a state-machine `subject:` (GH #291) |
-| E889 | Error | a `plantConnections` entry is wrong (needs the `fmi` feature): it names an unknown plant variable or machine variable, reads an input or writes an output or a parameter, names two plants alike, has a unit dimension different from the FMU variable's, or uses an unsupported type (GH #291) |
-| E930 | Error | a part of a composite has more than one behaviour (several `exhibitsStates`, or a state machine and an `fmu:`), or its `exhibitsStates` entry does not resolve to a StateDef (needs a composite with an executable machine; GH #297). An `fmu:` and a `plant:` on one part are two behaviours too (GH #340). |
-| E931 | Error | a composite `connections:` entry joins ports wrongly: the part or port does not exist, or a message does not go from an out/inout port to an in/inout port (GH #297) |
-| E932 | Error | an executable machine sends or accepts through a port its part definition does not have, or in the wrong direction (GH #297); or, through a port typed by a `PortDef`, an event the type does not carry, carries the other way (after `isConjugated`), or a payload field its `ItemDef` does not have (GH #331, §8.8.5) |
-| E933 | Error | a composite `bindingConnections:` entry names a variable the part's machine does not have, or joins variables of different type or unit dimension (GH #297). An in-process plant end must be one of its outputs (read) or inputs (written), of the matching dimension, and one end of every plant binding is a machine variable (GH #340). |
-| E934 | Error | a composite is malformed: a part without a name, two parts with one name, or a connection `delay:` that is not a duration (GH #297). A composite with an in-process plant part (`plant:`) and no `plantStep:` is `E934` too (GH #340). |
-| E935 | Error | a type or unit error that the evaluator would raise whenever evaluation reaches it, found statically in an executable state machine: a guard or `when` that is not boolean, a comparison or sum of unequal dimensions, an assignment of the wrong kind or dimension, `and`/`or`/`not` over a number, `min`/`max` over unequal dimensions, `sqrt` of an odd dimension, a non-integer or dimensional `pow` exponent; names that are not variables (event payload fields) are never errors (GH #272), except a field of an event accepted through a port typed by a `PortDef`, which has its `ItemDef` field's type; a `send` payload value of the wrong kind or dimension for that field is reported too (GH #331, §8.8.5). The same errors in the `equations:` of a `PlantDef`, and a derivative or output whose dimension differs from the one declared, are `E935` too (GH #340). |
-| E936 | Error | an `injection:` on an `FMEAEntry` row or a `FaultTreeEvent` is malformed: not a list, an item that is not a mapping, an unknown key or `kind` (stuck, offset, silent, drop, delay, corrupt), a field missing for its kind, a `value`/`by` that is not an expression, or a `delay` whose `by` is not a non-negative duration; or, when a composite is built for a scenario, a fault that names a variable, port or value that does not fit the part it applies to (GH #306). A `parameter` fault (`parameter`, `value`) changes a parameter of an in-process plant; `stuck`/`offset` may name a plant output and `silent` freezes a plant (GH #340). |
-| E937 | Error | a `fault <id> is injected/cleared` step of a composite TestCase names an id that is not an `FMEAEntry` or `FaultTreeEvent` with a well-formed `injection:` (GH #306), or an `Except under` clause names such an id (GH #342) |
-| E938 | Error | a `PlantDef` is malformed: an entry of `parameters:`/`inputs:`/`outputs:`/`states:` without a name or with an unknown key, a value that does not evaluate, a duplicate name, no output, an equation that is neither `der(state) = expression` nor `output := expression`, a name the plant does not declare, a state without one `der(…)` or an output without one `:=`, an algebraic loop between outputs, a `method:` other than `rk4`/`euler`, a `maxStep:` that is not a positive duration; or a plant key (`outputs:`, `states:`, `equations:`, `method:`, `maxStep:`, `inputs:` as mappings) on an element that is not a `PlantDef` (GH #340) |
-| E939 | Error | a `plant:` declaration is wrong: not on a `PartDef`/`Part`, not a `PlantDef` reference or a `{def | library, unit, parameters}` mapping, a `def:` that does not resolve to a `PlantDef` (or names one with errors), an unknown `library:` plant, a `unit:` on a `def:`, or a parameter override that names no parameter or has the wrong dimension (GH #340) |
 | W861 | Warning | an `Argument` of `argumentType: solution` has no `evidence:` — a GSN solution must cite the Requirement/TestCase that discharges it (draft-suppressed) |
 
 ### AssumptionOfUse (E856–E859)
@@ -1029,7 +1011,7 @@ nodes argue for a `SafetyGoal` or a parent `Argument`, discharged by `evidence`
 | Code | Severity | Condition |
 |---|---|---|
 | E856 | Error | `AssumptionOfUse` is missing `id`, `name`, or `status` |
-| E857 | Error | `AssumptionOfUse.id` does not match the `AOU-*` pattern |
+| E857 | Error | `AssumptionOfUse.id` does not match the `AOU-*` pattern (`^AOU(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `AOU-001` is invalid) |
 | E858 | Error | an `AssumptionOfUse.appliesTo` ref does not resolve to any model element |
 | E859 | Error | an `AssumptionOfUse.appliesTo` ref resolves to an element that is not a `SafetyGoal`, `CybersecurityGoal`, `Argument`, or `Requirement` (REQ-TRS-SEC-004) |
 
@@ -1058,6 +1040,35 @@ analysis silences `W034` for every pair of its `analyses`.
 | E892 | Error | a `sharedResources` entry is not a mapping, has no `resource`, has a `kind` outside `power`/`clock`/`memory`/`bus`/`software`/`other`, or a `couplingFactor` outside 0..1 |
 | W890 | Warning | an `approved` `DependentFailureAnalysis` has a shared resource with no `mitigation` |
 
+## Behaviour / executable models (E882–E889, E930–E939, E966, W933, W935, W936)
+
+Executable state machines, actions, composites, in-process plants and fault injection (GH #277–#306, #291; §8.8, §22.1). Several of these need the opt-in `fmi` Cargo feature (plants backed by an FMU).
+
+| Code | Severity | Condition |
+|---|---|---|
+| E882 | Error | a state-machine transition's `accept:` has more than one trigger kind, an unknown trigger key, `via`/`as` without a `payload`, an `after` that is not a non-negative duration, a `when` that does not parse, or a `done` naming no state of the machine (GH #277) |
+| E883 | Error | a `variables:` entry of a `StateDef` is malformed: not a mapping, no `name`, an invalid or duplicate name, or an initial `value` that does not evaluate (GH #277) |
+| E884 | Error | a transition's or `initialEffect`'s `assign:` has a statement that is not `name := expression`, or assigns a name that is not a declared variable (GH #277) |
+| E885 | Error | `internal:` on a transition is not a boolean, or an internal transition has a `target:` (GH #277) |
+| E886 | Error | a `TestCase` whose `subject:` is an executable state machine has a Gherkin step outside the executable vocabulary (GH #280); for a composite also a malformed `Where`/`Except under` line, an `Except under` with no `Where` before it, a step naming an undeclared property, or a property named twice in one scope; for a state machine or action also any `Where`/`Except under` line (GH #342, §8.12.8) |
+| E887 | Error | an executable `ActionDef` has a wiring error: more than one `else` succession of a decision, an `else` that is not last, a decision with no outgoing succession, a decision guard not in the expression language, a `while`/`until` loop without `condition:`, `loopKind: for`, or an `AcceptAction` whose `after:` is not a non-negative duration (GH #276) |
+| E888 | Error | a plant declaration or wiring is malformed (needs the `fmi` feature): an `fmu:` with an unknown key, no `file`, a `kind` other than `cosimulation` or unusable `parameters`; a TestCase `plantStep` that is not a positive duration, `plants` that do not resolve to a Part with `fmu:`, or plants without a state-machine `subject:` (GH #291) |
+| E889 | Error | a `plantConnections` entry is wrong (needs the `fmi` feature): it names an unknown plant variable or machine variable, reads an input or writes an output or a parameter, names two plants alike, has a unit dimension different from the FMU variable's, or uses an unsupported type (GH #291) |
+| E930 | Error | a part of a composite has more than one behaviour (several `exhibitsStates`, or a state machine and an `fmu:`), or its `exhibitsStates` entry does not resolve to a StateDef (needs a composite with an executable machine; GH #297). An `fmu:` and a `plant:` on one part are two behaviours too (GH #340). |
+| E931 | Error | a composite `connections:` entry joins ports wrongly: the part or port does not exist, or a message does not go from an out/inout port to an in/inout port (GH #297) |
+| E932 | Error | an executable machine sends or accepts through a port its part definition does not have, or in the wrong direction (GH #297); or, through a port typed by a `PortDef`, an event the type does not carry, carries the other way (after `isConjugated`), or a payload field its `ItemDef` does not have (GH #331, §8.8.5) |
+| E933 | Error | a composite `bindingConnections:` entry names a variable the part's machine does not have, or joins variables of different type or unit dimension (GH #297). An in-process plant end must be one of its outputs (read) or inputs (written), of the matching dimension, and one end of every plant binding is a machine variable (GH #340). |
+| E934 | Error | a composite is malformed: a part without a name, two parts with one name, or a connection `delay:` that is not a duration (GH #297). A composite with an in-process plant part (`plant:`) and no `plantStep:` is `E934` too (GH #340). |
+| E935 | Error | a type or unit error that the evaluator would raise whenever evaluation reaches it, found statically in an executable state machine: a guard or `when` that is not boolean, a comparison or sum of unequal dimensions, an assignment of the wrong kind or dimension, `and`/`or`/`not` over a number, `min`/`max` over unequal dimensions, `sqrt` of an odd dimension, a non-integer or dimensional `pow` exponent; names that are not variables (event payload fields) are never errors (GH #272), except a field of an event accepted through a port typed by a `PortDef`, which has its `ItemDef` field's type; a `send` payload value of the wrong kind or dimension for that field is reported too (GH #331, §8.8.5). The same errors in the `equations:` of a `PlantDef`, and a derivative or output whose dimension differs from the one declared, are `E935` too (GH #340). |
+| E936 | Error | an `injection:` on an `FMEAEntry` row or a `FaultTreeEvent` is malformed: not a list, an item that is not a mapping, an unknown key or `kind` (stuck, offset, silent, drop, delay, corrupt, parameter), a field missing for its kind, a `value`/`by` that is not an expression, or a `delay` whose `by` is not a non-negative duration; or, when a composite is built for a scenario, a fault that names a variable, port or value that does not fit the part it applies to (GH #306). A `parameter` fault (`parameter`, `value`) changes a parameter of an in-process plant; `stuck`/`offset` may name a plant output and `silent` freezes a plant (GH #340). |
+| E937 | Error | a `fault <id> is injected/cleared` step of a composite TestCase names an id that is not an `FMEAEntry` or `FaultTreeEvent` with a well-formed `injection:` (GH #306), or an `Except under` clause names such an id (GH #342) |
+| E938 | Error | a `PlantDef` is malformed: an entry of `parameters:`/`inputs:`/`outputs:`/`states:` without a name or with an unknown key, a value that does not evaluate, a duplicate name, no output, an equation that is neither `der(state) = expression` nor `output := expression`, a name the plant does not declare, a state without one `der(…)` or an output without one `:=`, an algebraic loop between outputs, a `method:` other than `rk4`/`euler`, a `maxStep:` that is not a positive duration; or a plant key (`outputs:`, `states:`, `equations:`, `method:`, `maxStep:`, `inputs:` as mappings) on an element that is not a `PlantDef` (GH #340) |
+| E939 | Error | a `plant:` declaration is wrong: not on a `PartDef`/`Part`, not a `PlantDef` reference or a `{def | library, unit, parameters}` mapping, a `def:` that does not resolve to a `PlantDef` (or names one with errors), an unknown `library:` plant, a `unit:` on a `def:`, or a parameter override that names no parameter or has the wrong dimension (GH #340) |
+| E966 | Error | the FMU named by `fmu:` cannot be used (needs the `fmi` feature): the file is missing, remote or not an FMU, does not support Co-Simulation, its `fmiVersion` differs from its modelDescription.xml, or its hash differs from `sha256` (GH #291) |
+| W933 | Warning | in an executable state machine, a `guard:` or `when:` that is not in the expression language or uses a bare name that is not a declared variable (GH #277) |
+| W935 | Warning | in an executable `ActionDef`, a succession guard or `condition:` that is not in the expression language, or that uses a bare name which is not a parameter, a variable, an `as` binding or a sub-action (GH #276) |
+| W936 | Warning | traffic along a composite connection that the other end does not handle: an event sent via a port that the connected part never accepts, or accepted but never sent (draft-suppressed; GH #297) |
+
 ## Integrity level propagation errors and warnings (E841–E843, W808)
 
 Once any element in the traceability chain carries `asilLevel` or `silLevel`, all downstream elements must inherit the same field. A lower level is permitted only when accompanied by a `breakdownAdr` documenting the ASIL/SIL decomposition rationale (ISO 26262-9 / IEC 61508-2 §7.4.9).
@@ -1085,7 +1096,7 @@ Once any element in the traceability chain carries `asilLevel` or `silLevel`, al
 | Code | Condition |
 |---|---|
 | E900 | `id`, `name`, `status`, or `topEvent` is absent |
-| E901 | `id` does not match `FT-*` pattern |
+| E901 | `id` does not match `FT-*` pattern (`^FT(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `FT-001` is invalid) |
 | E902 | `topEvent` does not resolve, or resolves to an element that is not a `SafetyGoal` |
 | W900 | FaultTree has no gates or events — the tree is empty |
 
@@ -1094,7 +1105,7 @@ Once any element in the traceability chain carries `asilLevel` or `silLevel`, al
 | Code | Condition |
 |---|---|
 | E903 | `id`, `name`, or `gateType` is absent |
-| E904 | `id` does not match `FTG-*` pattern |
+| E904 | `id` does not match `FTG-*` pattern (`^FTG(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `FTG-001` is invalid) |
 | E905 | `gateType` is not one of `AND · OR · XOR · NOT · inhibit` |
 | E906 | An entry in `inputs` does not resolve, or resolves to an element that is not a `FaultTreeGate` or `FaultTreeEvent` |
 | W901 | FaultTreeGate has no `inputs` — it contributes nothing to the fault tree |
@@ -1104,7 +1115,7 @@ Once any element in the traceability chain carries `asilLevel` or `silLevel`, al
 | Code | Condition |
 |---|---|
 | E907 | `id`, `name`, or `eventKind` is absent |
-| E908 | `id` does not match `FTE-*` pattern |
+| E908 | `id` does not match `FTE-*` pattern (`^FTE(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `FTE-001` is invalid) |
 | E909 | `eventKind` is not one of `basic · undeveloped · house` |
 | E927 | `ref` (the architecture element the event models; qualified name or id) does not resolve to a known element |
 
@@ -1133,7 +1144,7 @@ Checked once per `FaultTree` with the same graph builder `fault-tree analyze` an
 | Code | Condition |
 |---|---|
 | E911 | `id`, `name`, or `status` is absent |
-| E912 | `id` does not match `FMEA-*` pattern |
+| E912 | `id` does not match `FMEA-*` pattern (`^FMEA(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `FMEA-001` is invalid) |
 | W902 | FMEASheet has no `entries` — add at least one failure mode row |
 | E923 | An `FMEASheet` `entries:` row has no string `id:` (or is not a mapping) — it cannot become an `FMEAEntry` and is dropped from validation and `fmea report`; reported on the sheet, naming the row's 1-based position and its `failureMode:`/`name:`. Previously such a row vanished silently (GH #132) |
 | W928 | An `entries:` row declares `fmeaSeverity` (or `severity`), `occurrence`, `detection` **and** an explicit `rpn:` that differs from their product — the computed `S × O × D` is kept; the message names the row, the explicit and the computed value. Silent when `rpn:` equals the product or any factor is absent |
@@ -1144,7 +1155,7 @@ FMEAEntry elements are synthesised at parse time from each row in a `FMEASheet.e
 
 | Code | Condition |
 |---|---|
-| E913 | Entry `id` does not match `FM-*` pattern |
+| E913 | Entry `id` does not match `FM-*` pattern (`^FM(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `FM-001` is invalid) |
 | E914 | `fmeaSeverity`, `occurrence`, or `detection` is outside the range 1–10 |
 | E922 | An `entries:` row contains an unrecognised key — the field is silently ignored, which constitutes silent data loss in a safety analysis (error-level) |
 | W903 | Computed RPN (fmeaSeverity × occurrence × detection) exceeds 100 and no `recommendedAction` is set |
@@ -1153,9 +1164,6 @@ FMEAEntry elements are synthesised at parse time from each row in a `FMEASheet.e
 | W927 | An `FMEAEntry.ftaRef` does not resolve to a known `FaultTreeEvent` (FMEA↔FTA cross-link) |
 | W931 | Warning | the row declares no `fmeaSeverity`, `occurrence` and/or `detection` — the RPN cannot be computed and the row escapes the RPN/severity rules (draft-suppressed) |
 | W932 | Warning | `fmeaSeverity` ≥ 9 (and `occurrence` ≥ 2 or absent) with no `recommendedAction`, regardless of RPN — the severity-priority rule; skipped when `W903` already fires (draft-suppressed) |
-| W933 | Warning | in an executable state machine, a `guard:` or `when:` that is not in the expression language or uses a bare name that is not a declared variable (GH #277) |
-| W935 | Warning | in an executable `ActionDef`, a succession guard or `condition:` that is not in the expression language, or that uses a bare name which is not a parameter, a variable, an `as` binding or a sub-action (GH #276) |
-| W936 | Warning | traffic along a composite connection that the other end does not handle: an event sent via a port that the connected part never accepts, or accepted but never sent (draft-suppressed; GH #297) |
 
 The canonical severity key is **`fmeaSeverity:`** (camelCase, integer 1–10). The deprecated alias `severity:` is accepted and silently mapped for backward compatibility. RPN is computed automatically as `fmeaSeverity × occurrence × detection` when `rpn:` is absent; an explicit `rpn:` overrides the computed value.
 
@@ -1166,7 +1174,7 @@ The canonical severity key is **`fmeaSeverity:`** (camelCase, integer 1–10). T
 | Code | Condition |
 |---|---|
 | E940 | `id`, `name`, or `status` is absent |
-| E941 | `id` does not match `TARA-*` pattern |
+| E941 | `id` does not match `TARA-*` pattern (`^TARA(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `TARA-001` is invalid) |
 | W905 | TARASheet has no rows in any section table |
 
 Once rows are exploded, all existing Tier 2 validation rules (E807–E821, E825–E830, W800–W803) apply to the synthesised elements exactly as they would to hand-authored files.
@@ -1190,7 +1198,7 @@ computed) — mapped back to a label.
 | Code | Condition |
 |---|---|
 | E915 | `id`, `name`, `status`, or `threatRef` is absent |
-| E916 | `id` does not match `AT-*` pattern |
+| E916 | `id` does not match `AT-*` pattern (`^AT(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `AT-001` is invalid) |
 | E917 | `threatRef` does not resolve, or resolves to an element that is not a `ThreatScenario` |
 | W035 | The tree's computed (weakest-link) feasibility does not match the linked `ThreatScenario.attackFeasibility` — message names computed vs declared. Gateable via `--deny W035`; promotable via `[profiles]` |
 | W036 | AttackTree has no gates or steps — the tree is empty |
@@ -1199,7 +1207,7 @@ computed) — mapped back to a label.
 
 | Code | Condition |
 |---|---|
-| E918 | `id`, `name`, or `gateType` is absent, or `id` does not match `ATG-*` pattern |
+| E918 | `id`, `name`, or `gateType` is absent, or `id` does not match `ATG-*` pattern (`^ATG(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `ATG-001` is invalid) |
 | E919 | `gateType` is not one of `AND` (sequential path) · `OR` (alternatives) |
 | E920 | An entry in `inputs` does not resolve, or resolves to an element that is not an `AttackTreeGate` or `AttackStep` |
 | W037 | AttackTreeGate has no `inputs` — it contributes nothing to the attack tree |
@@ -1208,7 +1216,7 @@ computed) — mapped back to a label.
 
 | Code | Condition |
 |---|---|
-| E921 | `id` or `name` is absent; `id` does not match `ATS-*` pattern; or `attackFeasibility` is not one of `high · medium · low · very_low` |
+| E921 | `id` or `name` is absent; `id` does not match `ATS-*` pattern (`^ATS(-[A-Z0-9]{2,12})+-[0-9]{3,}$` — at least one category segment is required, so `ATS-001` is invalid); or `attackFeasibility` is not one of `high · medium · low · very_low` |
 
 ## Coverage policy (E898)
 
@@ -1400,7 +1408,7 @@ GH #222. The `[cyber]` table of `.syscribe.toml` selects and tunes the ISO/SAE 2
 | E640 | Error | A per-category impact rating (`safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`) on a `DamageScenario` is not one of `severe · major · moderate · negligible` |
 | E641 | Error | An attack-potential factor value is neither a known label of its (configurable) table nor a non-negative integer |
 
-## Security-analysis completeness (E960-E967, W960-W979)
+## Security-analysis completeness (E960–E965, E967, W960–W979)
 
 Completeness and consistency checks for the ISO/SAE 21434 / IEC 62443 analysis elements (GH #219, #220, #221). Weakest-link note: an `AND` attack-tree gate rolls up as the MIN of its inputs' feasibility and an `OR` gate as the MAX; there is no attack-potential sum mode.
 
@@ -1413,7 +1421,6 @@ Completeness and consistency checks for the ISO/SAE 21434 / IEC 62443 analysis e
 | E964 | `Asset.relatedSafetyGoal` does not resolve, or resolves to something other than a `SafetyGoal`. |
 | E965 | Cycle (including a gate listing itself) in an attack tree's `AttackTreeGate.inputs` — the feasibility roll-up is undefined. |
 | E967 | `VulnerabilityReport.threatScenarios` does not resolve to a `ThreatScenario`. |
-| E966 | Error | the FMU named by `fmu:` cannot be used (needs the `fmi` feature): the file is missing, remote or not an FMU, does not support Co-Simulation, its `fmiVersion` differs from its modelDescription.xml, or its hash differs from `sha256` (GH #291) |
 | W960 | Non-draft `ThreatScenario` whose risk cannot be determined (no resolvable `damageScenarios`, no linked `damageSeverity`, or no `attackFeasibility`) — `cyber-risk` reports risk=unknown. |
 | W961 | Non-draft `DamageScenario` listed in no `ThreatScenario.damageScenarios` (orphan; contributes to no risk). |
 | W962 | Non-draft `DamageScenario` with no `assets` (ISO/SAE 21434 §15.3). |

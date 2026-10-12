@@ -93,4 +93,7 @@ syscribe -m model release PI-X-001                           # on completion or 
 | ISO 26262 ASIL C | `asilLevel: C` | PMHF < 1e-7/h AND SPFM ≥ 0.97 AND LFM ≥ 0.80 | — |
 | IEC 61508 SIL 4 | `silLevel: 4` | PMHF/PFH < 1e-8/h | SPFM, LFM |
 | IEC 61508 SIL 3 | `silLevel: 3` | PMHF/PFH < 1e-7/h | SPFM, LFM |
+| IEC 61508 SIL 1-4, demand mode | `target: {mode: demand, ...}` | PFDavg < 1e-1 / 1e-2 / 1e-3 / 1e-4 (SIL 1 / 2 / 3 / 4) | SPFM, LFM |
 | ISO/SAE 21434 | `calLevel: CAL4` | CAL ≥ risk-implied minimum (W032) | No numeric PFH |
+
+Rate-only and demand-mode (PFDavg) figures gate W033 only when the goal declares `target:` or `.syscribe.toml` sets a limit; `metrics` exits 2 on a gating failure.

@@ -17,9 +17,7 @@ status: approved
 reqDomain: software
 asilLevel: D          # or silLevel: 4 for IEC 61508
 verificationMethod: test
-derivedFrom:
-  - Safety::SG-KERNEL-001-SchedulingIntegrity   # parent safety goal
-breakdownAdr: Architecture::Decisions::ADR-SCHED-001  # required when derivedFrom is set
+derivedFromSafetyGoal: Safety::SG-KERNEL-001-SchedulingIntegrity   # parent safety goal, a single reference (not derivedFrom: that is requirement-to-requirement, E105)
 tags: [safety, scheduler]
 ---
 
@@ -48,13 +46,13 @@ rationale auditors look for.
 
 ```
 SafetyGoal (SG-*)
-  └─ derivedFrom → Requirement (REQ-* asilLevel: D)
+  └─ derivedFromSafetyGoal → Requirement (REQ-* asilLevel: D)
        └─ derivedFrom → Requirement (REQ-* asilLevel: D, more specific)
 ```
 
-**Critical rule** (E312): You cannot derive from a *parent* package `Requirement` that is
-itself derived from a safety goal if you intend to also derive directly from the goal. Pick one
-parent; derive linearly. The validator catches cycles and ambiguous chains.
+**Critical rule** (E312): a *parent* requirement (one that has `derivedChildren`) must not
+appear in any element's `satisfies:` list. Assign only the leaf requirements to architecture
+elements; the parent is covered through its children.
 
 **Trace a requirement end-to-end**:
 
@@ -87,7 +85,7 @@ syscribe -m model audit
 | Link | Direction | Field | Validated? |
 |---|---|---|---|
 | Requirement → parent requirement or goal | up | `derivedFrom:` | Yes (E/W) |
-| Requirement → architecture element | down | `satisfiedBy:` on the PartDef, OR `satisfies:` on the PartDef | Yes |
+| Requirement → architecture element | down | `satisfies:` on the PartDef (`satisfiedBy` is the computed reverse index; writing it has no effect) | Yes |
 | Requirement → safety goal | up | `derivedFromSafetyGoal:` | Yes |
 | Requirement → cybersecurity goal | up | `derivedFromCybersecurityGoal:` | Yes |
 | Test case → requirement | up | `verifies:` on the TestCase | Yes |

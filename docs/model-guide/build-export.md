@@ -234,12 +234,12 @@ on the `Configuration`.
 To resolve: add `buildOverrides:` on the `Configuration` with the authoritative value,
 or rename one of the variables.
 
-### W050 — selected feature with no build mapping (opt-in)
+### W050 — selected feature with no build mapping (not currently emitted)
 
-`W050` is a **warning** and is **not** part of the default validate output. It fires
-at `build-config` time when a selected feature declares neither `buildExports:` nor
-any parameter with `buildVar:`. This indicates the feature has no build-system
-representation.
-
-To gate CI on `W050`, pass `--deny W050` to the `validate` command or address the
-finding by adding `buildExports:` to the feature.
+`W050` is catalogued as an opt-in **warning** for a selected feature that declares neither
+`buildExports:` nor any parameter with `buildVar:` (no build-system representation). In the
+current release, however, **neither `validate` nor `build-config` prints it**: the check runs
+inside the build-variable resolver but its findings are not surfaced, so `validate --deny W050`
+has no effect. To find features that contribute nothing to the build, inspect the
+`build-config` output for missing variables, or add `buildExports:` to every feature that
+should drive the build.

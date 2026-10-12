@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `syscribe` binary is a command-line tool for validating, browsing, and querying Syscribe models. All examples on this page use the **Engine ECU** demo model (`model_auto/`).
+The `syscribe` binary is a command-line tool for validating, browsing, and querying Syscribe models. Most examples on this page use the **Engine ECU** demo model (`model_auto/`); where a section uses another model (for example `model_gti/` for the executable-evidence and safety-analysis commands, or `model/` for the UAV demo) the example says so. Example output is abridged: long tables are trimmed, but column headers and values are real.
 
 ## Pointing at a model
 
@@ -44,7 +44,7 @@ syscribe <command> --help  # the same page, e.g. `syscribe validate --help` (als
 
 **Command routing.** The top-level command line is parsed by a clap router whose subcommand registry is derived from the man-page list, so an **unknown command is rejected** with a clear error and a **non-zero** exit (`error: unrecognized subcommand '<name>'`), independent of whether a model directory is present. Each command's own flags are passed through to it unchanged.
 
-**Usage errors.** Invalid input is never silently replaced by a default. An option value outside its documented set (`impact --direction sideways`, `--format xml` on `impact`/`n2`/`behavioral-coverage`/`sbom`/`build-config`), a non-integer count (`n2 --depth abc`, `digest --limit x`, …), or an unknown option on the commands that check theirs — `validate`, `list`, `show`, `trace`, `why`, `who-verifies`, `impact`, `links`, `refs`, `export`, `find`, `ls`, `tree`, `extref`, `n2`, `behavioral-coverage`, `coverage`, `compliance`, `mechanisms`, `sbom`, `build-config`, `stats`, `digest`, `search-text`, `summarize`, `topics`, `clusters`, `verification-depth`, `trace-export` (plus `lint-docs`, `follow` and `connectivity`, which parse strictly themselves) — is a **usage error**: a message on stderr naming the option (and, for an enumerated option, its valid values), nothing on stdout, exit `1`. The option check runs before the model is loaded. Options are spelled `--opt <value>`; the inline `--opt=<value>` form is accepted only where a page documents it (`validate --deny=`/`--max-warnings=`, `--where=`, `lint-docs --deny=`).
+**Usage errors.** Invalid input is never silently replaced by a default. An option value outside its documented set (`impact --direction sideways`, `impact --kinds <unknown>`, `--format xml` on `impact`/`n2`/`behavioral-coverage`/`sbom`/`build-config`, `build-config --all-configs --format <anything but json>`, `export-reqif --scope <unknown>`), a non-integer count (`n2 --depth abc`, `digest --limit x`, …), or an unknown option on any command (`scripts` excepted, which forwards its arguments to user scripts) is a **usage error**: a message on stderr naming the option (and, for an enumerated option, listing its valid values or options), nothing on stdout, exit `1`. The option check runs before the model is loaded. `connectivity` and `follow` are the exceptions — they parse strictly themselves and exit `2` on a usage error (bad `--depth`/`--format`/`--kinds`, an unknown option, a missing argument, or — for `follow` — an unknown link name, whose available names are printed); a missing required argument to `impact` and `review` also exits `2`. An unknown element is exit `1` everywhere. `lint-docs` also parses strictly and exits `1`. Options are spelled `--opt <value>`; the inline `--opt=<value>` form is accepted only where a page documents it (`validate --deny=`/`--max-warnings=`, `--where=`, `lint-docs --deny=`).
 
 ---
 
@@ -59,11 +59,13 @@ $ syscribe -m model_auto/
 
 ...
 
-Warnings (1):
+Warnings (5):
 
 | Code | File | Message |
 |---|---|---|
 | W803 | model_auto/Security/VR-ENG-002.md | VulnerabilityReport has status: open — ensure it is being tracked and mitigated |
+| W030 | model_auto/Security/TARA-ENG-001.md | DamageScenario has impactCategories: safety but no hazardRef — link it to the HazardousEvent/SafetyGoal it endangers (ISO 26262 ⇄ ISO/SAE 21434 co-analysis) |
+...
 ```
 
 ### Findings only
@@ -73,13 +75,17 @@ Warnings (1):
 ```
 $ syscribe -m model_auto/ validate
 
-0 errors, 1 warnings
+0 errors, 5 warnings
 
-Warnings (1):
+Warnings (5):
 
 | Code | File | Message |
 |---|---|---|
 | W803 | model_auto/Security/VR-ENG-002.md | VulnerabilityReport has status: open — ensure it is being tracked and mitigated |
+| W030 | model_auto/Security/TARA-ENG-001.md | DamageScenario has impactCategories: safety but no hazardRef — link it to the HazardousEvent/SafetyGoal it endangers (ISO 26262 ⇄ ISO/SAE 21434 co-analysis) |
+| W030 | model_auto/Security/TARA-ENG-001.md | DamageScenario has impactCategories: safety but no hazardRef — link it to the HazardousEvent/SafetyGoal it endangers (ISO 26262 ⇄ ISO/SAE 21434 co-analysis) |
+| W030 | model_auto/Security/TARA-ENG-001.md | DamageScenario has impactCategories: safety but no hazardRef — link it to the HazardousEvent/SafetyGoal it endangers (ISO 26262 ⇄ ISO/SAE 21434 co-analysis) |
+| W032 | model_auto/Security/TARA-ENG-001.md | CybersecurityGoal 'CSG-ENG-001' declares calLevel CAL3 but its critical-risk threats require at least CAL4 (ISO/SAE 21434 §15.8) |
 ```
 
 When a gating flag (below) trips the gate, the summary line names which one and ends in `— FAIL`:
@@ -87,9 +93,9 @@ When a gating flag (below) trips the gate, the summary line names which one and 
 ```
 $ syscribe -m model_auto/ validate --deny W803
 
-0 errors, 1 warnings (1 gated by --deny W803) — FAIL
+0 errors, 5 warnings (1 gated by --deny W803) — FAIL
 
-Warnings (1):
+Warnings (5):
 ...
 ```
 
@@ -115,8 +121,9 @@ $ syscribe -m model_auto/ validate --json
     "code": "W803",
     "file": "model_auto/Security/VR-ENG-002.md",
     "message": "VulnerabilityReport has status: open — ensure it is being tracked and mitigated",
-    ...
-  }
+    "severity": "warning"
+  },
+  ...
 ]
 ```
 
@@ -269,13 +276,16 @@ $ syscribe -m model_auto/ ls
 | Name | Qualified Name | Type |
 |---|---|---|
 | Allocations | Allocations | Package |
-| Decisions   | Decisions   | Package |
+| Decisions | Decisions | Package |
+| Diagrams | Diagrams | Package |
 | Requirements | Requirements | Package |
-| Safety      | Safety      | Package |
-| Security    | Security    | Package |
-| System      | System      | Package |
-| Vehicle     | Vehicle     | Package |
+| Safety | Safety | Package |
+| Security | Security | Package |
+| System | System | Package |
+| Vehicle | Vehicle | Package |
 | Verification | Verification | Package |
+
+9 element(s)
 ```
 
 ### List a namespace
@@ -287,14 +297,16 @@ $ syscribe -m model_auto/ ls System::Software
 
 | Name | Qualified Name | Type |
 |---|---|---|
-| BootSequence           | System::Software::BootSequence           | ActionDef |
-| CANSecurityModule      | System::Software::CANSecurityModule      | PartDef   |
-| DiagnosticSecurityLayer | System::Software::DiagnosticSecurityLayer | PartDef  |
-| EngineStallMonitor     | System::Software::EngineStallMonitor     | PartDef   |
-| FuelControl            | System::Software::FuelControl            | PartDef   |
-| SafetyMonitor          | System::Software::SafetyMonitor          | PartDef   |
-| SecureBootManager      | System::Software::SecureBootManager      | PartDef   |
-| ThrottleControl        | System::Software::ThrottleControl        | PartDef   |
+| BootSequence | System::Software::BootSequence | ActionDef |
+| CANSecurityModule | System::Software::CANSecurityModule | PartDef |
+| DiagnosticSecurityLayer | System::Software::DiagnosticSecurityLayer | PartDef |
+| EngineStallMonitor | System::Software::EngineStallMonitor | PartDef |
+| FuelControl | System::Software::FuelControl | PartDef |
+| SafetyMonitor | System::Software::SafetyMonitor | PartDef |
+| SecureBootManager | System::Software::SecureBootManager | PartDef |
+| ThrottleControl | System::Software::ThrottleControl | PartDef |
+
+8 element(s)
 ```
 
 ### Recursive tree
@@ -325,18 +337,18 @@ $ syscribe -m model_auto/ show System::Software::SafetyMonitor
 
 | Field | Value |
 |---|---|
-| type    | PartDef  |
-| file    | model_auto/System/Software/SafetyMonitor.md |
-| domain  | software |
-| ASIL    | D        |
-| satisfies | REQ-ENG-SAFE-001, REQ-ENG-SAFE-004, REQ-ENG-SAFE-005 |
+| **type** | PartDef |
+| **file** | model_auto/System/Software/SafetyMonitor.md |
+| **domain** | software |
+| **ASIL** | D |
+| **satisfies** | REQ-ENG-SAFE-001, REQ-ENG-SAFE-004, REQ-ENG-SAFE-005 |
 
 ## Features
 
-| Name | Type | Multiplicity |
-|---|---|---|
-| monitorCycleMs           | ScalarValues::Integer | 1 |
-| tpsDivergenceThresholdPct | ScalarValues::Real   | 1 |
+| Name | Type | typedBy | Multiplicity | Direction |
+|---|---|---|---|---|
+| monitorCycleMs | ScalarValues::Integer |  | 1 | — |
+| tpsDivergenceThresholdPct | ScalarValues::Real |  | 1 | — |
 
 ## Documentation
 
@@ -426,18 +438,37 @@ Set `riskTreatment:` (`avoid`/`reduce`/`share`/`retain`; invalid → **E845**) a
 
 ## Quantitative HW safety metrics
 
-`metrics` rolls up the ISO 26262-5 §8–9 hardware architectural metrics — SPFM, LFM, and PMHF — per `SafetyGoal`, from the `failureRate` and `diagnosticCoverage` of the `FaultTreeEvent`s under the `FaultTree`(s) whose `topEvent` resolves to that goal.
+`metrics` judges every `SafetyGoal` on one quantitative figure computed from the `FaultTree`(s) whose `topEvent` resolves to that goal. Three modes:
+
+- **continuous, with coverage data** (a contributing event declares `diagnosticCoverage`): the ISO 26262-5 §8–9 first-order roll-up — SPFM, LFM (when `latentDiagnosticCoverage` is given) and PMHF/PFH (`λ_RF + λ_DPF`);
+- **continuous, rate-only** (no coverage data): a PFH figure — the exact (BDD) top-event probability over the tree's `missionTime`, divided by it;
+- **demand** (`target: {mode: demand, proofTestInterval: ...}` on the goal): PFDavg, summed over the minimal cut sets.
 
 ```bash
-$ syscribe -m model/ metrics            # Markdown table: per-goal SPFM / LFM / PMHF + verdict
-$ syscribe -m model/ metrics --json     # JSON array {id, asil, sil, spfm, lfm, pmhf, lambdaDpf, pass, verdict}
+$ syscribe -m model_auto/ metrics                 # Markdown table: SafetyGoal | ASIL | SIL | Mode | SPFM | LFM | Figure | Target | Basis | Verdict
+$ syscribe -m model_gti/ metrics --sensitivity    # per goal: each event's figure/verdict with λ ÷10 and ×10
+$ syscribe -m model_auto/ metrics --config CONF-X # only goals active in that Configuration
+$ syscribe -m model_auto/ metrics --json          # JSON array, see below
 ```
 
-`metrics` exits **2** when any goal's verdict is `fail` (usage errors exit 1), so it can gate CI directly. The verdict is `pass`, `fail`, `no target` (metrics computed but the goal has no recognised `asilLevel`/`silLevel`) or `n/a` (not computed).
+```
+$ syscribe -m model_auto/ metrics
+
+| SafetyGoal | ASIL | SIL | Mode | SPFM | LFM | Figure | Target | Basis | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| SG-ENG-001 | D | — | continuous | n/a | n/a | PFH 2.741e-8 /h | 1e-8 (built-in default) | rate only (top event / mission time) | fail (unverified rates) |
+| SG-ENG-003 | A | — | continuous | n/a | n/a | n/a | — | — | n/a |
+```
+
+The verdict is `pass`, `fail`, `no target` (no recognised limit for the goal), `n/a` (no fault tree, failure rates or `missionTime`, so nothing computed) or `not credible` (a contributing event, or the top event, fails with probability above `[reliability] plausibleProbability`, default 0.1, over the mission time — the figure is then no longer a rate). A verdict resting on rates whose `rateStatus` is neither verified nor secondary reads "(unverified rates)". The limit is the goal's own `target.value`, else `[reliability.targets.asil.<A-D>]` / `[reliability.targets.sil.<1-4>]` in `.syscribe.toml`, else the built-in ISO 26262 / IEC 61508 table; the report names which. The report also gives the exact top-event probability, the largest contributor (Fussell-Vesely importance) and, when different, the highest-Birnbaum event.
+
+**Exit status.** `2` when a goal fails on a *gating* figure: the first-order roll-up always gates, but a rate-only PFH or a PFDavg figure gates only when the goal declares `target:` or `.syscribe.toml` sets the limit — otherwise its `fail` is advisory (exit `0`, noted on stderr; the same rule decides `W033` in `validate`). Usage errors exit `1`.
+
+`--json` emits an array of `{id, asil, sil, spfm, lfm, pmhf, lambdaDpf, pass, verdict, mode, figure{metric,value,basis}, target{value,source}, rateOnly, topEventProbability, missionHours, unverifiedRates, notCredible, gates, targetIgnored, largestContributor, highestBirnbaum}` (plus `sensitivity` under `--sensitivity`).
 
 > **First-order FMEDA approximation** from user-supplied λ and diagnostic coverage — verify independently before use in a safety case.
 
-The roll-up is driven by the **minimal cut sets** of the goal's fault tree (`fault-tree analyze`): only reachable, non-`house` events with a non-negative `failureRate` in a cut set contribute, so `AND(a,b)` and `OR(a,b)` differ. `SPFM = 1 − λ_RF/Σλ` with `λ_RF = Σ λ_i·(1−DC_i)` over single-point (order-1) events; `LFM = 1 − λ_MPFL/(Σλ−λ_RF)` (only when an event sets `latentDiagnosticCoverage`); `PMHF = λ_RF + λ_DPF` (/h), where `λ_DPF` is the dual-point rate of the order-2 cut sets over the tree's `missionTime`. A contributing event with no `diagnosticCoverage` (or, once any event sets it, no `latentDiagnosticCoverage`) counts as 0 and raises **W985**; dual-point cut sets without a `missionTime` raise **W986**. Targets by ASIL — SPFM ≥ {B 0.90, C 0.97, D 0.99}, LFM ≥ {B 0.60, C 0.80, D 0.90}, PMHF < {B/C 1e-7, D 1e-8}/h; SIL 1–4 gate PMHF/PFH only (< {SIL1 1e-5, SIL2 1e-6, SIL3 1e-7, SIL4 1e-8}/h). **Opt-in:** metrics are computed and gated only for goals whose contributing events declare `diagnosticCoverage` (others show `n/a`). A goal that misses its target raises **W033** (gate with `validate --deny W033`). A `diagnosticCoverage`/`latentDiagnosticCoverage` outside `0.0`–`1.0` is **E846**. See the [safety-analysis guide](../model-guide/safety-analysis.md).
+The roll-up is driven by the **minimal cut sets** of the goal's fault tree (`fault-tree analyze`): only reachable, non-`house` events with a non-negative `failureRate` in a cut set contribute, so `AND(a,b)` and `OR(a,b)` differ. `SPFM = 1 − λ_RF/Σλ` with `λ_RF = Σ λ_i·(1−DC_i)` over single-point (order-1) events; `LFM = 1 − λ_MPFL/(Σλ−λ_RF)` (only when an event sets `latentDiagnosticCoverage`); `PMHF = λ_RF + λ_DPF` (/h), where `λ_DPF` is the dual-point rate of the order-2 cut sets over the tree's `missionTime`. A contributing event with no `diagnosticCoverage` (or, once any event sets it, no `latentDiagnosticCoverage`) counts as 0 and raises **W985**; dual-point cut sets without a `missionTime` raise **W986**. Targets by ASIL — SPFM ≥ {B 0.90, C 0.97, D 0.99}, LFM ≥ {B 0.60, C 0.80, D 0.90}, PMHF < {B/C 1e-7, D 1e-8}/h; SIL 1–4 gate PMHF/PFH only (< {SIL1 1e-5, SIL2 1e-6, SIL3 1e-7, SIL4 1e-8}/h). A goal with a fault tree but no coverage data is judged on the rate-only figure (see above); a goal with no usable tree shows `n/a`. A goal that misses its target raises **W033** (gate with `validate --deny W033`). A `diagnosticCoverage`/`latentDiagnosticCoverage` outside `0.0`–`1.0` is **E846**. See the [safety-analysis guide](../model-guide/safety-analysis.md).
 
 ---
 
@@ -593,7 +624,7 @@ Reports how completely the **active** `TestCase` elements exercise the behaviora
 syscribe -m model/ impact <qname|id> [--direction downstream|upstream|both] [--depth N] [--format text|json|dot] [--kinds <csv>]
 ```
 
-Traverses the traceability graph (§17) from an element and reports every reachable node, its hop distance, and the connecting edge kind — "if I change this, what else may need to change?". **Downstream** follows reverse links (`derivedChildren`, `verifiedBy`, `satisfiedBy`, `specializedBy`, `refinedBy`, `conditionalOn`, `allocatedFrom`, `safetyGoalChildren`); **upstream** follows forward links (`derivedFrom`, `verifies`, `satisfies`, `supertype`, `refines`, `allocatedTo`, `derivedFromSafetyGoal`). `--depth` limits hops, `--kinds` restricts edge kinds; `text` / `json` / `dot` output. Cycle-safe.
+Traverses the traceability graph (§17) from an element and reports every reachable node, its hop distance, and the connecting edge kind — "if I change this, what else may need to change?". **Downstream** follows reverse links (`derivedChildren`, `verifiedBy`, `satisfiedBy`, `specializedBy`, `refinedBy`, `conditionalOn`, `allocatedFrom`, `safetyGoalChildren`); **upstream** follows forward links (`derivedFrom`, `verifies`, `satisfies`, `supertype`, `refines`, `allocatedTo`, `derivedFromSafetyGoal`). `--depth` limits hops, `--kinds <csv>` restricts edge kinds to `supertype`, `derivedFrom`, `verifies`, `satisfies`, `refines`, `models`, `allocatedTo`, `derivedFromSafetyGoal`, `appliesWhen` (or a declared link-type name or its `inverse`); an unknown name is a usage error (message lists the valid names, exit `1`); `text` / `json` / `dot` output. Cycle-safe.
 
 User-defined links (`links:`, declared under `[linkTypes]`) are traversed too — upstream along the link, downstream against it — and `--kinds` accepts custom link-type names (e.g. `--kinds mitigates,partiallySatisfies`). A link type that `extends` a built-in link is also traversed as that base kind. To walk a single link type, use [`follow`](#follow-one-link-type-follow).
 
@@ -643,25 +674,25 @@ syscribe -m model_mg/ magicgrid --audit
 syscribe -m model/ fmea report [--fmea-sheet <id>] [--json | --format md|html|json]
 syscribe -m model/ hara matrix [--format md|html|json]
 syscribe -m model/ hara trace [<SG|HE|REQ|package>] [--format dot|mermaid|plantuml|svg]
-syscribe -m model/ fault-tree render <FaultTree-id>
+syscribe -m model/ fault-tree render <FaultTree-id> [--format mermaid|dot|svg|plantuml]
 syscribe -m model/ fault-tree analyze <FaultTree-id> [--json] [--max-order N] [--no-ccf]
 ```
 
-`fmea report` rolls up the `FMEAEntry` rows (grouped by `FMEASheet`) — each entry's failure mode, severity/occurrence/detection ratings, computed **RPN**, and recommended actions. `--fmea-sheet <id>` restricts the report to a single sheet (an unknown sheet exits 1); `--json` emits the structured document. `--format md|html|json` instead renders the **FMEA heat table**: severity (rows, 10 at the top) x occurrence (columns 1-10), each cell toned by the severity x occurrence product and each placed failure mode marked with its RPN band (>=200 critical, >=100 high, >=50 medium, else low); rows missing severity or occurrence are listed as not placed. `hara matrix [--format md|html|json]` renders the **HARA heat table**: S1-S3 x E1-E4 rows by C1-C3 columns, each cell the ISO 26262-3 Table 4 ASIL (QM, A-D), with every `HazardousEvent` and each `SafetyGoal` (in the cell of its highest-ASIL linked event) placed in it. `hara trace` draws the hazard-to-test graph (hazardous event, goal, requirements, test cases with the ingested verdicts, fault tree and arguments; gaps as red badges naming `W002`/`W003`/`W305`/`W300`) as the `Traceability` diagram. The model-crate module is `syscribe_model::heat`; `syscribe-server` serves the same three grids at `/heat`. `fault-tree render <FaultTree-id>` prints one `FaultTree` as a Mermaid `flowchart TD` (gates with their AND/OR type, basic events with their ids and referenced elements, edges from each gate's `inputs`); the same λ/DC data feeds the quantitative `metrics` rollup. `fault-tree analyze <FT>` evaluates the gate logic: **minimal cut sets** (with order and probability), the exact **top-event probability** over the tree's `missionTime` (event probability = `probability:` or `1 − e^(−λt)`), rare-event and min-cut-upper-bound approximations, per-event **Fussell-Vesely / Birnbaum / RAW** importance and a role (`single_point`, `dual_point`, `multi_point`, `irrelevant`, `unreachable`, `house`), and **beta-factor common-cause** expansion for events sharing a `ccfGroup:` + `ccfBeta:`. `--json` emits the structured document, `--max-order N` discards larger cut sets (probabilities stay exact), `--no-ccf` ignores CCF groups; a gate cycle exits 1. All are read-only. See the [safety-analysis guide](../model-guide/safety-analysis.md).
+`fmea report` rolls up the `FMEAEntry` rows (grouped by `FMEASheet`) — each entry's failure mode, severity/occurrence/detection ratings, computed **RPN**, and recommended actions. `--fmea-sheet <id>` restricts the report to a single sheet (an unknown sheet exits 1); `--json` emits the structured document. `--format md|html|json` instead renders the **FMEA heat table**: severity (rows, 10 at the top) x occurrence (columns 1-10), each cell toned by the severity x occurrence product and each placed failure mode marked with its RPN band (>=200 critical, >=100 high, >=50 medium, else low); rows missing severity or occurrence are listed as not placed. `hara matrix [--format md|html|json]` renders the **HARA heat table**: S1-S3 x E1-E4 rows by C1-C3 columns, each cell the ISO 26262-3 Table 4 ASIL (QM, A-D), with every `HazardousEvent` and each `SafetyGoal` (in the cell of its highest-ASIL linked event) placed in it. `hara trace` draws the hazard-to-test graph (hazardous event, goal, requirements, test cases with the ingested verdicts, fault tree and arguments; gaps as red badges naming `W002`/`W003`/`W305`/`W300`) as the `Traceability` diagram. The model-crate module is `syscribe_model::heat`; `syscribe-server` serves the same three grids at `/heat`. `fault-tree render <FaultTree-id>` prints one `FaultTree` as a Mermaid `flowchart TD` (gates with their AND/OR type, basic events with their ids and referenced elements, edges from each gate's `inputs`); `--format mermaid|dot|svg|plantuml` (default `mermaid`) instead draws the analysed tree from the Diagram IR — IEC 61025 gate symbols, event shapes by `eventKind`, λ/probability labels, single points of failure and dual-point cut-set members highlighted, top-event probability on the root (`svg` is laid out by the embedded ELK); the same λ/DC data feeds the quantitative `metrics` rollup. `fault-tree analyze <FT>` evaluates the gate logic: **minimal cut sets** (with order and probability), the exact **top-event probability** over the tree's `missionTime` (event probability = `probability:` or `1 − e^(−λt)`), rare-event and min-cut-upper-bound approximations, per-event **Fussell-Vesely / Birnbaum / RAW** importance and a role (`single_point`, `dual_point`, `multi_point`, `irrelevant`, `unreachable`, `house`), and **beta-factor common-cause** expansion for events sharing a `ccfGroup:` + `ccfBeta:`. `--json` emits the structured document, `--max-order N` discards larger cut sets (probabilities stay exact), `--no-ccf` ignores CCF groups; a gate cycle exits 1. All are read-only. See the [safety-analysis guide](../model-guide/safety-analysis.md).
 
 ## Diagrams (`diagram export`, `render`, `plantuml`)
 
 `diagram export` writes one `Diagram` element as PlantUML, Mermaid or static SVG from its Diagram IR; `render` prints a hand-authored diagram with element links injected; `plantuml` generates PlantUML companion files. The former CLI `diagram` toolkit (`list`/`render`/`measure`/`compose`/`layout`/`seq`/`req`) was removed under `ADR-SYS-VIS-001` (`REQ-TRS-VIS-013`) — `export` is the one `diagram` subcommand; layout happens in the browser, and companion SVG files are saved from there or rendered by `plantuml render`.
 
 ```bash
-syscribe -m model/ diagram export <qname> [--format plantuml|mermaid|svg] [--out <file>]   # one Diagram → stdout or file
-syscribe -m model/ diagram export --all [--format …] [--out-dir <dir>] [--check] [--config <CONF>]   # every Diagram → <model>/generated
+syscribe -m model/ diagram export <qname> [--format plantuml|mermaid|svg|dot] [--config <CONF> [--config <CONF2>]] [--out <file>]   # one Diagram → stdout or file; two --config draw a variant view
+syscribe -m model/ diagram export --all [--format svg|mermaid|dot|plantuml] [--out-dir <dir>] [--check] [--config <CONF>]   # every Diagram → <model>/generated (at most one --config)
 syscribe -m model/ render <diagram_path>                         # one Diagram element → stdout
 syscribe -m model/ plantuml [<qname>] [--output <file>|-] [--dry-run]   # generate .puml
 syscribe -m model/ plantuml render [--jar <path>] [--dry-run]    # render .puml → .svg
 ```
 
-- **`diagram export <qname>`** (`REQ-TRS-VIS-009`/`-010`) writes the chosen output for one `Diagram` element, built from its IR (the `shapes:`/`edges:`/`layout:` manifest or the content derived from its `subject:`). `--format plantuml` (default) is the text `syscribe plantuml` writes; `--format mermaid` maps BDD/Requirement to a `classDiagram` and IBD/Allocation/UseCase/Custom to a `flowchart` with a `subgraph` per boundary and nested block (StateMachine → `stateDiagram-v2`, Sequence → `sequenceDiagram`), every node preceded by `%% ref: <QualifiedName>` so `W408`/`W409` apply to generated text; `--format svg` draws a standalone SVG per spec §8.16.5 (`sysml:ref` on every shape, `sysml:ref`/`sysml:source`/`sysml:target` on every edge) for **any** diagram with an IR (`REQ-TRS-VIS-016`): a fully pinned diagram is drawn from its `layout:` pins, every other one is laid out first by the embedded ELK — the same `elk.bundled.js` the browser uses, run in-process under QuickJS with the same options and the same Rust-computed node sizes, so the picture matches the browser's — with pins still honoured; only a diagram with nothing to draw exits 1 with `'<qname>' has no shapes to draw`. With a `[links]` table, Mermaid gains `click <id> href "<url>" _blank` lines and each linked SVG shape is wrapped in `<a xlink:href="<url>" href="<url>" target="_blank" rel="noopener">` (`REQ-TRS-LINK-002`). An unknown `<qname>` prints `error: element '<qname>' not found` on stderr, nothing on stdout, exit 1; `--out <file>` writes the file (creating parent directories). The same output is available through MCP `render_diagram {ref, format}`. See `syscribe help diagram`.
+- **`diagram export <qname>`** (`REQ-TRS-VIS-009`/`-010`) writes the chosen output for one `Diagram` element, built from its IR (the `shapes:`/`edges:`/`layout:` manifest or the content derived from its `subject:`). `--format plantuml` (default) is the text `syscribe plantuml` writes; `--format mermaid` maps BDD/Requirement to a `classDiagram` and IBD/Allocation/UseCase/Custom to a `flowchart` with a `subgraph` per boundary and nested block (StateMachine → `stateDiagram-v2`, Sequence → `sequenceDiagram`), every node preceded by `%% ref: <QualifiedName>` so `W408`/`W409` apply to generated text; `--format dot` writes Graphviz DOT (a node per shape coloured by its tone, an edge per edge; written for the FaultTree/AttackTree/SafetyCase and Traceability/ZoneConduit/ThreatGraph analysis diagrams, total over every kind); `--config <C>` derives the diagram from the model projected onto that Configuration (an unknown configuration, or a diagram inactive in it, exits 1; `--all` takes a single `--config`); `--format svg` draws a standalone SVG per spec §8.16.5 (`sysml:ref` on every shape, `sysml:ref`/`sysml:source`/`sysml:target` on every edge) for **any** diagram with an IR (`REQ-TRS-VIS-016`): a fully pinned diagram is drawn from its `layout:` pins, every other one is laid out first by the embedded ELK — the same `elk.bundled.js` the browser uses, run in-process under QuickJS with the same options and the same Rust-computed node sizes, so the picture matches the browser's — with pins still honoured; only a diagram with nothing to draw exits 1 with `'<qname>' has no shapes to draw`. With a `[links]` table, Mermaid gains `click <id> href "<url>" _blank` lines and each linked SVG shape is wrapped in `<a xlink:href="<url>" href="<url>" target="_blank" rel="noopener">` (`REQ-TRS-LINK-002`). An unknown `<qname>` prints `error: element '<qname>' not found` on stderr, nothing on stdout, exit 1; `--out <file>` writes the file (creating parent directories). The same output is available through MCP `render_diagram {ref, format}`. See `syscribe help diagram`.
 - **`diagram export --all`** (`REQ-TRS-VIS-032`, GH #339) writes every `Diagram` element to `<out-dir>/<qname path>.<ext>` (default `<model>/generated`, or `<model>/generated/<CONF-id>` with one `--config`; SVG unless `--format` says otherwise), in qualified-name order, and records what it wrote in `<out-dir>/.syscribe-generated`. Only files whose content changed are rewritten. A file is removed only when that record names it, no diagram renders it any more, it is a plain file inside the directory and no `svgFile:` names it; anything else in the directory is left alone, and a directory that contains the model is refused. A hand-authored diagram, a kind with no mapping in the format and a companion picture print `skipped: …`; any other render failure prints `error: …`, keeps the diagram's file, removes nothing and exits 1. `--check` writes nothing and exits 1 listing each file that `differs`, is `missing` or is `left over`, and each failure, with the command that regenerates the directory; this repository runs it on `model_gti/generated`. The output is the same bytes on every machine and checkout location: text is measured with Liberation Sans advance widths compiled into the tool (metric-compatible with the Helvetica and Arial at the head of the SVG `font-family`), never with the installed fonts, and a PlantUML style `!include` is written relative to the file. `--check` and `--out-dir` without `--all`, and `--all` with a qname or `--out`, are usage errors.
 - **`render <diagram_path>`** prints the diagram embedded in one `Diagram` element (addressed by file path) with element links injected: the ```` ```mermaid ```` block plus `click` directives for `diagramKind: Mermaid`, otherwise the embedded ```` ```svg ```` block with `<a href>` wrappers. It does not generate a diagram.
 - **`plantuml`** generates PlantUML `.puml` source from `Diagram` elements — batch (every `pumlMode: companion` diagram) or a single `<qname>`; `--output -` writes to stdout, `--dry-run` previews paths. **`plantuml render`** invokes PlantUML on the companion `.puml` files and writes `.svg` alongside, resolving the engine via `--jar` → `[plantuml] jar` in `.syscribe.toml` → `PLANTUML_JAR` → `plantuml` on `PATH`. See `syscribe help plantuml`.
@@ -717,10 +748,10 @@ $ syscribe -m model_auto/ list Requirement
 
 # Requirement elements (14)
 
-| Qualified Name | Name / ID |
-|---|---|
-| Requirements::Safety::REQ-ENG-SAFE-001 | Safety monitor shall detect all safety faults within 100 ms |
-| Requirements::Safety::REQ-ENG-SAFE-002 | Hardware watchdog shall reset ECU within 30 ms of software failure |
+| Qualified Name | Name / ID | Supertype / TypedBy | File |
+|---|---|---|---|
+| Requirements::Performance::REQ-ENG-PERF-000 | Engine ECU shall meet response time and fuel efficiency targets | — | model_auto/Requirements/Performance/REQ-ENG-PERF-000.md |
+| Requirements::Performance::REQ-ENG-PERF-001 | Throttle position shall track pedal demand within 50 ms | — | model_auto/Requirements/Performance/REQ-ENG-PERF-001.md |
 | ...
 ```
 
@@ -731,10 +762,10 @@ $ syscribe -m model_auto/ list PartDef System::Software
 
 # PartDef elements in `System::Software` (7)
 
-| Qualified Name | Name / ID |
-|---|---|
-| System::Software::CANSecurityModule | CAN Security Module |
-| System::Software::SafetyMonitor     | Safety Monitor      |
+| Qualified Name | Name / ID | Supertype / TypedBy | File |
+|---|---|---|---|
+| System::Software::CANSecurityModule | CAN Security Module | — | model_auto/System/Software/CANSecurityModule.md |
+| System::Software::DiagnosticSecurityLayer | Diagnostic Security Layer | — | model_auto/System/Software/DiagnosticSecurityLayer.md |
 | ...
 ```
 
@@ -798,18 +829,18 @@ syscribe -m <root> constraints sweep --param name=<lo>..<hi>:<step> [--param …
 ## State-machine IR (`compile`)
 
 ```bash
-syscribe -m <root> compile <StateDef> [--json]
+syscribe -m <root> compile <StateDef> [--config <Configuration>] [--json]
 ```
 
-Lowers a `StateDef` to the intermediate representation that simulation, coverage, mutation and SCXML export read (GH #278): flat state and transition tables in document order, variable slots, resolved and parsed guards, and a source pointer on every node; the BLAKE3 hash of the canonical JSON identifies the machine in recorded evidence. Exit `2` with the diagnostics (E882–E885, W933, W076) when the machine cannot be lowered. See `syscribe help compile` and `docs/design/state-machine-execution-semantics.md`.
+Lowers a `StateDef` to the intermediate representation that simulation, coverage, mutation and SCXML export read (GH #278): flat state and transition tables in document order, variable slots, resolved and parsed guards, and a source pointer on every node; the BLAKE3 hash of the canonical JSON identifies the machine in recorded evidence. A machine whose guards or actions use `{{Features::...}}` placeholders needs `--config <Configuration>` (a stored `Configuration` id/qname) to resolve them; without it lowering fails. Exit `1` on an unknown option or missing argument; exit `2` with the diagnostics (E882–E885, W933, W076) when the machine cannot be lowered. See `syscribe help compile` and `docs/design/state-machine-execution-semantics.md`.
 
 ## State-machine simulation (`simulate`)
 
 ```bash
-syscribe -m <root> simulate <StateDef> --do "send Cmd::Open; advance 3 s; set level=5" [--strict] [--json]
+syscribe -m <root> simulate <StateDef> --do "send Cmd::Open; advance 3 s; set level=5" [--config <Configuration>] [--strict] [--json]
 ```
 
-Lowers the machine (`compile`) and runs a script on the interpreter (GH #279): SCXML run-to-completion (eventless work, then the internal queue, then one external event; deeper states preempt ancestors; exit, then transition content, then entry; parallel regions in lock step) with the SysML v2 / KerML change trigger (`when`, edge-triggered false→true, armed on state entry, one signal per arming) and time trigger (`after`, on a virtual clock that moves only on `advance`). Prints every microstep with the states exited and entered, actions and variable changes; `--json` adds the machine hash, final configuration and variables. An unbound name, a type or dimension error, a missing payload field or more than 1000 microsteps in one macrostep stops the run (exit `2`). `--strict` makes unhandled events and equal-priority conflicts errors. 
+Lowers the machine (`compile`) and runs a script on the interpreter (GH #279): SCXML run-to-completion (eventless work, then the internal queue, then one external event; deeper states preempt ancestors; exit, then transition content, then entry; parallel regions in lock step) with the SysML v2 / KerML change trigger (`when`, edge-triggered false→true, armed on state entry, one signal per arming) and time trigger (`after`, on a virtual clock that moves only on `advance`). Prints every microstep with the states exited and entered, actions and variable changes; `--json` adds the machine hash, final configuration and variables. An unbound name, a type or dimension error, a missing payload field or more than 1000 microsteps in one macrostep stops the run (exit `2`). `--strict` makes unhandled events and equal-priority conflicts errors. `--config <Configuration>` resolves `{{Features::...}}` placeholders, as for `compile`; a machine that uses them fails without it. 
 
 ```bash
 syscribe -m <root> simulate <TestCase|StateDef> [--scenario <title>] [--trace] [--record [--run <id>] [--config <C>]] [--json]
@@ -849,11 +880,11 @@ Run the scenarios of every active executable TestCase in-process and report the 
 ## SCXML export (`export-scxml`)
 
 ```bash
-syscribe -m <root> export-scxml <StateDef> [--output <file>]
+syscribe -m <root> export-scxml <StateDef> [--output <file>]     # no --config: placeholder machines cannot be exported
 syscribe -m <root> simulate <StateDef> --do "<script>" --crosscheck <engine>
 ```
 
-Writes a W3C SCXML document equivalent to the machine (GH #283): substates, `<parallel>` and `<final>`; variables as an ECMAScript `<datamodel>` of SI base-unit numbers; `after` as `<send delay>` with `<cancel>` on exit; `done` as `done.state.<id>`; a `when` change trigger as an `armed_<id>` flag plus a raised `signal.<id>`, because SCXML eventless transitions are level-triggered while the SysML v2 observation is one-shot. Behaviour references, `doAction` and attribute paths have no SCXML form: they are written as comments and listed as `note:` lines. `--crosscheck` runs the document with an external engine (`[scxml.engines.<name>] command` in `.syscribe.toml`, or the command itself; stdin/stdout JSON contract in `syscribe help export-scxml`) and reports any step where its active states differ from syscribe's. No engine is bundled.
+Writes a W3C SCXML document equivalent to the machine (GH #283): substates, `<parallel>` and `<final>`; variables as an ECMAScript `<datamodel>` of SI base-unit numbers; `after` as `<send delay>` with `<cancel>` on exit; `done` as `done.state.<id>`; a `when` change trigger as an `armed_<id>` flag plus a raised `signal.<id>`, because SCXML eventless transitions are level-triggered while the SysML v2 observation is one-shot. Behaviour references, `doAction` and attribute paths have no SCXML form: they are written as comments and listed as `note:` lines. `--crosscheck` runs the document with an external engine (`[scxml.engines.<name>] command` in `.syscribe.toml`, or the command itself; stdin/stdout JSON contract in `syscribe help export-scxml`) and reports any step where its active states differ from syscribe's. No engine is bundled. `export-scxml` has no `--config`: a machine that uses `{{Features::...}}` placeholders cannot be exported and fails with `E882`/`W933` (exit `2`); an unknown option or missing argument exits `1`.
 
 ## Safety mechanisms (`mechanisms`)
 
@@ -1079,25 +1110,51 @@ syscribe -m model/ build-config --all-configs [--format json] [--prefix <p>] [--
 ```
 
 - **`--config <id>`** materialises one Configuration; **`--all-configs`** emits every stored Configuration.
-- **`--format <fmt>`** chooses the output format (default `json`); **`--prefix <p>`** names/prefixes the output; **`--no-validate`** skips the per-variant validation that otherwise runs first.
+- **`--format <fmt>`** chooses the output format (default `json`): `cmake` (`set(VAR value)`), `c-header` (`#define VAR value`), `makefile` (`VAR := value`), `env` (`export VAR=value`), `json` (`{"config": …, "vars": {…}}`) or `kconfig` (`CONFIG_VAR=y/n/value`). Any other value is a usage error (exit `1`). With `--all-configs` only `json` is valid (the output is always a JSON array); any other `--format` is a usage error (exit `1`).
+- **`--prefix <p>`** prepends `<p>` to every emitted variable name (e.g. `--prefix APP_` turns `WDT_TIMEOUT_MS` into `APP_WDT_TIMEOUT_MS`).
+- **`--no-validate`** skips the per-variant SAT validation that otherwise runs first.
+
+Variables come from `buildExports:` on selected `FeatureDef`s, then `parameterBindings:` → `buildVar:` on feature parameters, then `buildOverrides:` on the Configuration (last writer wins), emitted in alphabetical order. None of the five demo models (`model_auto/`, `model_sil/`, `model/`, `model_mg/`, `model_gti/`) declares `buildExports:`/`buildVar:`, so `build-config` on them emits an empty envelope (for `c-header`, just the include guard) — correct, not an error. `examples/single-file-feature-model/` does declare them:
+
+```
+$ syscribe -m examples/single-file-feature-model/model build-config --config CONF-EX-CORTEXM-001 --format c-header --prefix APP_
+
+/* Generated by: syscribe build-config --config CONF-EX-CORTEXM-001 --format c-header */
+/* Configuration: CONF-EX-CORTEXM-001 — "CortexM + Lidar + watchdog product" */
+#ifndef SYSCRIBE_CONFIG_H
+#define SYSCRIBE_CONFIG_H
+#define APP_ENABLE_CORTEXM 1
+#define APP_PRODUCT_VARIANT "cortexm-lidar"
+#define APP_WDT_TIMEOUT_MS 2000
+#endif /* SYSCRIBE_CONFIG_H */
+```
 
 ---
 
 ## Safety case (GSN argument tree)
 
-`safety-case [<SG-id>] [--json]` renders the goal→argument→evidence tree for each `SafetyGoal` (or one given). It follows the GSN argument layer — `Argument` nodes (`claim`/`strategy`/`solution`, plus `context`/`justification`/`assumption`/`undeveloped` GSN nodes) that `supports:` a goal and cite `evidence:` (Requirements, TestCases, sub-Arguments, `AssumptionOfUse`) — and **always** folds in the implicit `SafetyGoal ← Requirement (derivedFromSafetyGoal) ← derivedChildren* ← TestCase (verifies)` chain (a requirement an `Argument` already cites is shown once, under the `Argument`; `--no-implicit` turns the fold-in off). Nodes with no supporting evidence are marked `[UNDEVELOPED]`, each goal carries a `[SUPPORTED]`/`[INCOMPLETE]`/`[FAILING]` verdict, and a `Completeness:` summary closes the report (also in `--json` as `completeness`, per-node `status`/`undeveloped`, per-goal `verdict`). An unknown `<SG-id>` exits 1. TestCase leaves show their ingested verdict when a results sidecar is present.
+`safety-case [<SG-id>] [--json]` renders the goal→argument→evidence tree for each `SafetyGoal` (or one given). It follows the GSN argument layer — `Argument` nodes (`claim`/`strategy`/`solution`, plus `context`/`justification`/`assumption`/`undeveloped` GSN nodes) that `supports:` a goal and cite `evidence:` (Requirements, TestCases, sub-Arguments, `AssumptionOfUse`) — and **always** folds in the implicit `SafetyGoal ← Requirement (derivedFromSafetyGoal) ← derivedChildren* ← TestCase (verifies)` chain (a requirement an `Argument` already cites is shown once, under the `Argument`; `--no-implicit` turns the fold-in off). Nodes with no supporting evidence are marked `[UNDEVELOPED]`, each goal carries a `[SUPPORTED]`/`[INCOMPLETE]`/`[FAILING]` verdict, and a `Completeness:` summary closes the report (also in `--json` as `completeness`, per-node `status`/`undeveloped`, per-goal `verdict`). An unknown `<SG-id>` exits 1. `--format text|json|dot|mermaid` selects the output (`dot`/`mermaid` draw the GSN diagram once per node with all its edges; `--json` is shorthand for `--format json`). TestCase leaves show their ingested verdict when a results sidecar is present.
 
 ```
-$ syscribe -m model/ safety-case SG-DEMO-001
+$ syscribe -m model_auto/ safety-case SG-ENG-001
 
-[SafetyGoal] SG-DEMO-001 — Prevent unintended acceleration
-├── [strategy] ARG-DEMO-001 — Argue over independent torque monitoring
-│   └── [solution] ARG-DEMO-002 — Torque monitor is verified by test
-│       └── [evidence:TestCase] TC-DEMO-001 — … [pass]
-└── [AoU] AOU-DEMO-001 — Integrator provides a redundant torque sensor
+[SafetyGoal] SG-ENG-001 — Prevent unintended engine acceleration [INCOMPLETE]
+├── [strategy] ARG-ENG-001 — Argue over independent safety monitoring and watchdog supervision
+│   ├── [evidence:Requirement] REQ-ENG-SAFE-001 — Safety monitor shall detect all safety faults within 100 ms
+│   │   └── [evidence:TestCase] TC-ENG-SAFE-002 — HIL — safety monitor detects all defined fault modes within 100 ms [unknown]
+│   ├── [claim] ARG-ENG-003 — Software monitor and hardware watchdog fail independently [UNDEVELOPED]
+│   ...
+
+Completeness:
+  goals: 1 (0 supported, 1 incomplete, 0 failing)
+  requirements: 2 (0 leaf without a verifying test)
+  test cases: 2 (0 pass, 0 fail, 2 unknown)
+  undeveloped nodes: 1
+    - ARG-ENG-003
+(verdicts unknown — run `syscribe ingest-results` to populate)
 ```
 
-`--json` emits `{ goals: [{ id, title, arguments, requirements, assumptions }] }`. Read-only; exit 0.
+`--json` emits `{ completeness, failureDetails, verdictsUnknown, goals: [{ id, title, verdict, status, completeness, undeveloped, arguments, requirements, assumptions }] }`. `--config <C>` projects onto a Configuration; `--no-implicit` drops the implicit requirement/test fold-in. Read-only; exit 0.
 
 ---
 
@@ -1115,16 +1172,17 @@ $ syscribe -m model/ audit --all-configs       # gate every Configuration's vari
 
 **Variant scoping (`--config` / `--all-configs`).** Certification is scoped to a *variant*. `audit --config <CONF|features>` projects the entire dashboard — verdict, W306, orphans, coverage — onto the elements **active** in that configuration (per `appliesWhen`), exactly like `validate --config`; a requirement gated out of the variant no longer trips the verdict. `audit --all-configs` audits every stored `Configuration` and exits non-zero if any fails. (The same `--config` lens is available on `metrics`, `cyber-risk`, `co-analysis`, `verification-depth`, and `safety-case`.)
 
-The report (mirrored in `--json`) has eight sections:
+The report (mirrored in `--json`) has these sections (the Verification results section appears only when test results are ingested):
 
 1. **Requirement status split** — counts of native `Requirement`s by `status:` (`draft` / `review` / `approved` / `implemented` / `verified`), **overall** and **per top-level package** (the first `::` segment of the qualified name).
 2. **SIL / ASIL distribution** — counts by `silLevel` and by `asilLevel`, plus a `QM/none` bucket for requirements that declare neither.
 3. **Per-configuration coverage %** — `covered / applicable` (N/A excluded) per `Configuration` and overall, computed by the same engine as `matrix`. With no feature model, it falls back to the flat requirement→TestCase coverage.
-4. **Orphans** — counts and ids of: requirements with no active verifying `TestCase`; requirements that no element `satisfies:`; `TestCase`s whose `verifies:` is empty or resolves to nothing; and requirements with neither `derivedFrom` nor `derivedChildren`.
-5. **Safety** — hazardous events; safety goals by integrity level (`ASIL x` / `SIL n` / `PL x`); goals with no derived requirement (`W805`), unreferenced hazards (`W800`), goals with no integrity level (`W801`); fault trees and events; FMEA sheets/rows with the max RPN, rows missing S/O/D (`W931`), `W903` and severity-priority (`W932`) gaps; the SPFM/LFM/PMHF hardware metrics per goal with a pass/fail/n-a result against the ASIL/SIL target; and freedom-from-interference gaps (`W034`).
-6. **Security** — assets, damage and threat scenarios, cybersecurity goals by CAL, security controls, goals not implemented by a control (`W802`) or with no derived requirement (`W804`), assets in no damage scenario (`W810`), vulnerability reports (total / open), attack trees, and IEC 62443 zones (with security-level gaps) and conduits.
-7. **Verification results** — present only when test results are ingested: active tests by verdict (pass / fail / unknown), safety goals by safety-case verdict (supported / incomplete / **failing**) and test plans by verdict. Under `--plan`, goals and plans are model-level and reported as `null`.
-8. **Readiness verdict** — a single **PASS/FAIL** line that names *why* it failed.
+4. **Coverage by requirement class** — the derivation-tree roll-up of `matrix --rollup`: complete / partial / none / n/a counts and percent complete per `reqClass`, honouring the `[coverage]` policy. Parents are judged by their leaves, so these figures can differ from the per-configuration grid above. In `--json` this is `coverageByClass`, or `coverageByClassError` when the `[coverage]` policy is invalid.
+5. **Orphans** — counts and ids of: requirements with no active verifying `TestCase`; requirements that no element `satisfies:`; `TestCase`s whose `verifies:` is empty or resolves to nothing; and requirements with neither `derivedFrom` nor `derivedChildren`.
+6. **Safety** — hazardous events; safety goals by integrity level (`ASIL x` / `SIL n` / `PL x`); goals with no derived requirement (`W805`), unreferenced hazards (`W800`), goals with no integrity level (`W801`); fault trees and events; FMEA sheets/rows with the max RPN, rows missing S/O/D (`W931`), `W903` and severity-priority (`W932`) gaps; the SPFM/LFM/PMHF hardware metrics per goal with a pass/fail/n-a result against the ASIL/SIL target; and freedom-from-interference gaps (`W034`).
+7. **Security** — assets, damage and threat scenarios, cybersecurity goals by CAL, security controls, goals not implemented by a control (`W802`) or with no derived requirement (`W804`), assets in no damage scenario (`W810`), vulnerability reports (total / open), attack trees, and IEC 62443 zones (with security-level gaps) and conduits.
+8. **Verification results** (only with ingested results) — present only when test results are ingested: active tests by verdict (pass / fail / unknown), safety goals by safety-case verdict (supported / incomplete / **failing**) and test plans by verdict. Under `--plan`, goals and plans are model-level and reported as `null`.
+9. **Readiness verdict** — a single **PASS/FAIL** line that names *why* it failed.
 
 ### Verdict policy and exit code
 
@@ -1145,7 +1203,7 @@ W033 = ["B", "C", "D"]
 W805 = ["D"]
 ```
 
-A present key replaces its default wholesale, so an empty `[audit.fail_on_asil]` table opts out of the ASIL-gated defaults and relaxes the audit to the previous behaviour. Error-severity findings always fail. A malformed entry is ignored and reported as `W934`. Passing `--profile <name>` loads `[profiles.<name>]` from `<model_root>/.syscribe.toml` and additionally fails the audit if any finding that profile promotes is present, using the same promotion semantics as `validate --profile`. The JSON document has the shape `{ statusSplit, integrityDistribution, coverage, orphans, safety, security, verification, verdict: { pass, reasons } }` (`verification` is `null` without ingested results).
+A present key replaces its default wholesale, so an empty `[audit.fail_on_asil]` table opts out of the ASIL-gated defaults and relaxes the audit to the previous behaviour. Error-severity findings always fail. A malformed entry is ignored and reported as `W934`. Passing `--profile <name>` loads `[profiles.<name>]` from `<model_root>/.syscribe.toml` and additionally fails the audit if any finding that profile promotes is present, using the same promotion semantics as `validate --profile`. The JSON document has the shape `{ statusSplit, integrityDistribution, coverage, coverageByClass, coverageByClassError, orphans, safety, security, verification, verdict: { pass, reasons } }` (`verification` is `null` without ingested results).
 
 ---
 
@@ -1190,24 +1248,42 @@ $ syscribe -m model_auto/ trace REQ-ENG-SAFE-001
 
 # Trace: REQ-ENG-SAFE-001
 
-Title:  Safety monitor shall detect all safety faults within 100 ms
-Status: approved · domain: software · ASIL: D
+**Title:** Safety monitor shall detect all safety faults within 100 ms  
+**Type:** Requirement (leaf)  
+**Status:** approved · domain: software · SIL: — · ASIL: D
 
-## Parents (derivedFrom)
-- REQ-ENG-SAFE-000 — Engine ECU shall prevent safety hazards identified in HARA
+## Parents (`derivedFrom`)
+
+| ID | Title | Status |
+|---|---|---|
+| REQ-ENG-SAFE-000 | Engine ECU shall prevent safety hazards identified in HARA | approved |
 
 ## Breakdown ADR
-- ADR-ENG-SAFE-001 — ASIL D decomposition for engine safety requirement (accepted)
 
-## Safety Goal (derivedFromSafetyGoal)
-- SG-ENG-001 — Prevent unintended engine acceleration (ASIL D)
+- **ADR-ENG-SAFE-001** — ASIL D decomposition for engine safety requirement into SW + HW sub-requirements (`accepted`)
+
+## Safety Goal (`derivedFromSafetyGoal`)
+
+- **SG-ENG-001** — Prevent unintended engine acceleration (`D`)
 
 ## Satisfied by
-- System::Software::SafetyMonitor [PartDef, software]
+
+| Qualified Name | Type | Domain |
+|---|---|---|
+| System::Software::SafetyMonitor | PartDef | software |
 
 ## Verified by
-- TC-ENG-SAFE-002 — HIL — TPS dual-track divergence triggers safe state (L5)
+
+| TC ID | Name | Level | Gherkin Scenarios |
+|---|---|---|---|
+| TC-ENG-SAFE-002 | HIL — safety monitor detects all defined fault modes within 100 ms | L5 | 1 |
+
+## Refined by
+
+_(none)_
 ```
+
+When a satisfying element is modelled by behavioural elements (state machines, action flows, plants — their `models:` link), a **Behavioural models of the satisfiers** section (`Satisfier | Modelled by`) appears between *Satisfied by* and *Verified by*; `model_auto/` has none, `model_gti/` does (`trace REQ-GTI-HW-001`). A **Custom links** section lists user-defined `links:` entries.
 
 When a results sidecar (`<model_root>/.syscribe/results.json`) is present, the **Verified by** listing annotates each TestCase with its ingested verdict — `[pass]`, `[fail]`, or `[unknown]` — aggregated over its `testFunctions[].function` (same rule as the [coverage matrix](#coverage-matrix)). Pass `--linked-only` to suppress the annotations; with no sidecar the listing is unchanged.
 
@@ -1253,21 +1329,23 @@ $ syscribe -m model_auto/ why System::Software::SafetyMonitor
 
 # Why: System::Software::SafetyMonitor
 
+**Type:** PartDef · **Domain:** software
+
 ## Satisfied requirements
 
-| ID | Title | ASIL |
-|---|---|---|
-| REQ-ENG-SAFE-001 | Safety monitor shall detect all safety faults within 100 ms | D |
-| REQ-ENG-SAFE-004 | Rev limiter shall cut fuel and retard ignition above 6500 rpm | A |
-| REQ-ENG-SAFE-005 | Throttle close command shall be verified by position feedback | A |
+| ID | Title | Status | reqDomain | SIL | ASIL |
+|---|---|---|---|---|---|
+| REQ-ENG-SAFE-001 | Safety monitor shall detect all safety faults within 100 ms | approved | software | — | D |
+| REQ-ENG-SAFE-004 | Rev limiter shall cut fuel and retard ignition above 6500 rpm within 20 ms | approved | software | — | A |
+| REQ-ENG-SAFE-005 | Throttle close command shall be verified by position feedback within 200 ms | approved | software | — | A |
 
-## Verification coverage
+## Verification coverage (via satisfied requirements)
 
-| TC ID | Level | Covers |
-|---|---|---|
-| TC-ENG-SAFE-002 | L5 | REQ-ENG-SAFE-001 |
-| TC-ENG-SAFE-005 | L5 | REQ-ENG-SAFE-004 |
-| TC-ENG-SAFE-006 | L5 | REQ-ENG-SAFE-005 |
+| TC ID | Name | Level | Covers |
+|---|---|---|---|
+| TC-ENG-SAFE-002 | HIL — safety monitor detects all defined fault modes within 100 ms | L5 | REQ-ENG-SAFE-001 |
+| TC-ENG-SAFE-005 | HIL — rev limiter enforces fuel cut and ignition retard independently of TPS | L5 | REQ-ENG-SAFE-004 |
+| TC-ENG-SAFE-006 | HIL — stuck-open throttle detected by position feedback verification | L5 | REQ-ENG-SAFE-005 |
 ```
 
 ### Which test cases cover a requirement?
@@ -1277,9 +1355,11 @@ $ syscribe -m model_auto/ who-verifies REQ-ENG-SAFE-001
 
 # Verification: REQ-ENG-SAFE-001
 
-| TC ID | Level | Gherkin Scenarios | Status |
-|---|---|---|---|
-| TC-ENG-SAFE-002 | L5 | 1 | active |
+**Title:** Safety monitor shall detect all safety faults within 100 ms
+
+| TC ID | Name | Level | Gherkin Scenarios | Status |
+|---|---|---|---|---|
+| TC-ENG-SAFE-002 | HIL — safety monitor detects all defined fault modes within 100 ms | L5 | 1 | active |
 ```
 
 ### Verification-depth & independence report
@@ -1316,9 +1396,13 @@ $ syscribe -m model/ verification-depth --sil 4 --min-levels 2   # fail the buil
 ```
 $ syscribe -m model_auto/ links System::Software::SafetyMonitor
 
+# Links: System::Software::SafetyMonitor
+
+**Type:** PartDef | **File:** model_auto/System/Software/SafetyMonitor.md
+
 ## Outbound relationships
 
-| Relationship | Target | Type |
+| Relationship | Target | Target Type |
 |---|---|---|
 | satisfies | REQ-ENG-SAFE-001 | Requirement |
 | satisfies | REQ-ENG-SAFE-004 | Requirement |
@@ -1326,8 +1410,11 @@ $ syscribe -m model_auto/ links System::Software::SafetyMonitor
 
 ## Inbound relationships
 
-| Source | Relationship | Type |
+| Source | Relationship | Source Type |
 |---|---|---|
+| Diagrams::SafetyRequirements | shapes.ref | Diagram |
+| Diagrams::SensorReadingSeq | shapes.ref | Diagram |
+| Diagrams::SystemOverview | shapes.ref | Diagram |
 | Safety::FMEA::FMEA-ENG-001::FM-ENG-006 | subject | FMEAEntry |
 | Safety::FMEA::FMEA-ENG-001::FM-ENG-010 | subject | FMEAEntry |
 | Vehicle::PowertrainECU::softwareImage::safetyMonitor | typedBy | Part |
@@ -1342,9 +1429,14 @@ $ syscribe -m model_auto/ refs System::Software::SafetyMonitor
 
 | Source | Relationship | Type |
 |---|---|---|
+| Diagrams::SafetyRequirements | shapes.ref | Diagram |
+| Diagrams::SensorReadingSeq | shapes.ref | Diagram |
+| Diagrams::SystemOverview | shapes.ref | Diagram |
 | Safety::FMEA::FMEA-ENG-001::FM-ENG-006 | subject | FMEAEntry |
 | Safety::FMEA::FMEA-ENG-001::FM-ENG-010 | subject | FMEAEntry |
 | Vehicle::PowertrainECU::softwareImage::safetyMonitor | typedBy | Part |
+
+6 reference(s)
 ```
 
 When the argument is **not** an element qualified name but a raw reference target — such as an `implementedBy:` source path — `refs` reverse-maps it back to the declaring element(s). A directory prefix matches every file beneath it:
@@ -1480,19 +1572,25 @@ type: Requirement
 id: REQ-PREFIX-001
 name: "The system shall ..."
 status: draft
+requirementKind: system
 reqDomain: system
 verificationMethod: test
 # silLevel: 1
 # asilLevel: A
+# dalLevel: B
 # derivedFrom:
 #   - REQ-PARENT-001
 # breakdownAdr: ADR-XXX-001
+# decompositionKind: independent   # ASIL D / SIL 4 decomposition: independent | redundant | diverse
 # derivedFromSafetyGoal: SG-PREFIX-001
+# derivedFromCybersecurityGoal: CSG-PREFIX-001
 ---
 
 The system shall ...
 
 ## Rationale
+
+Why this requirement exists.
 
 Why this requirement exists.
 ```
@@ -1531,7 +1629,7 @@ The source resolves by qualified name or stable id; both positionals are require
 `set <qname|id> <op>` mutates one field on an existing element — a narrow, schema-aware
 alternative to hand-editing YAML frontmatter, so an agent-authored typo (`status: verifed`, a
 dangling `achieves.add` target) is caught immediately, not only at the next full-model
-`validate`. Three operations:
+`validate`. Forms:
 
 ```bash
 syscribe -m model/ set REQ-UAV-NAV-001 status=approved
@@ -1539,8 +1637,12 @@ syscribe -m model/ set TC-UAV-NAV-001 status=active --dry-run
 syscribe -m model/ set PI-HPLE-001 status=done            # W310 check if achieves: isn't verified yet
 syscribe -m model/ set PI-HPLE-001 achieves.add REQ-TRS-HPLE-001
 syscribe -m model/ set PI-HPLE-001 evidence.add ref=TC-UAV-NAV-001
-syscribe -m model/ set PI-HPLE-001 evidence.add path=src/nav/controller.rs
+syscribe -m model/ set PI-HPLE-001 evidence.add path=src/nav/controller.rs [rationale=<text>]
+syscribe -m model/ set REQ-UAV-NAV-001 reqDomain=software    # <scalar>=<value>
+syscribe -m model/ set REQ-UAV-NAV-001 tags.add smoke        # <list>.add <value>
 ```
+
+**Generic fields.** `<scalar>=<value>` sets one of `assignedTo`, `responsibility`, `breakdownAdr`, `asilLevel`, `reqDomain`, `reqClass`, `requirementKind`, `verificationMethod`, `testLevel`, `itemType` (replaced in place, or appended when absent). `<list>.add <value>` appends to one of `tags`, `blockedBy`, `derivedFrom`, `verifies`, `satisfies`, `confirms`, `hazardousEvents` (an item already present is a no-op). The edit is first applied to a candidate copy of the model and validated; if it would introduce a new error on the edited file (e.g. `E302` for an out-of-enum `reqDomain`, `E720` for a dangling `blockedBy`) it is refused and nothing is written. New warnings are printed as notes. Any other field is refused with the list of supported ones.
 
 `status=<value>` is checked against the target type's own enum when it has one
 (`Requirement`/`TestCase`/`TestPlan`/`ADR`/`PlanningItem`/`ReviewRecord`) — an invalid value is
@@ -1697,15 +1799,15 @@ It exposes structured read tools and a small set of guarded-write tools; referen
 
 | Category | Tools |
 |---|---|
-| Navigate / query | `get_element`, `search`, `list_by_type`, `tree`, `neighbors`, `graph_query`, `trace`, `impact`, `link_types`, `follow`, `sysml_submodels`, `export_sysml`, `validate`, `validate_element`, `reload` |
+| Navigate / query | `get_element`, `search`, `list_by_type`, `tree`, `neighbors`, `graph_query`, `trace`, `impact`, `link_types`, `follow`, `server_stats`, `sysml_submodels`, `export_sysml`, `validate`, `validate_element`, `reload` |
 | Large-model overview & search | `stats`, `digest`, `search_text`, `summarize`, `topics`, `clusters` |
 | Suspect links & baselines | `suspect_list`, `baseline_list`, `baseline_verify`, `baseline_diff` |
 | Authoring helpers | `describe_type`, `template`, `explain_finding`, `check_ref`, `next_id`, `coverage` |
 | Variability | `features`, `feature_check`, `configure`, `project`, `diff_configs`, `why_active` |
-| Evidence & coverage | `coverage_matrix`, `coverage_gaps`, `evidence` |
+| Evidence & coverage | `coverage_matrix`, `coverage_gaps`, `evidence`, `requirement_coverage`, `exec_coverage`, `trace_export` |
 | Diagram / doc integrity | `lint_docs`, `render_diagram`, `diagram_coverage`, `generate_view` |
 | Report passthrough | `run_report` (allowlisted, read-only reports) |
-| Guarded writes | `create_element`, `update_element`, `move_element`, `delete_element`, `apply_changes`, `ingest_results`, `suspect_accept` |
+| Guarded writes | `create_element`, `update_element`, `move_element`, `delete_element`, `edit_feature`, `apply_changes`, `ingest_results`, `suspect_accept` |
 
 It also serves the format spec, project config, and each element as **resources**; offers element-reference **completion**; and exposes authoring **prompts** (`create-model`, `create-magicgrid-model`, `add-requirement`, `break-down-requirement`, `add-testcase-for`, `traceability-review`).
 

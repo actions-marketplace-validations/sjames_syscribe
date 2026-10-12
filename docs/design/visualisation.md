@@ -1,6 +1,6 @@
 # Design: Visualisation — one Diagram IR, ELK layout in the browser
 
-**Status:** Proposed — decisions ratified in `ADR-SYS-VIS-001`, requirements `REQ-TRS-VIS-000..015`
+**Status:** Implemented (Phases 0–3b landed; Phase 4 coverage runs alongside) — decisions ratified in `ADR-SYS-VIS-001`, requirements `REQ-TRS-VIS-000..015`
 **Date:** 2026-10-07
 
 > **Implementation note.** Phase 0 (§9) landed on 2026-10-07: `syscribe_model::vis::{ir,
@@ -17,7 +17,10 @@
 > saves a companion SVG; the *Pin all* / *Auto-layout* / *Save companion SVG* buttons; a
 > port-aware connect gesture that sends dotted feature chains; and `npm test` running the ELK
 > layout check (`REQ-TRS-VIS-006/007/008/011/012`). The §1 table now describes history.
-> Phases 3 and 4 are open.
+> Phase 3 (exports and static SVG) landed through Phase 3b: `vis::mermaid`, `vis::svg`,
+> `syscribe diagram export` and the ELK-in-the-executable layout (§9). Phase 4 (coverage) runs
+> alongside every phase, and the follow-on State, Action, Requirement, Sequence and Allocation
+> generators now exist on the same IR (see the manual's diagram chapter).
 > This document records the design the four user decisions of 2026-10-07 fixed (§3) and
 > is the reference the `REQ-TRS-VIS-*` requirements and `PI-VIS-*` planning items point
 > at. Sections are updated in place as phases ship; §6 describes the client as built.
@@ -505,7 +508,7 @@ in the same commit as the code that emits them):
 | **0 — Clear the ground** | `vis::ir` + `vis::manifest` as the one parser; shorthand, `parent`, default kind honoured; `E405`/`W416`; sprotty endpoint emits nesting; `sub_mapping` no longer silently replaces a scalar. **Removed outright**: `renderer.rs`, `diagram.rs`'s helpers, `plantuml.rs`'s private parser (it reads the IR from here on), the CLI `diagram` toolkit (`render`/`measure`/`compose`/`layout`/`seq`/`req`, ~6 k lines, and its `/tmp` scratch files), their docs and qual cases. `export-html` embeds only companion SVG until Phase 3. | `REQ-TRS-VIS-001`, `-002`, `-013` |
 | **1 — Derived BDD/IBD** | `derive::bdd`, `derive::ibd`, source selection by frontmatter, `include:`/`exclude:`, `W417`/`W418`, spec §8.16 update, golden tests. | `-003`, `-004`, `-005` |
 | **2 — ELK in the browser** (landed: `cacff379`, `d2e72234`) | `sprotty-elk` + `elkjs` vendored; measured labels; pins semantics; Pin all / Auto-layout / Save companion SVG; port-aware connect; nested rendering with the shared style. | `-006`, `-007`, `-008`, `-011`, `-012` |
-| **3 — Exports and static SVG** | `vis::mermaid`, `vis::svg`, `syscribe diagram export`, MCP `render_diagram format=mermaid`, the §7 fallback chain in `export-html`. | `-009`, `-010` |
+| **3 — Exports and static SVG** (landed, delivered together with 3b) | `vis::mermaid`, `vis::svg`, `syscribe diagram export`, MCP `render_diagram format=mermaid`, the §7 fallback chain in `export-html`. | `-009`, `-010` |
 | **3b — ELK in the executable** (landed) | `vis::metrics` (promoted from `svgkit`), `vis::size` (Rust-owned sizes carried as `size` on every sprotty element and consumed by the client), `vis::layout` (the vendored `elk.bundled.js` under QuickJS with the client's configuration), `vis::svg` drawing any diagram, `diagram export`/`export-html`/MCP `render_diagram` without pins, the Node-vs-QuickJS determinism test and the bundle-version pin test. | `-016`, `-017` |
 | **4 — Coverage** | Endpoint integration tests, Node-side ELK smoke test on a fixture IR, snapshot tests for every writer. Runs alongside every phase; listed separately so it is never "later". | `-014` |
 | **Follow-on** | State, Action, Requirement, Sequence, Allocation generators on the same IR. | `-015` |
@@ -543,7 +546,7 @@ only multiply the surface to migrate.
 
 | Component | Fate |
 |---|---|
-| `crates/syscribe-model/src/renderer.rs` | Deleted. `export-html` embeds companion SVG only until `vis::svg` lands in Phase 3. |
+| `crates/syscribe-model/src/renderer.rs` | Deleted. `export-html` embedded companion SVG only until `vis::svg` landed (Phase 3b); it now draws any diagram through `vis::svg`. |
 | `crates/syscribe-model/src/diagram.rs` parse helpers and `default_size` | Deleted; `vis::manifest` is the parser and ELK sizes nodes. |
 | `plantuml.rs`'s private `parse_shapes`/`parse_edges` | Deleted; the PlantUML writer reads the IR. Output for the demo diagrams is snapshot-tested before and after so the swap is proven. |
 | `crates/syscribe/src/diagram/*` (`render`, `measure`, `compose`, `layout`, `seq`, `req`, `list`) | Deleted with their CLI help, `docs/cli` section, `REQ-TRS-DIAG-004` (superseded by `REQ-TRS-VIS-009`'s not-found rule) and `TC-TRS-DIAG-004`. `syscribe diagram export` is the one diagram subcommand afterwards. |

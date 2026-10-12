@@ -1,6 +1,6 @@
 # FMI plant co-simulation — design
 
-`GUIDE · DESIGN` · Epic GH #291 · Requirement: `REQ-TRS-FMI-001` · Status: proposed · Part of the execution epic #272
+`GUIDE · DESIGN` · Epic GH #291 · Requirement: `REQ-TRS-FMI-001` · Status: implemented (opt-in `fmi` Cargo feature, shipped in `b9823b3c`; user guide: [FMI plants](../model-guide/fmi-plants.md)) · Part of the execution epic #272
 
 Syscribe's interpreters run discrete behaviour (state machines, action flows). Physical parts of a system — a battery, a motor, a thermal loop, vehicle dynamics — are continuous and are modelled in other tools. **FMI** (Functional Mock-up Interface, a Modelica Association standard, versions 2.0 and 3.0 supported here) is the open interface those tools export: an **FMU** is a zip with a `modelDescription.xml` and a compiled model. This feature lets a state-machine run exchange values with FMU *plants* on a shared virtual clock, so a scenario can say "the throttle ramps for 2 s and the overshoot stays within limit" against a real plant model instead of a faked variable.
 

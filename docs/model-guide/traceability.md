@@ -125,7 +125,7 @@ Discoverability:
 
 ## Integration test coverage for parent requirements (W305)
 
-Leaf-level TestCases (L1/L2) verify individual derived requirements but do not cover the emergent, composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3` (system), `L4` (system integration), or `L5` (hardware-in-the-loop).
+Leaf-level TestCases (L1/L2) verify individual derived requirements but do not cover the emergent, composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3` (formal proof), `L4` (integration on an emulator) or `L5` (hardware-in-the-loop).
 
 ```yaml
 # TC-UAV-PERF-001.md — system test covering the parent requirement

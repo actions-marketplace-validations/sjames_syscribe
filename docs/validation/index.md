@@ -37,7 +37,7 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | E016–E018, E107 | Cycle detection | Cycles in `supertype:`, `derivedFrom:`, `subsets:` and `typedBy:` graphs |
 | W001–W010, I010 | Parse-time and source drift | Normative `shall`, leaf test coverage (W002/W003), orphan requirements, SIL/ASIL pairing, unused type defs, missing `type:`, `sourceFile`/test-function drift, ingested test results; I010 flags a planned test not yet present |
 | E101–E108, E110–E128 | Cross-reference | Duplicate ids (E101) and qualified names (E108), unresolved or ill-typed `verifies`/`derivedFrom`, scenario names, unresolved `supertype`/`typedBy`/`subsets`/`redefines`/`satisfies` |
-| E050, W050 | Build-system integration (§9.9) | Conflicting `buildExports` variables; selected feature exporting nothing |
+| E050, W050 | Build-system integration (§9.9) | Conflicting `buildExports` variables (`E050`); selected feature exporting nothing (`W050`, catalogued but not currently emitted) |
 | E200–E247 | Product lines (§9) | Configuration and FeatureDef fields, parameter binding (E202–E207, E222, E229, E230), `appliesWhen` (E209, E228), feature-model constraints (E212, E213, E219–E221), `feature-check --deep` (E223–E225, E227), `--config` escapes (E226), single-file feature models (E231–E233), Configuration inheritance (E215, E234–E237) |
 | W011–W027, W048, W239–W240, W245–W246, W248 | Product-line warnings (§9) | Dead/always-selected features, untested active requirements, unbound parameters, false-optional, escaping/violable references, orphan features, runtime bindings, empty gating packages, misplaced feature-model fields, machine parameters with no default |
 | W023, W028, W029 | Implementation and external refs | Missing `implementedBy:` path (§12.8), duplicate `extRef`, unmeasured `wcet:` claim |
@@ -77,13 +77,13 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | W994–W995 | Executable evidence (`@verifies`, §12.12) | Scenario `@verifies` tags or `# verifies:` comments naming a requirement outside the TestCase's `verifies:`, and requirements no tagged scenario claims |
 | W996 | System context (`role: external`, §12.13) | A port of a product part in a context composite that connects to nothing |
 | E640, E641, W640–W642 | Cyber risk configuration (GH #222) | `[cyber]` method/tables in `.syscribe.toml`, per-category impact ratings, attack-potential factors |
-| E960–E967, W960–W979 | Security-analysis completeness | TARA row integrity, risk inputs and treatment, attack-tree shape, zone/conduit consistency, `VulnerabilityReport` hygiene |
+| E960–E965, E967, W960–W979 | Security-analysis completeness | TARA row integrity, risk inputs and treatment, attack-tree shape, zone/conduit consistency, `VulnerabilityReport` hygiene |
 
 See [Rule Reference](rules.md) for every code.
 
 ## Tool qualification
 
-The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains the qualification model — over 300 requirements (`REQ-TRS-*`) and a matching test case (`TC-TRS-*`) per requirement, in Syscribe format, covering every emitted validation code — along with a shell test runner that invokes the binary against crafted fixture models.
+The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains the qualification model — about 470 requirements (`REQ-TRS-*`) and about 480 test cases (`TC-TRS-*`), in Syscribe format, covering the validation codes the tool emits (a catalogue test guards that every emitted code is documented) — along with a shell test runner that invokes the binary against crafted fixture models.
 
 Run `syscribe -m qual/` to validate the qualification model, or `bash qual/tests/run_qual.sh` to execute the full TCL2 test suite. See [Tool Qualification](../tool-qualification/index.md) for the complete story.
 

@@ -59,7 +59,7 @@ Parent requirements have `derivedChildren`; leaf requirements have `derivedFrom`
 - A parent requirement must not appear in any `satisfies:` list — only leaves are assigned (E312)
 - Every `derivedFrom:` must cite an accepted `breakdownAdr:` (E310, E311)
 - Leaves at `approved` or `implemented` status with no satisfying element fire W300
-- **Parent requirements need an integration-level TestCase** — derived children's unit/integration tests (L1/L2) are not sufficient to verify the emergent composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3`, `L4`, or `L5` (W305).
+- **Parent requirements need an integration-level TestCase** — derived children's unit and property-based tests (L1/L2) are not sufficient to verify the emergent composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3`, `L4`, or `L5` (W305).
 
 ```
 REQ-UAV-PERF-000  (parent — needs L3/L4/L5 TestCase)
@@ -110,11 +110,13 @@ Feature: Flight controller fault detection
 
 | Level | Description |
 |---|---|
-| L1 | Unit / module test |
-| L2 | Integration / analysis / review |
-| L3 | Formal / property-based |
-| L4 | Simulation / QEMU |
-| L5 | Hardware-in-the-loop / physical |
+| L1 | Unit test, hosted |
+| L2 | Property-based / fuzz test, hosted |
+| L3 | Formal proof |
+| L4 | Integration test on an emulator (QEMU) |
+| L5 | Hardware-in-the-loop |
+
+L3–L5 count as integration-level for a parent requirement (`W305`); L1 and L2 do not.
 
 ### Gherkin body
 

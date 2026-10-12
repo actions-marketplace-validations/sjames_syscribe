@@ -65,7 +65,7 @@ layout:
   s-avionics:  {x: 20,  y: 140, w: 200, h: 56}
 ```
 
-`layout:` is the trigger for the SVG renderer. A diagram without a `layout:` block renders as "no layout defined."
+`layout:` is optional. It holds pinned positions: a manifest diagram without it is laid out automatically (ELK) on export, and a `layout:` block only pins the shapes it names, leaving the rest to the auto-layout.
 
 ## Derived diagrams (BDD, IBD, StateMachine, Action, Sequence, Requirement, Allocation, FeatureModel)
 
@@ -500,6 +500,9 @@ theme = "spacelab"                    # any PlantUML built-in theme
 | `StateMachine` | State diagram — `[*]` initial, `state "Name" as id` |
 | `Sequence` | Sequence diagram — `actor`/`participant`, `->` messages |
 | `Requirement` | Class diagram — `<<requirement>>` stereotype, `..>` edges |
+| `Action` | Activity-style diagram of the action's steps and flows |
+| `Allocation` | Allocation diagram — allocated elements and their targets |
+| `UseCase` | Use-case diagram — `usecase` nodes, actors (manifest-sourced; there is no derived generator) |
 
 `Mermaid` and unknown kinds are skipped with a warning.
 
@@ -517,6 +520,9 @@ theme = "spacelab"                    # any PlantUML built-in theme
 | W403 | Warning | An edge `source` or `target` is not a defined shape id in this diagram |
 | W417 | Warning | `include:`/`exclude:` on a manifest diagram (ignored), or an entry that names no member of the subject |
 | W418 | Warning | A derived diagram's `subject:` type is not valid for its `diagramKind:`; the diagram is drawn empty |
+| E405 | Error | `shapes:`, `edges:` or `layout:` is present but malformed; the entry is skipped |
 | W413 | Warning | `pumlMode: companion` but body has no `<img` tag |
 | W414 | Warning | `pumlMode: companion` but the `.puml` companion file does not exist yet |
 | W415 | Warning | `[plantuml] style_file` in `.syscribe.toml` does not exist on disk |
+
+This table is not exhaustive: `W404`–`W412` (operation types, SVG/Mermaid annotation consistency, shape links) and `W416` (stale `layout:` pin) are also raised for diagrams. See the [validation rules](../validation/rules.md) for the complete list.

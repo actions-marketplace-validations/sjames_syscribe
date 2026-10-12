@@ -12,7 +12,7 @@ computed by the tool and never authored.
 | Field | Applies to | Type | Default | Notes |
 |---|---|---|---|---|
 | `type` | All | string | **required** | Element type from the type inventory |
-| `name` | **All** | string | filename stem (name-identified) | The single human-readable label on **every** element type. For name-identified types (SysML structural, `Package`, `Diagram`, `FeatureDef`) it is also the QName/identity segment and must be a basic name (`W042`). For id-identified types (native Req/TC/TP/Config/ADR/safety/security) it is **required** free prose — spaces/punctuation allowed, `W042` does not apply. |
+| `name` | **All** | string | filename stem (name-identified) | The single human-readable label on **every** element type. For name-identified types (SysML structural, `Package`, `Diagram`, `FeatureDef`) it is only a label: the QName segment is the file/directory stem (which `W042` checks as a basic name), and a `name:` differing from the stem is `W058`. For id-identified types (native Req/TC/TP/Config/ADR/safety/security) it is **required** free prose — spaces/punctuation allowed, `W042` does not apply. |
 | `shortName` | All | string | absent | Abbreviated name for display |
 | `qualifiedName` | All | string | absent | Never an identity override — the qname is always path-derived. Only meaningful on a §3.10 locale variant (with `locale:`), where it names the documented element (`E026` if unresolved); elsewhere a differing value is `W049` and ignored |
 | `visibility` | All | string | `public` | `public` or `private` |
@@ -80,7 +80,7 @@ computed by the tool and never authored.
 | `parameters` | ActionDef/CalcDef/etc. | list | Parameter declarations |
 | `returnType` | CalculationDef/VerificationCaseDef | string | Return type QName |
 | `body` | CalculationDef/ActionDef | string | Expression body (opaque) |
-| `bodyLanguage` | CalculationDef/ActionDef | string | `"ocl"` (default) |
+| `bodyLanguage` | CalculationDef/ActionDef | string | absent |
 | `subActions` | ActionDef/Action/CaseDef | list | Owned sub-actions |
 | `controlNodes` | ActionDef/Action | list | Fork/join/decision/merge nodes |
 
@@ -172,7 +172,7 @@ Derived-diagram view fields (`type: Diagram`, spec §8.16.10): `include` (a map 
 
 | Field | Type | Notes |
 |---|---|---|
-| `testLevel` | string | **required** — `L1` (doc review) · `L2` (analysis) · `L3` (unit/integration) · `L4` (system) · `L5` (HIL/physical) |
+| `testLevel` | string | **required** — `L1` (unit, hosted) · `L2` (property-based/fuzz, hosted) · `L3` (formal proof) · `L4` (integration, emulator) · `L5` (hardware-in-the-loop). Tool semantics: `L1`/`L2` are leaf-level; `L3`–`L5` count as integration-level for a parent requirement's `W305`; `L5` is what `asilLevel: D` (`W702`) and a `wcet:` budget (`W029`) need |
 | `securityTestMethod` | string | optional (ISO/SAE 21434 §13.3) — `fuzz` · `penetration_test` · `security_regression` · `vulnerability_scan` · `threat_modeling` (W809 if other). Orthogonal to `testLevel`; lets `verification-depth`/`matrix` distinguish security-method tests from functional ones |
 | `sourceFile` | string | Path relative to model root (W004 if not found) |
 | `testFunctions` | list | Each entry a function-name string or `{function: name, scenario: "title"}` |

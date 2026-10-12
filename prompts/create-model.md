@@ -1369,7 +1369,7 @@ draft → review → approved → implemented → verified
 | E203–E206 / E222 | Bad `parameterBindings`: unselected feature / fixed param / out of range / not in enum / undeclared (or legacy-`::`) path | Bind only selected, configurable params with in-range, in-enum values keyed `<FeatureDef>.<param>` (dotted) |
 | W017 | Selected feature's required parameter left unbound | Bind it in `parameterBindings:` or give the parameter a `default:` |
 | E050 | Two selected features export the same `buildExports:` variable with conflicting values | Add a `buildOverrides:` entry on the `Configuration` to resolve the conflict |
-| W050 | Selected feature contributes no build variable (opt-in) | Add `buildExports:` or a parameter with `buildVar:`, or suppress with `--deny W050` |
+| W050 | Selected feature contributes no build variable (catalogued, not currently emitted) | Add `buildExports:` or a parameter with `buildVar:` |
 
 ---
 
