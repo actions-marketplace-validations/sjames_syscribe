@@ -62,6 +62,8 @@ parent whose every leaf has an active verifying test is accepted) and reports an
 loosened integrity-rated parent as `E898`.
 
 ## OPTIONS
+    --plan <TP-id>   evaluate on the test-plan lens (see DESCRIPTION)
+    --config <id>    project onto a Configuration first (see DESCRIPTION)
     --json     the same tree as JSON (leavesActive/leavesPlanned/leavesUncovered,
                directTests, verdict = complete|partial|none|na, glyph, children)
 

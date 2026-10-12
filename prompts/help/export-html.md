@@ -23,10 +23,14 @@ disk.
       mermaid.min.js              bundled Mermaid runtime (offline)
       search.js                   client-side search over an inline index
       search-index.json           {qname,id,type,name,url} per element
-      elements/<sanitized>.html   one page per element
+      all-elements.html           complete element listing (every element, grouped)
+      elements/<sanitized>.html   one page per element; its sidebar is a focused
+                                  tree: top-level packages, the siblings along the
+                                  path to the element, and its children
       reports/validation.html     validation findings
       reports/coverage.html       requirement-verification coverage
       reports/traceability.html   requirements × derivedFrom × verifying tests
+      reports/heat.html           heat report
 
 Element page filenames are the qualified name with `::` and `/` replaced by
 `__` (e.g. `Requirements::REQ-FX-001` → `elements/Requirements__REQ-FX-001.html`).

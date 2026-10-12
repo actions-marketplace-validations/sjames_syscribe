@@ -10,6 +10,7 @@ riskTreatment, whether it is addressed by a CybersecurityGoal, and a flag
 (untreated when it would trip W031).
 
 ## OPTIONS
+    (An unknown --format value is a usage error, exit 1, listing every valid format.)
     --config <C>   Project onto a Configuration (id/qname or 'Features::A,…') —
                    only ThreatScenarios active in that variant are listed.
     --json         Emit {id, severity, feasibility, risk, treatment, addressed, flag} array.

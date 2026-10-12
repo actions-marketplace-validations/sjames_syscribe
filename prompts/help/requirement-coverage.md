@@ -43,7 +43,9 @@ use plants are not run here and count as not run.
     --min-guards <pct>       threshold: guard conditions covered
     --min-score <pct>        threshold: mutation score of each carrying machine
     --mutate                 compute mutation scores now instead of reading the recorded ones
+                             (expensive: a single requirement can take minutes and a model-wide run
+                             longer; prefer recorded scores from `mutate --record`)
     --json                   machine-readable report
 
 ## EXIT STATUS
-0 done (and every gate met) · 1 usage, an unknown requirement or Configuration · 2 a gate missed.
+0 done (and every gate met) · 1 usage, an unknown requirement or Configuration · 2 a gate missed (only `--min-executable` and `--require`; the thresholds `--min-states`, `--min-transitions`, `--min-guards`, `--min-score` only downgrade a requirement to executable-weak and never change the exit status).

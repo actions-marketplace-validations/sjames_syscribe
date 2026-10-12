@@ -51,6 +51,64 @@ fn spec_for(cmd: &str) -> Option<Spec> {
             LENS,
             ("--all-configs", Switch),
         ],
+        "audit" => &[("--json", Switch), ("--profile", Value), LENS, ("--plan", Value), ("--all-configs", Switch)],
+        "types" | "untyped" | "next-id" | "check-ref" | "path-for" => &[],
+        "sysml" | "link-types" | "testplan" | "conduits" | "review" | "features" | "feature" | "configure" => &[("--json", Switch)],
+        "export-html" => &[("--out", Value), ("--css", Value)],
+        "matrix" => &[
+            ("--json", Switch),
+            ("--allocations", Switch),
+            ("--gaps-only", Switch),
+            ("--linked-only", Switch),
+            ("--tag", Value),
+            ("--status", Value),
+            ("--plan", Value),
+            LENS,
+            ("--rollup", Switch),
+            ("--features", Switch),
+        ],
+        "metrics" => &[("--json", Switch), LENS, ("--sensitivity", Switch)],
+        "cyber-risk" => &[("--json", Switch), LENS, ("--format", Value)],
+        "co-analysis" | "trade-study" | "why-active" | "diff" => &[("--json", Switch), LENS],
+        "safety-case" => &[("--json", Switch), ("--no-implicit", Switch), LENS, ("--format", Value)],
+        "zones" => &[("--json", Switch), ("--coverage", Switch), ("--format", Value)],
+        "reviews" => &[("--json", Switch), ("--open-only", Switch), ("--coverage", Switch)],
+        "magicgrid" => &[("--json", Switch), ("--audit", Switch), ("--svg", Switch), ("-o", Value), ("--output", Value)],
+        "feature-check" => &[
+            ("--json", Switch),
+            ("--deep", Switch),
+            ("--count", Switch),
+            ("--enumerate", Switch),
+            ("--prove", Value),
+            ("--deny", ValueOrEq),
+            ("--max-warnings", ValueOrEq),
+            ("--warnings-as-errors", Switch),
+            ("--summary", Switch),
+        ],
+        "applies-when" => &[("--set", Value), ("--clear", Switch), ("--dry-run", Switch), ("--json", Switch)],
+        "claim" => &[("--by", Value), ("--dry-run", Switch)],
+        "release" | "move" | "set" => &[("--dry-run", Switch)],
+        "scaffold-gherkin" => &[("--fix", Switch)],
+        "plantuml" => &[("--dry-run", Switch), ("--output", ValueOrEq), ("-o", Value), ("--jar", ValueOrEq)],
+        "repos" => &[("--json", Switch), ("--all", Switch)],
+        "export-reqif" => &[LENS, ("--scope", Value), ("--output", Value), ("--include-tests", Switch), ("--zip", Switch)],
+        "fmea" => &[("--fmea-sheet", Value), ("--json", Switch), ("--format", Value)],
+        "hara" => &[("--format", Value)],
+        "fault-tree" => &[("--format", Value), ("--json", Switch), ("--max-order", Value), ("--no-ccf", Switch)],
+        "suspect" => &[("--all", Switch), ("--all-unbaselined", Switch)],
+        "baseline" => &[
+            ("--tag", Value),
+            ("--name", Value),
+            ("--approver", Value),
+            ("--frozen-scope", Value),
+            ("--id", Value),
+            ("--date", Value),
+            ("--allow-dirty", Switch),
+            ("--require-reviewed", Switch),
+            ("--all", Switch),
+            ("--current", Switch),
+            ("--detail", Switch),
+        ],
         "template" => &[("--prefix", Value)],
         "list" => &[
             ("--tag", Value),
@@ -294,6 +352,13 @@ mod tests {
         for (cmd, _) in crate::help::commands() {
             let Some(spec) = spec_for(cmd) else { continue };
             let page = crate::help::page(cmd).unwrap_or("");
+            // Prose lines that mention another command's `--deny` gate are not options of `cmd`.
+            let page = page
+                .lines()
+                .filter(|l| !l.contains("validate --deny") && !l.contains("gate with `--deny") && !(l.contains("mutate") && l.contains("--record")))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let page = page.as_str();
             let mut documented = page.split("## DESCRIPTION").next().unwrap_or("").to_string();
             if let Some(opts) = page.split("## OPTIONS").nth(1) {
                 documented.push_str(opts.split("\n## ").next().unwrap_or(""));

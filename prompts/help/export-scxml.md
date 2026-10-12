@@ -1,7 +1,7 @@
 # export-scxml — write a state machine as W3C SCXML
 
 ## SYNOPSIS
-    syscribe export-scxml <StateDef> [--output <file>]
+    syscribe -m <root> export-scxml <StateDef> [--output <file>]
 
 ## DESCRIPTION
 Lowers the machine (see `syscribe help compile`) and writes an SCXML document equivalent to it, so
@@ -24,5 +24,8 @@ command itself. The command is run with `sh -c`, reads `{"scxml": "<doc>", "comm
 [[state ids], …]}` — the active states after start and after each command. Any difference from
 syscribe's own trace is reported (exit 2). No engine is bundled.
 
+`export-scxml` has no `--config` option (it rejects it as an unknown option), so a machine with
+`{{Features::F.param}}` placeholders cannot be exported: it fails with E882/W933 (exit 2).
+
 ## EXIT STATUS
-0 written · 1 usage · 2 lowering diagnostics.
+0 written · 1 usage (including an unknown option) · 2 lowering diagnostics.

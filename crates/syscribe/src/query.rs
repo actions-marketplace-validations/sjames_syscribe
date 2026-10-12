@@ -2620,10 +2620,28 @@ pub fn cmd_feature_check(
         } else {
             println!("# Feature Model Check");
             println!();
-            println!("| Code | File | Message |");
-            println!("|---|---|---|");
-            for f in &findings {
-                println!("| {} | {} | {} |", f.code, f.file, f.message);
+            if gate.summary {
+                // `--summary`: counts per code and severity instead of each finding (as `validate --summary`).
+                let mut counts: std::collections::BTreeMap<(&str, &str), usize> = std::collections::BTreeMap::new();
+                for f in &findings {
+                    let sev = match f.severity {
+                        Severity::Error => "error",
+                        Severity::Warning => "warning",
+                        Severity::Info => "info",
+                    };
+                    *counts.entry((f.code, sev)).or_insert(0) += 1;
+                }
+                println!("| Code | Severity | Count |");
+                println!("|---|---|---|");
+                for ((c, sv), n) in &counts {
+                    println!("| {c} | {sv} | {n} |");
+                }
+            } else {
+                println!("| Code | File | Message |");
+                println!("|---|---|---|");
+                for f in &findings {
+                    println!("| {} | {} | {} |", f.code, f.file, f.message);
+                }
             }
             println!();
             let errs = findings.iter().filter(|f| f.severity == Severity::Error).count();

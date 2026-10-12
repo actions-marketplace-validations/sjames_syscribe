@@ -273,8 +273,8 @@ pub fn cmd_build_config(
         }
     };
 
-    // Step 3: abort on E050 findings. W050 is opt-in and surfaced via `validate
-    // --deny W050` only — do not print it here.
+    // Step 3: abort on E050 findings. W050 is not printed here and is not
+    // surfaced by `validate` either (catalogued, currently not emitted).
     let mut has_e050 = false;
     for f in &result.findings {
         if f.code == "E050" {
@@ -357,8 +357,8 @@ pub fn cmd_build_config_all(
 
         match build_config::resolve(elements, &id) {
             Ok(result) => {
-                // Collect E050 messages as error text. W050 is opt-in and not
-                // printed here — use `validate --deny W050` to surface it.
+                // Collect E050 messages as error text. W050 is not
+                // printed here and is not emitted by `validate` either.
                 let mut error_msgs: Vec<String> = Vec::new();
                 for f in &result.findings {
                     if f.code == "E050" {

@@ -69,7 +69,7 @@ one is flagged `MG061` under the gated profile.
 the four pillar columns, each cell listing its elements, the B3 System of Interest
 highlighted, and empty cells de-emphasised. It uses the shared diagram theme and font
 metrics, so it looks consistent with the other diagrams. The SVG is written to stdout,
-or to a file with `-o <file>`.
+or to a file with `-o <file>` (long form: `--output <file>`).
 
 It is intended as a **`Diagram` companion**: write it as `<Name>.svg` next to a
 `Diagram` element with `svgMode: companion` (default same-stem `.svg`) and it renders

@@ -1,7 +1,7 @@
 # compile — lower a state machine to its intermediate representation
 
 ## SYNOPSIS
-    syscribe compile <StateDef> [--config <C>] [--json]
+    syscribe -m <root> compile <StateDef> [--config <C>] [--json]
 
 ## DESCRIPTION
 Lowers a `StateDef` (or `State`) to the machine IR that the simulator, coverage,
@@ -15,8 +15,8 @@ Lowering refuses what validation rejects: schema errors (E882–E885), a guard o
 `when` that is not in the expression language or uses an undeclared name (W933),
 an unresolved or ambiguous transition endpoint (W076).
 
-    syscribe compile Door            # summary
-    syscribe compile Door --json     # canonical IR
+    syscribe -m <root> compile Door            # summary
+    syscribe -m <root> compile Door --json     # canonical IR
 
 An `ActionDef` is lowered to the action-graph IR instead (nodes, guarded successions, slots, data
 flows, called actions): see `syscribe help simulate`.
@@ -25,5 +25,8 @@ flows, called actions): see `syscribe help simulate`.
     --config <C>         run on the model projected onto this Configuration: feature parameters written as {{Features::F.param}} in guards, assignments and durations take its values
     --json               machine-readable output
 
+A machine whose guards, assignments or durations use `{{Features::F.param}}` placeholders
+needs `--config <Configuration>`; without it lowering fails with E882/W933 (exit 2).
+
 ## EXIT STATUS
-0 lowered · 1 usage, or the element is not a state machine · 2 diagnostics.
+0 lowered · 1 usage (including an unknown option), or the element is not a state machine · 2 diagnostics.

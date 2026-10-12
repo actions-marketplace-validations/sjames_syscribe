@@ -34,6 +34,7 @@ still counts. Without results the report is unchanged.
 
 ## EXIT CODES
     0  all reported requirements meet --min-levels (or no gate)
+    1  usage error (e.g. non-numeric --min-levels, unknown --plan or --config)
     2  a requirement has fewer than N distinct levels
 
 ## SEE ALSO

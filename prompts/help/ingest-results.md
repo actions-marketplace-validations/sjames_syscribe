@@ -96,6 +96,8 @@ latest ingest; `leaf_meta`/`scenario_meta` record which report each section came
 from. Sidecars written by earlier versions are still read.
 
 ## OPTIONS
+    --run <id>       also retain the ingest under this run identity for `results diff`
+    --config <CONF-id>  record the ingest as the evidence of this Configuration only
     --format <fmt>   cargo-json (libtest JSON), junit (JUnit XML), or session-log
                      (manual/exploratory verification). cargo-json/junit are
                      inferred from the file extension if omitted; session-log is

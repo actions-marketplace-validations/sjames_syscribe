@@ -17,7 +17,8 @@ unknown type prints the full list).
 
 ## OPTIONS
     [scope]          Namespace prefix to restrict to (e.g. UAV::Avionics).
-    --tag <t>        Keep only elements whose tags: include t.
+    --tag <t>        Keep only elements whose tags: include t. Repeatable; repeated tags are ANDed
+                     (the element must carry every one).
     --feature <F>    Keep only elements gated by FeatureDef F (via appliesWhen).
     --metadata <D>   Keep only elements that apply the stereotype MetadataDef D
                      (a `metadata:` application; matched by qname or last segment).
@@ -26,7 +27,9 @@ unknown type prints the full list).
     --sil <v>        Keep only elements whose silLevel stringifies to v OR asilLevel == v.
     --has-wcet       Keep only elements that declare a non-empty wcet:.
     --rate-status <s> Keep only the fault-tree events and FMEA rows whose rateStatus: is s
-                     (verified, secondary, unverified; `none` for a rate with no status).
+                     (verified, secondary, unverified; `none` for a rate with no status). Only
+                     FaultTreeEvent and FMEA rows are filtered; on any other type it is a
+                     silent no-op.
     --where custom.<key>[<op><value>]   Filter by custom_fields:. <op> is `=` (exact; any
                      list element), `=~` (regex, substring fallback) or `~=` (list
                      membership); a bare custom.<key> tests presence. Any other operator
@@ -37,7 +40,8 @@ unknown type prints the full list).
     syscribe -m model/ list Requirement
     syscribe -m model/ list PartDef UAV::Avionics
     syscribe -m model_sil/ list Requirement --status approved --sil 4
-    syscribe -m model_sil/ list Requirement --has-wcet --json
+    syscribe -m <root> list Requirement --has-wcet --json   # [] unless the model sets wcet: (no bundled model does)
+    syscribe -m model/ list Requirement --tag config --tag plantuml --json
     syscribe -m model_mg/ list PartDef --where custom.mg_layer=physical
 
 ## SEE ALSO

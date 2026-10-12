@@ -18,5 +18,12 @@ packages become a nested `SPEC-HIERARCHY`; `derivedFrom:` links become `DERIVED_
     --include-tests   Also emit TestCases as SPEC-OBJECTs + VERIFIED_BY relations.
     --zip             Package as a .reqifz ZIP (stored content.reqif entry).
 
+Body Markdown (`**bold**`, `` `code` ``, headings, lists, code fences) is converted to
+well-formed, properly nested XHTML; the file always imports back with `import-reqif`
+(a dry-run import of an export from the same model reports every requirement as `exists`).
+
+An unknown option, or a `--scope` that does not resolve to an element, is a usage error (exit 1;
+nothing is written).
+
 ## SEE ALSO
     sbom, links, trace

@@ -28,7 +28,8 @@ available regardless of profile. The rest of this page describes that mode.
 
 - **Rows** — every element with `custom_fields: { mg_moe: true }` (labelled by name).
 - **Columns** — the model's `Configuration`s (labelled by `name`, falling back to
-  id), or the subset named by repeated `--config <id|qname>`.
+  id), or the subset named by repeated `--config <id|qname>`. A `--config` that does not resolve to a
+  Configuration is a usage error (exit 1).
 
 ## Per-cell evaluation
 
@@ -46,7 +47,7 @@ The value is normalised to a score in `[0,1]`:
 - `minimize`: `clamp((threshold − value) / (threshold − objective), 0, 1)`
 
 A value worse than `mg_moe_threshold` scores `0` **and** is a **threshold
-violation** (a knock-out). Each cell prints `VALUE (SCORE)` to two decimals, with
+violation** (a knock-out). Each cell prints `VALUE (SCORE)`: the value as measured (not rounded, e.g. `2.966666666666667 (0.52)`) and the score to two decimals, with
 ` !` appended on a violation.
 
 ## Rollup

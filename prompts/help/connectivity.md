@@ -22,6 +22,10 @@ the analysis links: `hazardousEvents:`, `topEvent:`, gate `inputs:`, event `ref:
                      analysis links hazardousEventRef,topEvent,faultTreeInput,threatRef,…).
     --undirected     Follow edges in both directions.
 
+## EXIT STATUS
+    0  success
+    2  usage error (bad --depth, --format or --kinds value, unknown option)
+
 ## EXAMPLES
     syscribe -m model/ connectivity UAV::Airframe
     syscribe -m model/ connectivity UAV::Airframe --format dot | dot -Tsvg -o g.svg

@@ -47,8 +47,6 @@ sidecar; an explicit `validate --results <file>` wins over the lens.
 
 `trace` and `safety-case` show the retained message and time of a failing verifier ("Failing tests" / "Failure details").
 
-Not yet: per-configuration verdicts (GH #258).
-
 ## SEE ALSO
     ingest-results, audit, matrix
 

@@ -1,7 +1,7 @@
 # inject — run a composite's safety invariants under injected faults
 
 ## SYNOPSIS
-    syscribe inject <composite|TestCase> [--ft <FaultTree>] [--max-order <N>] [--fmea <FMEASheet>] [--report-only] [--config <C>] [--record [--run <id>]] [--report <file.json|file.md>] [--json]
+    syscribe -m <root> inject <composite|TestCase> [--ft <FaultTree>] [--max-order <N>] [--fmea <FMEASheet>] [--report-only] [--config <C>] [--record [--run <id>]] [--report <file.json|file.md>] [--json]
         [--consistency [--consistency-order <N>] [--max-runs <N>]]
 
 ## DESCRIPTION
@@ -30,8 +30,12 @@ every fault set rebuilds the system (and re-instantiates plants), so a large ord
     --ft <FaultTree>      also run the minimal cut sets of this fault tree
     --max-order <N>       largest cut set to run (default 2)
     --fmea <FMEASheet>    only the single faults of this sheet's rows (fault-tree events and cut sets are unaffected)
-    --report-only         report defeats and errors but exit 0
-    --config <C>         run on the model projected onto this Configuration: feature parameters written as {{Features::F.param}} in guards, assignments and durations take its values
+    --report-only         report defeats and errors in the campaign but exit 0. It does not
+                          cover model or lowering errors (e.g. a {{Features::...}} parse error
+                          E882/W933), which still exit non-zero, nor a TestCase that is absent
+                          from the chosen configuration (`error: no element ...`, exit 1)
+    --config <C>         run on the model projected onto this Configuration: feature parameters written as {{Features::F.param}} in guards, assignments and durations take its values.
+                          Required on a parameterised model; without it the placeholders fail to parse
     --record              keep the campaign in `.syscribe/campaigns.json` (one history per subject and Configuration,
                           latest first); every defeat in the latest record then needs a `ResidualRisk` decision (W940)
     --run <id>            name the recorded run; a record with the same id is replaced (an unnamed one replaces the

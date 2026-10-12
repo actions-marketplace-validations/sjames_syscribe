@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
     syscribe -m <root> feature-check [--json]
-        [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors]
+        [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors] [--summary]
         [--deep] [--count] [--enumerate] [--prove <dir>]
 
 ## DESCRIPTION
@@ -17,6 +17,8 @@ configuration space.
                            comma-separated or repeated, also --deny=<CODES>.
     --max-warnings <N>     Gate failure (exit 2) when more than N warnings remain.
     --warnings-as-errors   Every warning is a gate failure (exit 2).
+    --summary              Text output: print finding counts per code and severity instead
+                           of each finding (as `validate --summary`). --json is unchanged.
     --deep           SAT analysis: void model, dead/core/false-optional features,
                      full-semantics configuration validity, with explanations.
     --count          Number of valid configurations.

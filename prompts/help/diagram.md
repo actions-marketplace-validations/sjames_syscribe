@@ -61,7 +61,10 @@ same bytes on every machine and checkout.
     --config <C>                      Derive from the model projected onto Configuration <C>
                                       (elements gated off by appliesWhen are absent). An
                                       unknown configuration, or a diagram inactive in it,
-                                      exits 1.
+                                      exits 1. Given twice on one diagram
+                                      (`--config A --config B`) it draws a variant view: what
+                                      only A has is marked `only A`, what only B has `only B`.
+                                      `--all` takes at most one --config.
     --out <file>                      Write to <file> (parent directories are
                                       created) instead of stdout.
     --all                             Every Diagram of the model, into --out-dir.

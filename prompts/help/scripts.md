@@ -11,6 +11,9 @@ a configured scripts directory. They are *tooling*, not model content: they are
 never parsed as model elements and are **not** run by the built-in `validate`
 pass — the qualification boundary stays crisp.
 
+Unlike the other commands, `scripts` does not reject unknown options: arguments after
+the command name are passed through to the user script.
+
 Scripts run in a sandboxed, resource-limited, deterministic Rhai engine: no
 filesystem, network, clock, randomness, environment, or process access; `eval` is
 disabled; the module resolver is confined to the scripts directory; and a runaway

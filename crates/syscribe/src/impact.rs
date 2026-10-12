@@ -150,8 +150,7 @@ pub fn cmd_impact(elements: &[RawElement], opts: &ImpactOptions) {
 
     // `--kinds` names match an edge's base kind. A declared link type's `inverse`
     // selects that type's edges too (REQ-TRS-LINKTYPE-009) — in addition to any
-    // built-in kind of the same name. An unknown name is warned about (stderr,
-    // exit status unchanged for backward compatibility).
+    // built-in kind of the same name. An unknown name is a usage error (exit 1).
     let link_types = syscribe_model::link_types::active();
     let kinds: Option<Vec<String>> = opts.kinds.as_ref().map(|ks| {
         let mut out: Vec<String> = ks.clone();
@@ -170,8 +169,8 @@ pub fn cmd_impact(elements: &[RawElement], opts: &ImpactOptions) {
                 valid.push(inv.clone());
             }
         }
-        for k in ks.iter().filter(|k| !valid.contains(k)) {
-            eprintln!("impact: unknown --kinds name '{}' (valid: {})", k, valid.join(", "));
+        if let Some(k) = ks.iter().find(|k| !valid.contains(k)) {
+            crate::cliargs::usage_exit(&format!("impact: unknown --kinds name '{}' (valid: {})", k, valid.join(", ")));
         }
     }
     let kind_ok = |base: &str| kinds.as_ref().is_none_or(|ks| ks.iter().any(|k| k == base));

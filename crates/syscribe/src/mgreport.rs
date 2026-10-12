@@ -1003,6 +1003,14 @@ fn score_moe(moe: &Moe, value: f64) -> (f64, bool) {
 }
 
 pub fn cmd_trade_study(elems: &[RawElement], json: bool, config_filter: &[String]) {
+    for c in config_filter {
+        let known = elems.iter().any(|e| {
+            is_type(e, ElementType::Configuration) && (e.frontmatter.id.as_deref() == Some(c.as_str()) || e.qualified_name == *c)
+        });
+        if !known {
+            crate::cliargs::usage_exit(&format!("trade-study: --config '{c}' does not resolve to a Configuration"));
+        }
+    }
     // Rows: mg_moe == true.
     let moes: Vec<Moe> = elems
         .iter()

@@ -236,11 +236,15 @@ pub fn cmd_features(elements: &[RawElement], json: bool) {
 // ── feature <q>: single-feature card ────────────────────────────────────────
 
 pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
+    let by_id = variability::feature_id_to_qname(elements);
+    let id_qname = by_id.get(arg);
     let Some(fd) = elements.iter().find(|e| {
         is_type(e, ElementType::FeatureDef)
-            && (e.qualified_name == arg || e.frontmatter.name.as_deref() == Some(arg))
+            && (e.qualified_name == arg
+                || e.frontmatter.name.as_deref() == Some(arg)
+                || id_qname.is_some_and(|q| *q == e.qualified_name))
     }) else {
-        eprintln!("Error: '{}' is not a known FeatureDef", arg);
+        eprintln!("Error: '{}' is not a known FeatureDef (give a qualified name, a name or a FEAT-* id)", arg);
         std::process::exit(1);
     };
     let q = &fd.qualified_name;

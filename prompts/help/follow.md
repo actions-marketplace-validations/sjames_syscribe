@@ -16,9 +16,9 @@ reached from. Read-only.
   the source);
 - that type's declared **`inverse`** (followed target → source);
 - a **built-in link**: `satisfies`, `verifies`, `derivedFrom`, `refines`,
-  `supertype`, `typedBy`, `allocatedTo`;
+  `supertype`, `typedBy`, `allocatedTo`, `models`;
 - a **built-in reverse index**: `satisfiedBy`, `verifiedBy`, `derivedChildren`,
-  `refinedBy`, `specializedBy`, `allocatedFrom`.
+  `refinedBy`, `specializedBy`, `allocatedFrom`, `modeledBy`.
 
 A built-in name follows only the built-in field itself — never the user-defined
 types that `extends` it (use the custom type's own name for those).

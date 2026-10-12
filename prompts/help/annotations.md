@@ -47,6 +47,9 @@ implemented."
 annotations scan <qname-or-label> --dry-run   # scan one package in isolation, print its elements
 ```
 
+`--dry-run` is required: without it `scan` prints a usage line and exits 1. The output is one
+JSON document, `{"elements":[{"qname","type","filePath","frontmatter":{...}}]}`.
+
 `<qname-or-label>` matches a package's qualified name first, then (first
 match) its `annotationFormat:` label. No merge, no validation — the fastest
 loop for authoring `marker`/`include`/`exclude`.

@@ -1664,6 +1664,12 @@ fn main() {
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 let view = projected_elements(&elems, config);
                 let cfg = syscribe_model::cyber_config::CyberConfig::load(model_root);
+                if let Some(f) = analysis_cmd::format_arg(rest) {
+                    if !analysis_cmd::is_graph_format(f) && !["md", "html", "json"].contains(&f) {
+                        let all: Vec<&str> = ["md", "html", "json"].into_iter().chain(analysis_cmd::GRAPH_FORMATS.iter().copied()).collect();
+                        cliargs::usage_exit(&format!("cyber-risk: invalid value '{f}' for --format; valid values: {}", all.join(", ")));
+                    }
+                }
                 if let Some(fmt) = analysis_cmd::format_arg(rest).filter(|f| analysis_cmd::is_graph_format(f)) {
                     // GH #223: the threat graph (threat, damage, asset, goal, control) with risk tones.
                     let code = analysis_cmd::cmd_model_graph("cyber-risk", syscribe_model::vis::DiagramKind::ThreatGraph, &view, &cfg, None, fmt);

@@ -1,7 +1,7 @@
 # simulate — run a state machine's scenarios, or a script, and print the trace
 
 ## SYNOPSIS
-    syscribe simulate <TestCase|StateDef> [--scenario <title>] [--trace] [--record [--run <id>] [--config <C>]] [--coverage [--min-states <pct>] [--min-transitions <pct>] [--min-guards <pct>]] [--strict] [--json]
+    syscribe simulate <TestCase|StateDef> [--scenario <title>] [--trace] [--record [--run <id>] [--config <C>]] [--all] [--coverage [--min-states <pct>] [--min-transitions <pct>] [--min-guards <pct>] [--min-nodes <pct>] [--min-edges <pct>]] [--strict] [--json]
     syscribe simulate <StateDef> --do "<script>" [--crosscheck <engine>] [--strict] [--json]
 
 ## DESCRIPTION
@@ -20,7 +20,9 @@ Script commands, separated by `;`:
 The trace lists every microstep: virtual time, cause (event, timer, change, done,
 eventless), transition, states exited and entered, actions run and variables
 changed. `--strict` makes an unhandled event and equal-priority conflicts errors.
-`--json` prints the machine hash, final configuration, variables and the trace.
+`--json` in `--do` script mode prints {active, error, machine, machineHash, terminated, time, trace,
+variables}; in scenario mode it prints {machineHash, verdicts:[{machine, scenario, status, steps,
+testCase}]}, plus `coverage` with `--coverage`.
 
 ## SCENARIOS
 A `TestCase` whose `subject:` is a state machine (else the single `StateDef` that satisfies the
@@ -79,7 +81,8 @@ with expected and actual) or `error` (a run error, an unknown state, an unusable
 `--record` writes the verdicts into the results sidecar as session-log evidence (an outline's own
 title carries the worst of its rows; verdicts of scenarios this run did not cover are kept) and the
 traces under `.syscribe/traces/`; `--run` adds them to the run history, `--config` records them for
-a Configuration.
+a Configuration. `--run` and `--config` are accepted without `--record` but then have no effect:
+nothing is recorded, silently.
 
 ## COVERAGE
 `--coverage` (with a machine and `--all`, or a TestCase) reports what the scenarios exercised, merged

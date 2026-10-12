@@ -265,7 +265,7 @@ pub fn resolve(elements: &[RawElement], conf_id: &str) -> Result<BuildConfigResu
                 &fd.file_path,
                 format!(
                     "selected feature '{}' contributes no build variable \
-                     (add buildExports: or a parameter with buildVar:, or gate with --deny W050)",
+                     (add buildExports: or a parameter with buildVar:)",
                     qname
                 ),
             ));
@@ -282,8 +282,9 @@ pub fn resolve(elements: &[RawElement], conf_id: &str) -> Result<BuildConfigResu
 /// `build_exports.is_some()` or `build_overrides.is_some()`, so it is zero-cost
 /// on models that do not use the build-system integration feature.
 ///
-/// W050 (selected feature with no build mapping) is **not** emitted here because
-/// it is opt-in (gate with `--deny W050`). It is only emitted by `resolve`.
+/// W050 (selected feature with no build mapping) is **not** emitted here: `resolve`
+/// computes it, but no command surfaces it, so `validate --deny W050` cannot gate
+/// on it today (it is catalogued but not currently emitted).
 pub fn validate_build_exports(elements: &[RawElement]) -> Vec<Finding> {
     let mut findings = Vec::new();
 

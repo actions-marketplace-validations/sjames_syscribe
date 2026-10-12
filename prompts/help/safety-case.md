@@ -7,7 +7,7 @@
 Renders the assurance argument for each SafetyGoal (or the one given): the
 Argument nodes (claim/strategy/solution/context/justification/assumption/undeveloped) that support it and their evidence
 (Requirements, TestCases with ingested verdicts, sub-Arguments, AssumptionOfUse).
-It always folds in the implicit SafetyGoal ← Requirement (derivedFromSafetyGoal) ←
+By default it folds in the implicit SafetyGoal ← Requirement (derivedFromSafetyGoal) ←
 derivedChildren* ← TestCase (verifies) chain (even when a goal has Arguments; a
 requirement an Argument already cites is shown once). Nodes with no evidence are
 marked [UNDEVELOPED]; each goal gets a SUPPORTED/INCOMPLETE/FAILING verdict and a
@@ -24,7 +24,8 @@ was already printed under the same goal is shown again as a single line marked
                    (goal/strategy/solution/context shapes, status tones, undeveloped
                    diamonds, ingested test verdicts).
     --json         Emit {goals:[{id,title,verdict,status,completeness,arguments,
-                   requirements,assumptions}], completeness, verdictsUnknown}.
+                   requirements,assumptions,undeveloped}], completeness,
+                   failureDetails, verdictsUnknown}.
 
 ## EXAMPLES
     # against the bundled automotive model (model_auto/)

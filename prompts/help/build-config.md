@@ -46,4 +46,5 @@ An unknown option is a usage error (exit 1, message on stderr, nothing on stdout
 ## DIAGNOSTICS
     E050   Two selected features export the same variable name with conflicting values.
            Resolve by adding a buildOverrides: entry on the Configuration.
-    W050   A selected feature contributes no build variable (opt-in, --deny W050).
+    W050   A selected feature contributes no build variable. Catalogued but not
+           currently emitted: no command surfaces it, so --deny W050 has no effect.

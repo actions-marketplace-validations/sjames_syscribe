@@ -7,6 +7,11 @@
 Moves an element or package to a new qualified name, rewriting every cross-
 reference to it across the model. Use --dry-run first to preview the changes.
 
+For id-identified types (Requirement, TestCase, ADR, ...) `move` only relocates the
+file: the `id:` inside is not changed, and references resolve by id, so the destination
+should keep the same id (the file stem). Nothing stops a move to a qualified name whose
+last segment differs from the id; check `validate` afterwards.
+
 ## OPTIONS
     --dry-run   Show what would change without writing.
 
