@@ -248,6 +248,34 @@ layout:
   s-uav-power-powersystem-pdu: {x: 320, y: 80}
 ```
 
+### Nesting, deployment, marks and domain frames (IBD)
+
+A derived IBD reads more of the model than its subject's direct parts:
+
+- `depth: 2` (or more, up to 16) draws each part's own parts inside it, inline or child `Part` files,
+  with their ports and the connections their definition declares. A part that contains itself is
+  opened once.
+- Software with `isDeploymentPackage: true` that is allocated to hardware (an `Allocation`, or
+  `allocatedTo:`) is drawn inside that hardware. If the hardware is not drawn at this depth, the
+  software goes inside the part that contains it. With two boards, each board's firmware goes into
+  that board's MCU.
+- A part with `silLevel:`, `asilLevel:` or a `safety` stereotype gets a heavy amber outline and a
+  `SIL 2`/`ASIL B` badge. A part with `appliesWhen:` is drawn dashed with an `optional` badge and
+  `when <feature>`. The SVG adds a legend when any part is marked.
+- `groupBy: domain` frames the subject's parts by `domain:` (system, hardware, software). Deployed
+  software stays inside its hardware and shows its domain as a banner.
+- `syscribe diagram export <qname> --config <CONF>` draws only the parts active in that product, and
+  badges none of them optional.
+
+<!-- syscribe-example: skip reason="an excerpt of model_gti; the subject lives there" -->
+```yaml
+type: Diagram
+name: GtiIbd
+diagramKind: IBD
+subject: System::GridTieInverter
+depth: 2
+```
+
 ### Flow kinds and port sides
 
 An architecture picture reads faster when the lines say what they carry. Put `flowKind:` on a
@@ -298,6 +326,7 @@ ignored.
 | W417 | `include:`/`exclude:` on a manifest diagram (ignored), or an entry that names no member of the subject |
 | W418 | A derived diagram's `subject:` type is not valid for its `diagramKind:` (BDD: `Package`/`PartDef`/`ItemDef`; IBD: `PartDef`/`Part`; StateMachine: `StateDef`/`State`/`ExhibitState`; Action: `ActionDef`/`Action`; Requirement: `Package`/`RequirementDef`/`Requirement`; Allocation: `Package`/`AllocationDef`/`Allocation`; Sequence: `ActionDef`/`Action`/`UseCaseDef`/`UseCase`); the diagram is drawn empty |
 | W419 | A `flowKind:` or `side:` names no flow kind or side, or a `[diagram]` entry is malformed; the value is ignored |
+| W420 | `groupBy:` is not `domain`, or is set on a diagram that is not an IBD; ignored |
 
 An unresolved `subject:` is still W401, and a derived diagram never raises W402/W403 for the
 shapes it generates.

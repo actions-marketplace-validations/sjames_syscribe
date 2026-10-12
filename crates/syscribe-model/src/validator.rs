@@ -3580,6 +3580,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
         // ── Diagram checks (E4xx / W4xx) ─────────────────────────────────────
 
+        // W420: `groupBy:` is a field of an IBD `Diagram` only (GH #336)
+        if fm.group_by.is_some() && !matches!(fm.element_type, Some(ElementType::Diagram)) {
+            findings.push(warning("W420", &file, "`groupBy` is a field of a derived IBD `Diagram` — ignored here"));
+        }
+
         if matches!(fm.element_type, Some(ElementType::Diagram)) {
             // W400: no diagramKind — rendering mode is ambiguous
             // Suppressed for companion SVGs: svgMode: companion already specifies how to display the diagram.
@@ -3599,7 +3604,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     // whose type is not valid for the diagram kind.
                     match issue.code {
                         "E405" => findings.push(error("E405", &file, &issue.message)),
-                        "W416" | "W417" | "W418" => findings.push(warning(issue.code, &file, &issue.message)),
+                        "W416" | "W417" | "W418" | "W420" => findings.push(warning(issue.code, &file, &issue.message)),
                         _ => {}
                     }
                 }
