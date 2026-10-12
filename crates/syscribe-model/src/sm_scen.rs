@@ -32,6 +32,49 @@ pub struct Scenario {
     pub steps: Vec<GStep>,
     /// Gherkin tags (`@invariant`), the scenario's own after those of the feature.
     pub tags: Vec<String>,
+    /// The requirement references of `@verifies REQ-X[,REQ-Y]` tags on the scenario or its feature (GH #344).
+    pub verifies: Vec<String>,
+    /// `# verifies: REQ-X` comments on the line before a step: (the step's line, the references).
+    pub step_verifies: Vec<(usize, Vec<String>)>,
+}
+
+/// The requirement references of the `@verifies` tags on one tag line: `@verifies REQ-A,REQ-B`, `@verifies:REQ-A` or
+/// `@verifies(REQ-A, REQ-B)`; the references run up to the next `@` tag.
+pub fn verifies_tags(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut on = false;
+    for tok in line.split_whitespace() {
+        if tok.starts_with('#') {
+            // a comment ends the tag line
+            break;
+        }
+        if let Some(rest) = tok.strip_prefix('@') {
+            let lower = rest.to_ascii_lowercase();
+            on = lower == "verifies" || lower.starts_with("verifies:") || lower.starts_with("verifies(");
+            if !on {
+                continue;
+            }
+            let rest = &rest["verifies".len()..];
+            out.extend(split_refs(rest.trim_start_matches([':', '('])));
+            continue;
+        }
+        if on {
+            out.extend(split_refs(tok));
+        }
+    }
+    out
+}
+
+fn split_refs(s: &str) -> Vec<String> {
+    s.split(',').map(|x| x.trim().trim_end_matches(')').trim()).filter(|x| !x.is_empty()).map(String::from).collect()
+}
+
+/// The references of a `# verifies: REQ-X, REQ-Y` comment line, if it is one.
+fn verifies_comment(t: &str) -> Option<Vec<String>> {
+    let body = t.strip_prefix('#')?.trim();
+    let lower = body.to_ascii_lowercase();
+    let rest = lower.strip_prefix("verifies:").map(|_| &body["verifies:".len()..])?;
+    Some(split_refs(rest))
 }
 
 impl Scenario {
@@ -39,6 +82,18 @@ impl Scenario {
     pub fn has_tag(&self, tag: &str) -> bool {
         let want = tag.trim_start_matches('@');
         self.tags.iter().any(|t| t.trim_start_matches('@').eq_ignore_ascii_case(want))
+    }
+
+    /// The requirement references the scenario claims: its and its feature's `@verifies` tags and its steps'
+    /// `# verifies:` comments, in order, without repeats. Empty when it claims none, so it inherits the TestCase's.
+    pub fn claimed(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for r in self.verifies.iter().chain(self.step_verifies.iter().flat_map(|(_, v)| v)) {
+            if !out.contains(r) {
+                out.push(r.clone());
+            }
+        }
+        out
     }
 }
 
@@ -111,11 +166,16 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
     struct Raw {
         title: String,
         tags: Vec<String>,
+        verifies: Vec<String>,
+        step_verifies: Vec<(usize, Vec<String>)>,
         outline: bool,
         steps: Vec<GStep>,
         header: Vec<String>,
         header_pending: bool,
         rows: Vec<(Vec<String>, Vec<String>)>,
+        /// The `@verifies` tags of the Examples table each row came from.
+        row_verifies: Vec<Vec<String>>,
+        examples_verifies: Vec<String>,
     }
     let mut raws: Vec<Raw> = Vec::new();
     let mut background: Vec<GStep> = Vec::new();
@@ -126,11 +186,17 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
     let mut last_kw = Kw::Given;
     let mut feature_tags: Vec<String> = Vec::new();
     let mut pending_tags: Vec<String> = Vec::new();
+    let mut feature_verifies: Vec<String> = Vec::new();
+    let mut pending_verifies: Vec<String> = Vec::new();
+    let mut step_comment: Option<Vec<String>> = None;
     for (i, line) in doc.lines().enumerate() {
         if let Some(open) = is_fence(line) {
             // tags belong to the block they are in: none carry over from one block to the next
             feature_tags.clear();
             pending_tags.clear();
+            feature_verifies.clear();
+            pending_verifies.clear();
+            step_comment = None;
             in_block = open;
             in_examples = false;
             in_background = false;
@@ -151,37 +217,51 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
         let lower = t.to_ascii_lowercase();
         if t.starts_with('@') {
             pending_tags.extend(t.split_whitespace().filter(|x| x.starts_with('@')).map(String::from));
+            pending_verifies.extend(verifies_tags(t));
+            continue;
+        }
+        if let Some(refs) = verifies_comment(t) {
+            step_comment = Some(refs);
             continue;
         }
         if t.is_empty() || t.starts_with('#') {
             continue;
         }
+        if lower.starts_with("scenario") || lower.starts_with("example:") {
+            // a `# verifies:` comment belongs to the next step of the same scenario
+            step_comment = None;
+        }
         if lower.starts_with("scenario outline:") || lower.starts_with("scenario template:") {
             let title = t[t.find(':').unwrap() + 1..].trim().to_string();
-            raws.push(Raw { title, tags: feature_tags.iter().cloned().chain(std::mem::take(&mut pending_tags)).collect(), outline: true, steps: vec![], header: vec![], header_pending: false, rows: vec![] });
+            raws.push(Raw { title, tags: feature_tags.iter().cloned().chain(std::mem::take(&mut pending_tags)).collect(), verifies: feature_verifies.iter().cloned().chain(std::mem::take(&mut pending_verifies)).collect(), step_verifies: vec![], outline: true, steps: vec![], header: vec![], header_pending: false, rows: vec![], row_verifies: vec![], examples_verifies: vec![] });
             in_examples = false;
             in_background = false;
             continue;
         }
         if lower.starts_with("scenario:") || lower.starts_with("example:") {
             let title = t[t.find(':').unwrap() + 1..].trim().to_string();
-            raws.push(Raw { title, tags: feature_tags.iter().cloned().chain(std::mem::take(&mut pending_tags)).collect(), outline: false, steps: vec![], header: vec![], header_pending: false, rows: vec![] });
+            raws.push(Raw { title, tags: feature_tags.iter().cloned().chain(std::mem::take(&mut pending_tags)).collect(), verifies: feature_verifies.iter().cloned().chain(std::mem::take(&mut pending_verifies)).collect(), step_verifies: vec![], outline: false, steps: vec![], header: vec![], header_pending: false, rows: vec![], row_verifies: vec![], examples_verifies: vec![] });
             in_examples = false;
             in_background = false;
             continue;
         }
         if lower.starts_with("examples:") || lower.starts_with("scenarios:") {
             pending_tags.clear();
+            let ex_verifies = std::mem::take(&mut pending_verifies);
+            step_comment = None;
             in_examples = true;
             if let Some(cur) = raws.last_mut() {
-                // a further Examples table has its own header row
+                // a further Examples table has its own header row, and its own `@verifies` tags for its rows
                 cur.header.clear();
                 cur.header_pending = true;
+                cur.examples_verifies = ex_verifies;
             }
             continue;
         }
         if lower.starts_with("background:") {
             pending_tags.clear();
+            pending_verifies.clear();
+            step_comment = None;
             in_background = true;
             in_examples = false;
             continue;
@@ -189,9 +269,11 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
         if lower.starts_with("feature:") || lower.starts_with("rule:") {
             if lower.starts_with("feature:") {
                 feature_tags = std::mem::take(&mut pending_tags);
+                feature_verifies = std::mem::take(&mut pending_verifies);
             } else {
                 // tags on a Rule are not supported: they must not leak to the next scenario
                 pending_tags.clear();
+                pending_verifies.clear();
             }
             in_examples = false;
             in_background = false;
@@ -202,6 +284,10 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
                 let kw = if cont { last_kw } else { k.unwrap() };
                 last_kw = kw;
                 background.push(GStep { kw, text: text.to_string(), line: i + 1 });
+                // a Background step runs in every scenario, so its claim is every scenario's
+                if let Some(refs) = step_comment.take() {
+                    feature_verifies.extend(refs);
+                }
             }
             continue;
         }
@@ -213,6 +299,7 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
                 cur.header_pending = false;
             } else {
                 cur.rows.push((cur.header.clone(), c));
+                cur.row_verifies.push(cur.examples_verifies.clone());
             }
             continue;
         }
@@ -220,6 +307,9 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
             let kw = if cont { last_kw } else { k.unwrap() };
             last_kw = kw;
             cur.steps.push(GStep { kw, text: text.to_string(), line: i + 1 });
+            if let Some(refs) = step_comment.take() {
+                cur.step_verifies.push((i + 1, refs));
+            }
         }
     }
     for r in raws.iter_mut() {
@@ -230,12 +320,12 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
     let mut out = Vec::new();
     for r in raws {
         if !r.outline {
-            out.push(Scenario { title: r.title, outline: None, steps: r.steps, tags: r.tags });
+            out.push(Scenario { title: r.title, outline: None, steps: r.steps, tags: r.tags, verifies: r.verifies, step_verifies: r.step_verifies });
             continue;
         }
         if r.rows.is_empty() {
             // An outline with no example rows would silently run nothing: make it an erroring scenario.
-            out.push(Scenario { title: format!("{} [no examples]", r.title), outline: Some(r.title.clone()), steps: vec![], tags: r.tags.clone() });
+            out.push(Scenario { title: format!("{} [no examples]", r.title), outline: Some(r.title.clone()), steps: vec![], tags: r.tags.clone(), verifies: r.verifies.clone(), step_verifies: r.step_verifies.clone() });
             continue;
         }
         for (n, (header, row)) in r.rows.iter().enumerate() {
@@ -251,6 +341,8 @@ pub fn extract_scenarios(doc: &str) -> Vec<Scenario> {
                 outline: Some(r.title.clone()),
                 steps: r.steps.iter().map(|s| GStep { kw: s.kw, text: sub(&s.text), line: s.line }).collect(),
                 tags: r.tags.clone(),
+                verifies: r.verifies.iter().chain(r.row_verifies.get(n).into_iter().flatten()).cloned().collect(),
+                step_verifies: r.step_verifies.clone(),
             });
         }
     }
