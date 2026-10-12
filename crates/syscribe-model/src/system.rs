@@ -129,7 +129,7 @@ pub(crate) fn duration(src: &str) -> Option<f64> {
     }
 }
 
-fn endpoint(s: &str) -> Option<(&str, &str)> {
+pub(crate) fn endpoint(s: &str) -> Option<(&str, &str)> {
     let (a, b) = s.split_once('.')?;
     (!a.is_empty() && !b.is_empty() && !b.contains('.')).then_some((a, b))
 }
@@ -176,6 +176,55 @@ pub fn composite_view(elements: &[RawElement], resolver: &Resolver, elem: &RawEl
     }
     v.plant_step = ch.iter().find_map(|d| d.frontmatter.plant_step.clone());
     v
+}
+
+/// Every port of a part definition: inline `type: Port` features and child `Port`
+/// elements along its definition chain, nearest first (GH #330).
+pub fn def_ports(elements: &[RawElement], resolver: &Resolver, def: &RawElement) -> Vec<PortSpec> {
+    let mut inst = [Instance { name: String::new(), def: def.qualified_name.clone(), behavior: Behavior::Inert, ports: Vec::new() }];
+    for d in chain(elements, resolver, def) {
+        for p in inline_ports(d) {
+            if !inst[0].ports.iter().any(|x| x.name == p.name) {
+                inst[0].ports.push(p);
+            }
+        }
+    }
+    add_child_ports(elements, resolver, &mut inst);
+    let [i] = inst;
+    i.ports
+}
+
+/// Child `Port` elements by the qualified name of their parent, built once for callers that ask for many definitions
+/// ports ([`def_ports_in`]).
+pub fn child_port_index(elements: &[RawElement]) -> std::collections::HashMap<String, Vec<PortSpec>> {
+    let mut by_parent: std::collections::HashMap<String, Vec<PortSpec>> = std::collections::HashMap::new();
+    for e in elements.iter().filter(|e| matches!(e.frontmatter.element_type, Some(ElementType::Port))) {
+        if let Some((parent, last)) = e.qualified_name.rsplit_once("::") {
+            by_parent.entry(parent.to_string()).or_default().push(PortSpec { name: last.to_string(), dir: Dir::parse(e.frontmatter.direction.as_deref()) });
+        }
+    }
+    by_parent
+}
+
+/// [`def_ports`] with the child-port index built once by [`child_port_index`].
+pub fn def_ports_in(elements: &[RawElement], resolver: &Resolver, def: &RawElement, index: &std::collections::HashMap<String, Vec<PortSpec>>) -> Vec<PortSpec> {
+    let ch = chain(elements, resolver, def);
+    let mut ports: Vec<PortSpec> = Vec::new();
+    for d in &ch {
+        for p in inline_ports(d) {
+            if !ports.iter().any(|x| x.name == p.name) {
+                ports.push(p);
+            }
+        }
+    }
+    for d in &ch {
+        for p in index.get(d.qualified_name.as_str()).into_iter().flatten() {
+            if !ports.iter().any(|x| x.name == p.name) {
+                ports.push(p.clone());
+            }
+        }
+    }
+    ports
 }
 
 /// The ports a part definition declares inline: `features:` of `type: Port`.

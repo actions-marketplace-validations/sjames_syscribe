@@ -374,6 +374,19 @@ A `TradeStudy` (`TRD-*`) is a weighted-criteria evaluation; the tool computes no
 | W063 | The score matrix is incomplete (draft-suppressed). |
 | W064 | An `alternatives[].element` is present but unresolved (draft-suppressed). |
 
+## Behavioural model trace (E990–E991, W990–W992, §12.11)
+
+Dormant unless some part declares `models:`. See spec §12.11 and `docs/model-guide/behaviour-models.md`.
+
+| Code | Severity | Condition |
+|---|---|---|
+| E990 | Error | a `models:` target does not resolve, or is not an architecture element (a `PartDef`/`Part` with a `domain:`); or a part usage carries `models:` without a part type (GH #330, §12.11) |
+| E991 | Error | a `portMap:` key is not a port of the executable part, an executable port corresponds to no port of the elements it models, or the counterpart has an incompatible direction (GH #330, §12.11) |
+| W990 | Warning | a port of an element named by `models:` has no counterpart in any part that models it and is not named in `abstracts:` (GH #330, §12.11) |
+| W991 | Warning | an executable composite's connection has no counterpart architecture connection, or an architecture connection between two elements the composite models has no executable counterpart; HW/SW boundary connections are skipped (GH #330, §12.11) |
+| W992 | Warning | a TestCase verifies a requirement whose architecture satisfiers no part of its `subject:` models (or every such part names the requirement in `abstracts:`): its scenarios cannot be evidence for it (GH #330, §12.11) |
+
+
 ## IEC 62443 Zone/Conduit (E950–E956, E925, E926, W950–W953, §13)
 
 | Code | Condition |
