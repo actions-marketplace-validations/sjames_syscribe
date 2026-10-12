@@ -71,6 +71,31 @@ Elements that must NOT change:
 
 ---
 
+## Discovering what the tool can do
+
+This prompt covers the core authoring workflow. Syscribe has more commands, element types and fields than any prompt can list, and it grows — **do not guess; ask the tool.** Every answer below comes from the installed binary, so it is always current.
+
+| You need | Run |
+|---|---|
+| The list of commands, grouped by purpose | `syscribe help` |
+| One command's synopsis, flags and examples | `syscribe help <command>` (same as `syscribe <command> --help`) |
+| Which element types the model uses / exist | `syscribe -m model/ types`, then `syscribe spec types` |
+| The exact frontmatter for a type | `syscribe template <type>`, then `syscribe spec fields` |
+| What a validation code means and how to fix it | `syscribe spec validation` (every code, one row each); MCP `explain_finding` |
+| Format rules: directories, cross-references, multiplicity | `syscribe spec namespace`, `syscribe spec traceability`, `syscribe spec safety` |
+| A topic beyond those: executable models, evidence, plants, diagrams, placeholders | `syscribe spec behaviour`, `spec evidence`, `spec diagrams`, `spec variability` |
+| Which link types the project declares | `syscribe -m model/ link-types` |
+
+Rules of thumb:
+
+1. **Before using a command, field, element type or flag you have not seen in this session, look it up** with the table above. An unrecognised key is not an error in itself, but it is ignored and raises `W047`.
+2. **Before writing an element**, run `template <type>` — it prints the current schema, which is authoritative when it differs from an example in this prompt.
+3. **After writing**, run `validate` and read each finding's code in `syscribe spec validation` rather than inferring its meaning from the message alone.
+4. **If a task mentions simulation, fault injection, executable evidence, a plant, a context diagram, or a feature parameter placeholder (`{{Features::…param}}`)**, read Part 9e for the map, then `syscribe spec behaviour` / `spec evidence` and the *Execution* group of `syscribe help` — the prompt does not carry the detail.
+5. Over MCP, the equivalents are `describe_type` (fields of a type), `explain_finding` (a code), `link_types`, and the `syscribe://spec/<section>` resources.
+
+---
+
 ## CLI Tools
 
 Use these commands throughout the workflow. Run them in the project root.
@@ -90,6 +115,11 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ stats [--json] [--group-by <facet>]` | Requirement population at a glance: status/domain/SIL/ASIL/package histograms + coverage/orphan rollups |
 | `syscribe -m model/ digest [--limit N] [--offset N] [--status <s>]` | One compact NDJSON row per Requirement (~30 tokens) — bulk-scan a large model without reading files |
 | `syscribe -m model/ untyped` | List elements with no `type:` field set |
+| `syscribe -m model/ topics [--top N]` / `clusters [--k N]` / `summarize [--scope <q>] [--depth N]` | Large-model overview: distinctive keywords per package (TF-IDF), topical clusters, hierarchical content digest |
+| `syscribe -m model/ sysml [--json]` | Inspect the SysMLv2 submodels (`sysmlSubmodel:`) ingested into the model |
+| `syscribe -m model/ view render <View\|ViewDef> [--format tree\|table\|json\|mermaid]` | Materialise a `View`: the elements its `expose:` selects |
+| `syscribe -m model/ export [--ndjson] [--config <C>]` | The structured model graph as JSON / NDJSON |
+| `syscribe -m model/ render <diagram-path>` | Print a hand-authored `Diagram` with element links injected |
 | `syscribe -m model/ links <qname\|id>` | All outbound and inbound relationships |
 | `syscribe -m model/ refs <qname\|id>` | What elements reference this element (for a `Configuration`: the TestCases that run in it) |
 | `syscribe -m model/ matrix [--json] [--tag <t>]` | Requirement × Configuration coverage grid (variant-aware; see Part 9b) |
@@ -115,6 +145,9 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ why <qname>` | What requirements this element satisfies |
 | `syscribe -m model/ who-verifies <req-id>` | Which test cases cover a requirement |
 | `syscribe -m model/ suspect list` / `suspect accept <src> <tgt>` | Suspect links: trace links whose target changed since review (W090). `accept` writes the reviewed hash into the source's `traceBaselines:` — never hand-edit that map |
+| `syscribe -m model/ coverage tree <req> [--plan <TP-id>] [--config <C>]` | Roll test coverage up the derivation tree (parent coverage from its children) |
+| `syscribe -m model/ baseline create --tag <t> …` / `baseline verify\|diff\|list\|show` | Release baselines: frozen, git-anchored, content-hashed snapshots; `verify` recomputes the seal |
+| `syscribe -m model/ results runs\|failures\|diff <runA> <runB>` | Retained test runs and run-to-run diffs (`--fail-on-regression`) |
 | `syscribe -m model/ link-types [--json]` | The project's declared link types for `links:` (run **before** authoring any link — see §12.10 in Part 10) |
 | `syscribe -m model/ follow <qname\|id> <link> [--reverse] [--transitive] [--depth N] [--format text\|json\|dot]` | Walk one link type (custom type, its `inverse`, or a built-in link / reverse index such as `satisfiedBy`) |
 
@@ -137,6 +170,14 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ export-reqif [--output <f>] [--scope <qname>] [--config <C>] [--include-tests] [--zip]` | Export Requirements as a ReqIF 1.2 document (DOORS/Jama/Polarion interchange) |
 | `syscribe -m model/ export-sysml [<package>] [--out <file\|dir>]` | One-way export of native elements as SysML v2 textual notation (unsupported types become `// skipped:` comments) |
 | `syscribe -m model/ zones [--coverage] [--json]` / `conduits [--json]` | IEC 62443 security zones (SL gap) and conduits (SL adequacy), with a Zone × SecurityControl coverage table |
+| `syscribe -m model/ fmea report [--fmea-sheet <id>] [--format md\|html\|json]` | FMEA report from `FMEASheet` rows |
+| `syscribe -m model/ hara matrix [--format md\|html\|json]` / `hara trace [<subject>]` | HARA ASIL matrix and the hazard → goal → requirement trace graph |
+| `syscribe -m model/ lint-docs <path>… [--deny <CODES>]` | Scan external Markdown/SVG for references to model elements that no longer resolve |
+| `syscribe -m model/ plugins run <alias> --dry-run` / `annotations scan <qname-or-label> --dry-run` | Preview foreign-format (stdio plugin) or annotated-source ingestion for one package, no merge |
+| `syscribe -m model/ compliance --standard <name> [--fail-on-missing]` | Which expected work products of a standard (ASPICE, ISO 26262, ISO/SAE 21434) the model has |
+| `syscribe -m model/ mechanisms [--uncovered]` | What each `SafetyMechanism` covers; lists uncovered failure modes |
+| `syscribe -m model/ export-html [--out <dir>]` | Standalone offline HTML site for the whole model |
+| `syscribe -m model/ import-reqif <file.reqif> [--into <pkg>] [--id-prefix P] [--update] [--dry-run]` | Create Requirements from a ReqIF document (the inverse of `export-reqif`) |
 | `syscribe -m model/ repos [list\|status\|sync] [--json] [--all]` | Multi-repository composition (§14): list/sync peer repos from `[repos]` in `.syscribe.toml` |
 | `syscribe -m model/ reviews [<qname>] [--open-only] [--json]` / `review <RR-id>` / `reviews --coverage` | List/detail `ReviewRecord`s and their requirement coverage |
 | `syscribe -m model/ trade-study [<TRD-id>] [--json]` | List/score `TradeStudy` elements (normalised, weighted, ranked) |
@@ -144,6 +185,21 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ ingest-results [--format cargo-json\|junit\|session-log] <file>` | Record test-run verdicts (`.syscribe/results.json`); `matrix`/`trace` then show executed evidence and `validate` warns W010 for a failed/missing `active` TestCase function |
 | `syscribe -m model/ list <type> [--status <s>] [--sil <v>] [--has-wcet] [--json]` | (filters) status/integrity/WCET filters + JSON |
 | `syscribe -m model/ matrix [--gaps-only] [--status <s>] [--linked-only]` | (flags) drop covered rows; status filter; coverage-% footer; executed-evidence glyphs when results ingested |
+
+**Executable behaviour & evidence** (state machines, action flows, plants, fault injection — `syscribe help <command>` for each; see also Part 9e):
+
+| Command | Purpose |
+|---|---|
+| `syscribe eval '<expr>' [--set n=v]… [--unit <u>]` | Evaluate an expression of the execution engine's typed, unit-aware language |
+| `syscribe -m model/ constraints check\|calc\|sweep …` | Evaluate `ConstraintDef`/`CalculationDef` against attribute values or a `Configuration` (`--all-configs` checks every Configuration) |
+| `syscribe -m model/ compile <StateDef> [--config <C>]` | Lower a state machine to its IR; surfaces typing errors (`E935`) before running |
+| `syscribe -m model/ simulate <TestCase\|StateDef> [--scenario <t>] [--trace] [--record] [--coverage]` | Run a machine's Gherkin scenarios (or `--do "<script>"`) and print the trace; `--record` stores the verdict as evidence |
+| `syscribe -m model/ inject <composite\|TestCase> [--ft <FT>] [--max-order N] [--record]` | Run a composite's safety invariants under injected single faults and fault-tree cut sets; `--record` keeps the campaign as evidence |
+| `syscribe -m model/ mutate <StateDef\|TestCase\|composite> [--min-score N]` | Judge scenario quality by seeding faults; surviving mutants are scenario gaps |
+| `syscribe -m model/ requirement-coverage [<REQ>…] [--config <C>]` | Per requirement: which executable scenarios verify it, what they exercised, and which have **no** executable evidence |
+| `syscribe -m model/ exec-coverage [<element>…] [--config <C>]` | Per architecture element: modelled (`models:`) and exercised by executable scenarios |
+| `syscribe -m model/ export-scxml <StateDef> [--output <f>]` | Write a state machine as W3C SCXML |
+| `syscribe -m model/ scaffold-gherkin <TC-id> [--fix]` | Generate/align Gherkin scenarios for a TestCase |
 
 **Authoring helpers:**
 
@@ -160,6 +216,8 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ applies-when <element> [--set "<expr>" \| --clear]` | Show (with inheritance) or edit an element's `appliesWhen:` gate |
 | `syscribe -m model/ move <src> <dest> [--dry-run]` | Move/rename an element or package, rewriting every reference to it |
 | `syscribe -m model/ claim <PI-id> --by <agent-id>` / `release <PI-id>` | Advisory ownership of a `PlanningItem` when several agents share a model (see Part 6e) |
+| `syscribe -m model/ scripts list\|run\|validate` | User-authored Rhai extension scripts from the `[scripts]` directory (tooling, not model content) |
+| `syscribe -m model/ mcp [--read-only]` / `lsp` | Run the MCP server / language server for this model |
 
 **Before writing a new element:**
 1. `template <type>` — get the frontmatter skeleton
@@ -1047,6 +1105,26 @@ repoImports:
 ```
 
 Cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:` references resolve against the local model first, then each repo in declaration order — by **global stable ID** (`REQ-*`, `TC-*`, …, unique across the whole composition) or qualified name — peer-native, or through the mount point (`Integration::Brakes::REQ-BRK-001` reaches the peer's `BrakeSystem::REQ-BRK-001`). Rules: `E510` circular import, `E511` missing path (no ref), `E512` dangling cross-repo ref, `E513` unknown alias, `E514` unresolved import qname, `E515` duplicate stable ID (local vs peer or peer vs peer), `W510` unpinned repo, `W511` peer `HEAD` drifted from its pinned `ref:`, `W512` submodule peer whose `ref:` disagrees with the parent's `.gitmodules` gitlink (gate a reproducible composition with `validate --deny W511 --deny W512`). Git submodules and `[repos]` are complementary — the submodule pins the checkout, `[repos]` adds cross-ref resolution and the drift/gitlink gates. CLI: `repos list|status|sync`.
+
+---
+
+## Part 9e — Executable Behaviour, Evidence and Context (opt-in)
+
+Nothing here changes a model that does not use it. Detail is in `syscribe spec behaviour|evidence|diagrams|variability` and `syscribe help <command>`; this part is only the map.
+
+**Executable behaviour.** A `StateDef` (substates, `transitions:` with `accept`/`guard`/`effect`, `entryAction`/`doAction`/`exitAction`, optional `variables:`) or an `ActionDef` flow is *executable* when its guards and effects are written in the engine's typed, unit-aware expression language (`syscribe eval` tries one). A `Part` joins a machine with `exhibitsStates:`. A physical environment is a `PlantDef` (`parameters`, `inputs`, `outputs`, `states`, equations such as `der(x) = …`, `y := …`), or an FMU on a `Part` with the optional `fmi` build feature. `syscribe compile <StateDef>` type-checks a machine (`E935`).
+
+**Scenarios and verdicts.** A `TestCase` whose `subject:` is a machine, an executable action or a composite carries Gherkin `Scenario`s in its body; `syscribe simulate <TC>` runs them, `--record` keeps the verdict as evidence. Tag a scenario `@verifies REQ-X` to say which requirement it is evidence for (without a tag it claims every requirement of the TestCase), and `@invariant` for a safety property checked under `inject`. `syscribe inject` runs a composite under injected faults and fault-tree cut sets; `syscribe mutate` judges whether the scenarios would notice a seeded bug.
+
+**Linking behaviour to architecture.** `models: [<architecture element>]` on the executable part names the `domain:` architecture element it is a behavioural model of; `portMap:` maps ports, `abstracts:` says what the model leaves out, `fidelity:` is prose (`E990`/`E991`, `W990`–`W993`). A part used only to set up a test is `role: environment`; a part outside the product in a context diagram is `role: external`. Then `requirement-coverage` and `exec-coverage` report which requirements and which architecture elements have *executable* evidence, as opposed to test cases that only describe.
+
+**Typed ports.** A port `typedBy:` a `PortDef` whose items are `ItemDef`s lets machine events and payloads be checked against the architecture's interface (`direction:` per item).
+
+**Diagrams generated from the model.** A `Diagram` with `diagramKind:` derives its content (block definition, internal block, context, safety and traceability graphs). Narrow or style it with `include:` (kinds, domains, tags, features), `depth:`, `style:` (a `[diagram.style.<name>]` table in `.syscribe.toml`) and `layout:` hints; `flowKind:` on a port or connection colours power/signal/command flows. `syscribe diagram export --all --check` gates committed renders in CI.
+
+**Feature parameters in text.** `{{Features::Group::Leaf.param}}` (or `{{FEAT-….param}}`) in a string, a body or a state-machine guard/assignment/duration is replaced per `Configuration` (`syscribe spec variability`); `--config <C>` on `compile`, `simulate`, `mutate` and `inject` picks the variant.
+
+**Always look up before authoring**: `syscribe template StateDef`, `template PlantDef`, `template TestCase`, then `syscribe help simulate`.
 
 ---
 

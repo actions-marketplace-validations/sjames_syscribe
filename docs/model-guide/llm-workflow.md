@@ -28,6 +28,8 @@ syscribe --agent-instructions | pbcopy
 
 The prompt and the validator are always in sync: `--agent-instructions` is embedded at compile time from `prompts/create-model.md`.
 
+The prompt covers the core authoring workflow and, near the top, tells the agent how to **discover the rest from the installed binary** rather than guess: `syscribe help` (command index), `syscribe help <command>`, `syscribe spec <section>` (including `behaviour`, `evidence`, `diagrams` and `variability`, which print the model-guide pages), `template <type>`, and over MCP `describe_type` and `explain_finding`. A test (`agent_prompt_covers_every_command`) fails when a command is added without a row in the prompt's CLI tables, and another checks that every `spec` section the prompt names exists.
+
 ---
 
 ## Two Modes

@@ -371,6 +371,8 @@ syscribe spec               # table of contents
 syscribe spec types         # all element types
 syscribe spec validation    # all validation rule codes
 syscribe spec traceability  # traceability rules
+syscribe spec behaviour     # executable models: state machines, plants, composites
+syscribe spec evidence      # executable evidence and coverage
 ```
 
 ### Version

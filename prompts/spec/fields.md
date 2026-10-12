@@ -97,6 +97,28 @@ computed by the tool and never authored.
 | `subStates` | StateDef/State | list | Nested states; each may itself carry `transitions`/`subStates` |
 | `transitions` | StateDef/State | list | Each entry: `source` · `target` · `accept` (event/payload) · `guard`. The deprecated spellings `from`/`to`/`trigger` still parse but warn **W075** — prefer `source`/`target`/`accept`. |
 
+## Executable behaviour, plants and architecture links
+
+Opt-in; nothing changes for a model that does not use them. Narrative and examples: `syscribe spec behaviour`, `spec evidence`.
+
+| Field | Applies to | Type | Notes |
+|---|---|---|---|
+| `models` | Part/PartDef | list | Architecture elements (`PartDef`/`Part` with a `domain:`) this executable part is a behavioural model of (`E990` unresolved or not architecture) |
+| `portMap` | Part/PartDef, or a `features:` usage | map | Executable port → architecture port; `null` exempts a port (`E991`) |
+| `abstracts` | Part/PartDef | list | What the model leaves out: a port name (exempts `W990`) or a requirement id (the model cannot be evidence for it, `W992`) |
+| `fidelity` | Part/PartDef | string | Prose on how faithful the model is |
+| `role` | part usage (`features:` entry) | string | `environment` (verification set-up, exempt from architecture correspondence) or `external` (an actor outside the product in a context diagram); `E992` otherwise, never on a port |
+| `flowKind` | PortDef, port feature, `connections:` entry | string | What flows (power, signal, command, …); styles diagram edges (spec §8.16.9) |
+| `plant` | Part/PartDef | string or map | The part is a plant: `plant: <PlantDef>` or `{def: <PlantDef>, parameters: {…}}` or `{library: <name>, parameters: {…}}`; exclusive with `fmu:` (`E930`) |
+| `fmu` | Part/PartDef | map | An FMU as the plant: `{file, fmiVersion, kind, sha256, parameters}`; checked only in a build with the `fmi` feature (`I011` otherwise) |
+| `plants` | TestCase | list | The parts that are plants in this scenario run |
+| `plantStep` | TestCase | string | Communication step with a unit, e.g. `"10 ms"` |
+| `plantConnections` | TestCase | list | Wiring `Plant.variable` ↔ machine variable |
+
+`type: PlantDef` fields: `parameters` (`{name, value}`), `inputs` (`{name, unit, value}`), `outputs` (`{name, unit}`), `states` (`{name, value}`; the initial value fixes the dimension), `equations` (`der(state) = expr`, `output := expr`), `method` (`rk4` default, or `euler`), `maxStep`.
+
+Derived-diagram view fields (`type: Diagram`, spec §8.16.10): `include` (a map of `kinds`, `domains`, `tags`, `features`, `depth`, `members`), `style` (a `[diagram.style.<name>]` table of `.syscribe.toml`), `layout` (pins, plus `flow` and `layers` hints), `depth` (composition levels followed).
+
 ## Constraints and expressions
 
 | Field | Applies to | Type | Default |

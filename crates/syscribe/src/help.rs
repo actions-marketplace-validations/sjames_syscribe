@@ -430,6 +430,58 @@ mod index_tests {
         assert!(missing.is_empty(), "docs/cli/index.md has no section or invocation for: {missing:?}");
     }
 
+    /// The LLM authoring prompt (`--agent-instructions`) mentions every registered
+    /// command, as `syscribe [-m <root>] <command>`, so an agent can find it without
+    /// the full `help` index. A command the prompt deliberately leaves to `syscribe help`
+    /// goes in `LEFT_TO_HELP`, with the reason.
+    #[test]
+    fn agent_prompt_covers_every_command() {
+        const LEFT_TO_HELP: &[&str] = &[
+            "help",   // the prompt's discovery section names it directly
+            "report", // the default command; `validate` is what the prompt teaches
+        ];
+        let prompt = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../prompts/create-model.md"),
+        )
+        .expect("read prompts/create-model.md");
+        let invoked = regex::Regex::new(r"syscribe(?:\s+(?:-m|--model)\s+\S+)?\s+([a-z][a-z0-9-]*)").unwrap();
+        // A table row may join commands as `syscribe -m model/ claim … / release`.
+        let joined = regex::Regex::new(r"`\s*/\s*`?([a-z][a-z0-9-]*)").unwrap();
+        let invoked: std::collections::HashSet<&str> = invoked
+            .captures_iter(&prompt)
+            .chain(joined.captures_iter(&prompt))
+            .filter_map(|c| c.get(1))
+            .map(|m| m.as_str())
+            .collect();
+        let missing: Vec<&str> =
+            commands().map(|(n, _)| n).filter(|n| !invoked.contains(n) && !LEFT_TO_HELP.contains(n)).collect();
+        assert!(
+            missing.is_empty(),
+            "prompts/create-model.md never shows `syscribe -m model/ <command>` for: {missing:?} — add a row to its CLI tables"
+        );
+    }
+
+    /// Every `syscribe spec <section>` the prompt tells an agent to run exists, and the
+    /// spec index lists every section.
+    #[test]
+    fn agent_prompt_spec_sections_exist() {
+        let prompt = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../prompts/create-model.md"),
+        )
+        .expect("read prompts/create-model.md");
+        let names: Vec<&str> = crate::spec::SECTIONS.iter().map(|(n, _)| *n).collect();
+        let re = regex::Regex::new(r"spec ([a-z]+(?:\|[a-z]+)*)").unwrap();
+        for c in re.captures_iter(&prompt) {
+            for n in c[1].split('|') {
+                assert!(names.contains(&n), "the prompt names `spec {n}`, which is not a spec section: {names:?}");
+            }
+        }
+        let toc = crate::spec::SECTIONS.iter().find(|(n, _)| *n == "toc").unwrap().1;
+        for n in names.iter().filter(|n| **n != "toc") {
+            assert!(toc.contains(&format!("`syscribe spec {n}`")), "spec index omits `syscribe spec {n}`");
+        }
+    }
+
     /// Each command appears in exactly one group.
     #[test]
     fn registry_has_no_duplicates() {

@@ -1583,9 +1583,13 @@ The `spec` subcommand gives you the full Syscribe format specification without l
 syscribe spec                  # table of contents
 syscribe spec types            # all element types and their schemas
 syscribe spec fields           # complete frontmatter field reference
-syscribe spec validation       # all validation rule codes (E001–W808)
+syscribe spec validation       # every validation rule code, one row each
 syscribe spec traceability     # traceability rules R-001–R-007
 syscribe spec safety           # safety/security analysis elements
+syscribe spec behaviour        # state machines, action flows, plants, models:, composites
+syscribe spec evidence         # simulate, @verifies, requirement-coverage, exec-coverage
+syscribe spec diagrams         # diagram elements, derived views, styles, context diagrams
+syscribe spec variability      # feature models, configurations, {{Features::…param}} placeholders
 ```
 
 ---
