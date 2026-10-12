@@ -114,3 +114,51 @@ fn coanalysis_expands_hazardous_event_to_safety_goal() {
     assert!(out.contains("HE-CC-001"), "{out}");
     let _ = std::fs::remove_dir_all(&r);
 }
+
+#[test]
+fn residual_risk_treatment_attack_forest_and_unreasoned_acceptance() {
+    let r = model("w96x");
+    write(
+        &r,
+        "TARA-CC-001.md",
+        concat!(
+            "type: TARASheet\nid: TARA-CC-001\nname: T\nstatus: approved\n",
+            "damageTable:\n  - id: DS-CC-001\n    name: D\n    status: approved\n    damageSeverity: severe\n",
+            "threatTable:\n",
+            "  - id: TS-CC-001\n    name: Retained\n    status: approved\n    damageScenarios: [DS-CC-001]\n    attackFeasibility: high\n    riskTreatment: retain\n",
+            "  - id: TS-CC-002\n    name: NoTreatment\n    status: approved\n    residualRisk: we accept it\n",
+        ),
+    );
+    // Two roots: neither gate lists the other.
+    write(&r, "AT-CC-001/_index.md", "type: AttackTree\nid: AT-CC-001\nname: T\nstatus: approved\nthreatRef: TS-CC-001\n");
+    write(&r, "AT-CC-001/ATS-CC-001.md", "type: AttackStep\nid: ATS-CC-001\nname: S1\n");
+    write(&r, "AT-CC-001/ATS-CC-002.md", "type: AttackStep\nid: ATS-CC-002\nname: S2\n");
+    write(&r, "VR-CC-001.md", "type: VulnerabilityReport\nid: VR-CC-001\nname: V\nstatus: accepted\n");
+    let rep = run(&r, &["validate"]);
+    for code in ["W964", "W965", "W966", "W977"] {
+        assert!(has(&rep, code), "expected {code} in:\n{rep}");
+    }
+
+    // The fixes silence them: a rationale, a treatment, a single root, a stated rationale.
+    let r = model("w96x-ok");
+    write(
+        &r,
+        "TARA-CC-001.md",
+        concat!(
+            "type: TARASheet\nid: TARA-CC-001\nname: T\nstatus: approved\n",
+            "damageTable:\n  - id: DS-CC-001\n    name: D\n    status: approved\n    damageSeverity: severe\n",
+            "threatTable:\n",
+            "  - id: TS-CC-001\n    name: Retained\n    status: approved\n    damageScenarios: [DS-CC-001]\n    attackFeasibility: high\n    riskTreatment: retain\n    residualRisk: accepted by the product owner\n",
+            "  - id: TS-CC-002\n    name: Treated\n    status: approved\n    riskTreatment: avoid\n    residualRisk: none\n",
+        ),
+    );
+    write(&r, "AT-CC-001/_index.md", "type: AttackTree\nid: AT-CC-001\nname: T\nstatus: approved\nthreatRef: TS-CC-001\n");
+    write(&r, "AT-CC-001/ATG-CC-001.md", "type: AttackTreeGate\nid: ATG-CC-001\nname: G\ngateType: OR\ninputs: [ATS-CC-001, ATS-CC-002]\n");
+    write(&r, "AT-CC-001/ATS-CC-001.md", "type: AttackStep\nid: ATS-CC-001\nname: S1\n");
+    write(&r, "AT-CC-001/ATS-CC-002.md", "type: AttackStep\nid: ATS-CC-002\nname: S2\n");
+    write(&r, "VR-CC-001.md", "type: VulnerabilityReport\nid: VR-CC-001\nname: V\nstatus: accepted\nrationale: not exploitable in this deployment\n");
+    let rep = run(&r, &["validate"]);
+    for code in ["W964", "W965", "W966", "W977"] {
+        assert!(!has(&rep, code), "{code} should be silent in:\n{rep}");
+    }
+}

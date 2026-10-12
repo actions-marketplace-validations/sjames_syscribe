@@ -384,7 +384,7 @@ syscribe -m model/ export-html --out site/            # write the site to site/
 syscribe -m model/ export-html --out site/ --css my.css   # supply your own stylesheet
 ```
 
-It writes `index.html`, per-element pages under `elements/` (frontmatter, rendered doc, resolved cross-reference links, embedded SVG/Mermaid diagrams), report pages (`validation`, `coverage`, `traceability`, and `heat` - the FMEA / HARA / TARA heat tables), and a client-side search index. `--css <file>` replaces the bundled default `style.css`; the output bundles all assets (no CDN) so it renders with no network. (For an interactive, live-reloading browser, see `syscribe-server`.)
+It writes `index.html`, per-element pages under `elements/` (frontmatter, rendered doc, resolved cross-reference links, embedded SVG/Mermaid diagrams), report pages (`validation`, `coverage`, `traceability`, and `heat` - the FMEA / HARA / TARA heat tables), a client-side search index, and `all-elements.html`, the complete element listing. Each page's sidebar is focused — the top-level packages, the siblings along the path to the element, and its children — so the site stays linear in size on a large model; the full tree is one click away under "All elements". `--css <file>` replaces the bundled default `style.css`; the output bundles all assets (no CDN) so it renders with no network. (For an interactive, live-reloading browser, see `syscribe-server`.)
 
 ---
 
