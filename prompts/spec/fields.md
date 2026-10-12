@@ -435,6 +435,53 @@ Full narrative + rules: `syscribe spec safety`.
 | `elapsedTime` / `expertise` / `knowledge` / `windowOfOpportunity` / `equipment` | ThreatScenario, AttackStep | string or int | Optional attack-potential factors (GH #222): a label from the factor's table (see `[cyber.attack_potential]`) or a non-negative integer of points. All five together derive `attackFeasibility` when it is not declared; a declared value wins (`W642` on mismatch); a partial set is ignored (`W641`); an unknown label is `E641` |
 | `securityTestMethod` | TestCase | string | See Native TestCase fields |
 
+## Additional fields (indexed from the full specification)
+
+Fields defined in the full specification (`spec/markdown-sysml-format.md`) that are not listed in the sections above. "spec §N" names the section of the full specification that defines the field; Appendix A of that document indexes every field.
+
+| Field | Applies to | Notes |
+|---|---|---|
+| `approvedBy` | spec §12.14 | who accepted it, a username (checked against `[users]` when declared); required when `accepted` |
+| `assetTable` | TARASheet | list of row mappings, each exploded into an `Asset` element (`id`, `name`, `status`, `assetOwner`, …) |
+| `baselineRef` | spec Appendix A | Opaque external baseline reference (e.g., a Git tag, CM baseline ID). |
+| `campaignHash` | spec §12.14 | the composite hash `inject` printed when the decision was taken (at least 12 hex digits) |
+| `clients` | spec §2.4 | Qualified names of the dependent (client) elements |
+| `constraints` | spec §8.3.3 | Constraint usages asserted across this interface's ends (e.g., conservation laws) |
+| `cvssSeverity` | VulnerabilityReport | declared severity bucket: `none` · `low` · `medium` · `high` · `critical`; a value outside the set, or one that disagrees with the bucket of `cvssScore`, is `W978` |
+| `cvssVector` | VulnerabilityReport | CVSS vector string, e.g. `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`; a malformed one is `W978` |
+| `depth` | spec §8.16.10 | As the diagram's `depth:`, which wins when both are set |
+| `displayOrder` | spec §3.16, §8.11.6 | Primary sort key among peers. Ascending: lower sorts first. Unset sorts **after** every element that declares a value. Ties (equal or both-unset) fall back to stable-identifier order. / Reading/presentation order among peer requirements in the report and coverage matrix; ascending, unset last, id tie-break. Generic field — see §3.16. |
+| `equations` | PlantDef | `der(state) = expression` for each state and `output := expression` for each output |
+| `evaluate` | spec §22.2 | Qualified name of a `ConstraintDef` whose `expression:` bounds the result. When present, the tool evaluates the `body:` expression and compares against the constraint. |
+| `excludes` | FeatureDef | qualified names of `FeatureDef` elements that must NOT be selected when this feature is (mutual exclusion) |
+| `expires` | ResidualRisk | date by which the decision must be reviewed again; a proposed or accepted risk past it is `W943` |
+| `faultSet` | spec §12.14 | the FMEA rows (`FMEAEntry`) and fault-tree events (`FaultTreeEvent`) whose joint failure the decision is about, by id or qualified name. It names a set exactly as `inject` reports it: `[A, B]` explains the set `A + B`, not `A` alone |
+| `fixedIn` | VulnerabilityReport | version that fixes the vulnerability; a `mitigated`/`resolved`/`fixed`/`closed` report needs this or `mitigatedBy` (`W976`) |
+| `goal` | ResidualRisk | the `SafetyGoal`(s) the defeated invariant protects (spec §12.14) |
+| `groupBy` | derived IBD Diagram | `domain` frames the parts by their `domain:` (GH #336) |
+| `injection` | FMEAEntry row, FaultTreeEvent | injectable fault model for `inject`: a list of mappings with a `kind` (`stuck`, `offset`, `silent`, `drop`, `delay`, …); malformed is `E936` |
+| `layout` | spec §8.16.2 | Shape id → `{x, y, w, h}` pixel coordinates (an edge id → `{points: [[x, y], …]}` pins its routing). Entries are **pins** (`REQ-TRS-VIS-007`): a pinned shape keeps its position while the browser lays the unpinned rest out around it; `w`/`h` are optional. A key naming no shape or edge is `W416`; an entry without numeric `x`/`y` is `E405`. Two keys are *hints*, not shape ids: `flow` (`left-to-right` / `top-to-bottom`) and `layers` (bands in order); see §8.16.10. |
+| `maxStep` | PlantDef | longest integration sub-step; each communication step is split evenly below it |
+| `method` | PlantDef | integration method: `rk4` (default) or `euler`, fixed step |
+| `operations` | PortDef, InterfaceDef, ItemDef | callable operations (synchronous) and receptions (asynchronous) declared on a definition (spec §8.3.4) |
+| `outputs` | PlantDef | list of `{name, unit}`; read by composite bindings (at least one) |
+| `parentFeature` | spec Appendix A | Qualified name of the parent `FeatureDef`. Normally inferred from the directory hierarchy; set explicitly only when the file cannot be placed at the canonical path. |
+| `portionKind` | spec §3.2 | Required when `isPortion: true`; `timeslice` (contiguous temporal extent) or `snapshot` (zero-duration instantaneous point) |
+| `rateSource` | FaultTreeEvent, FMEAEntry | where the `failureRate` comes from (GH #343) |
+| `rateStatus` | FaultTreeEvent, FMEAEntry | provenance of the rate: `verified` · `secondary` · `unverified` (`E986`) |
+| `ref` | Diagram shape or edge entry | qualified name of the model element the shape or edge represents (spec §8.16.3–8.16.4) |
+| `refines` | UseCaseDef, UseCase, ActionDef, StateDef (and their usages) | `Requirement`(s) this element refines; an operand that is not a requirement is `E316` (spec §12.10.4) |
+| `states` | PlantDef | list of `{name, value}`; the initial value fixes the dimension |
+| `steps` | ActionDef, UseCase | ordered step names; not walked by the `W080` sequence-completeness rule |
+| `style` | spec §8.16.2 | A named style, `[diagram.style.<name>]` of `.syscribe.toml` (§8.16.10); one that names no style, or `style:` on an element that is not a `Diagram`, is `W421`. |
+| `suppliers` | spec §2.4 | Qualified names of the elements depended upon (suppliers) |
+| `target` | spec §3.7.1, §8.7.6 | Qualified name, optionally suffixed `::*` or `::**` / Feature chain identifying the occurrence whose feature is being assigned (e.g., `self`, `engine`) |
+| `text` | `metadata:` entry | free text of an applied metadata entry, e.g. a `ModelingMetadata::Rationale` |
+| `unit` | spec §3.6.1, §8.3.4 | Shorthand: qualified name of the unit for quantity attributes / Unit (for scalar quantities) |
+| `value` | spec §3.6.1, §8.5.2 | Literal default value or expression body (opaque string) / Bound expression (when specializing a non-enum AttributeDef) |
+| `valueKind` | spec §3.6.1, §8.5.2 | Binding semantics: `bound` (`=`), `initial` (`:=`), `default-bound` (`default =`), `default-initial` (`default :=`) / Binding semantics (default: `bound`); see §3.6.1 |
+| `viewpoint` | View | qualified name of the `ViewpointDef` the view conforms to (`W500` if it does not resolve) |
+
 ## `.syscribe.toml` — project configuration reference
 
 Everything below lives in **one file**, `<model_root>/.syscribe.toml`, never in model frontmatter.
