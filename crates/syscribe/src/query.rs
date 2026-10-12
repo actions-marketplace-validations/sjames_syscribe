@@ -448,6 +448,7 @@ fn builtin_outbound_refs(elem: &RawElement) -> Vec<(String, String)> {
     }
     // GH #330: an executable part's behavioural-model trace link.
     for s in fm.models.iter().flatten() { out.push(("models".into(), s.clone())); }
+    if let Some(d) = syscribe_model::plant_def::plant_def_ref(fm.plant.as_ref()) { out.push(("plant".into(), d)); }
     // Feature-parameter placeholders in the body or name (GH #267).
     for ph in syscribe_model::placeholders::of_element(elem) {
         if !out.iter().any(|(l, t)| l == "placeholder" && t == &ph.feature) {
@@ -696,6 +697,18 @@ pub fn cmd_show(
         }
     }
     if let Some(ref at) = fm.applies_to { if !at.is_empty() { println!("| **appliesTo** | {} |", at.join(", ")); } }
+    // PlantDef (GH #340): the declaration as the engine reads it
+    if fm.element_type == Some(syscribe_model::element::ElementType::PlantDef) {
+        if let Ok(m) = syscribe_model::plant_def::compile(elem) {
+            let vars = |vs: &[syscribe_model::plant_def::PlantVar]| vs.iter().map(|v| if v.dim.0 == [0; 7] { v.name.clone() } else { format!("{} [{}]", v.name, v.dim.human()) }).collect::<Vec<_>>().join(", ");
+            for (label, vs) in [("inputs", &m.inputs), ("outputs", &m.outputs), ("states", &m.states)] {
+                if !vs.is_empty() { println!("| **{label}** | {} |", vars(vs)); }
+            }
+        }
+        for e in fm.equations.iter().flatten().filter_map(|e| e.as_str()) { println!("| **equation** | `{}` |", e.replace('|', "\\|")); }
+        if let Some(ref m) = fm.method { println!("| **method** | {} |", m); }
+        if let Some(ref ms) = fm.max_step { println!("| **maxStep** | {} |", serde_yaml::to_string(ms).unwrap_or_default().trim()); }
+    }
     for (label, list) in [("analyses", &fm.analyses), ("runsOn", &fm.runs_on), ("requiresCapabilities", &fm.requires_capabilities), ("capabilities", &fm.capabilities), ("covers", &fm.covers)] {
         if let Some(l) = list.as_ref().filter(|l| !l.is_empty()) { println!("| **{label}** | {} |", l.join(", ")); }
     }
@@ -3582,6 +3595,27 @@ name: MyCalculationDef
 ---
 
 Description of this calculation definition.
+"#,
+        "plantdef" => r#"---
+type: PlantDef
+name: MyPlant
+parameters:                  # constants with their unit
+  - {name: k, value: "1"}
+  - {name: tau, value: "200 ms"}
+inputs:                      # written by a composite binding
+  - {name: u}
+outputs:                     # read by a composite binding (at least one)
+  - {name: y}
+states:                      # the initial value fixes the dimension
+  - {name: x, value: "0"}
+equations:                   # der(state) = expression, output := expression
+  - "der(x) = (k * u - x) / tau"
+  - "y := x"
+# method: rk4                # or euler
+# maxStep: "1 ms"            # longest integration sub-step
+---
+
+A first-order lag. A part becomes this plant with `plant: MyPlant`; the composite sets `plantStep:`.
 "#,
         "statedef" => r#"---
 type: StateDef
