@@ -604,7 +604,20 @@ pub fn cmd_audit(
     dangling_tcs.sort();
 
     // ---- Sections 5/6: safety & security (GH #216) -------------------------
-    let safety = safety_section(view, &resolver, &findings, &in_scope);
+    let mut safety = safety_section(view, &resolver, &findings, &in_scope);
+    if sel.is_none() {
+        // the campaigns recorded on a Configuration are judged only by `validate/audit --config`: name their
+        // undecided defeats here so a product-line model's base audit does not read as clean (GH #341)
+        let configs: std::collections::BTreeSet<String> = syscribe_model::residual_risk::load(model_root).unwrap_or_default().values().filter_map(|l| l.first()).filter_map(|r| r.config.clone()).collect();
+        let per: Vec<serde_json::Value> = configs
+            .iter()
+            .map(|c| {
+                let sum = syscribe_model::residual_risk::summary(elements, &full_resolver, model_root, Some(c));
+                json!({ "config": c, "unexplainedDefeats": sum.campaigns.iter().map(|x| x.unexplained.len()).sum::<usize>() })
+            })
+            .collect();
+        safety["faultCampaigns"]["configurations"] = json!(per);
+    }
     let security = security_section(view, &findings, &in_scope);
     let verification = verification_section(view, &resolver, config, &in_scope, plan_scope.is_some());
 
@@ -914,6 +927,15 @@ fn safety_section(
         "metrics": metrics,
         "metricsFailing": failing,
         "ffiGaps": count_code(findings, "W034"),
+        // GH #341: the recorded fault-injection campaigns and the decisions on their defeats
+        "faultCampaigns": {
+            "decisions": of(ElementType::ResidualRisk),
+            "unexplainedDefeats": findings.iter().filter(|f| f.code == "W940").map(|f| f.message.clone()).collect::<Vec<_>>(),
+            "contradictedDecisions": count_code(findings, "W941"),
+            "staleDecisions": count_code(findings, "W942"),
+            "expiredDecisions": count_code(findings, "W943"),
+            "staleCampaigns": count_code(findings, "W944"),
+        },
     })
 }
 
@@ -985,6 +1007,18 @@ fn print_safety(s: &serde_json::Value) {
         "FMEA: {} sheet(s), {} row(s), max RPN {}; rows missing S/O/D (W931): {}; RPN>100 without action (W903): {}; severity>=9 without action (W932): {}",
         f["sheets"], f["entries"], f["maxRpn"].as_u64().map_or("n/a".to_string(), |v| v.to_string()), f["rowsMissingSOD"], f["highRpnWithoutAction"], f["severityPriorityGaps"]
     );
+    let c = &s["faultCampaigns"];
+    let unexplained = c["unexplainedDefeats"].as_array().cloned().unwrap_or_default();
+    println!(
+        "Fault-injection campaigns: {} residual-risk decision(s); {} unexplained defeat(s) (W940); decisions contradicted by the campaign (W941): {}, stale (W942): {}, expired (W943): {}; campaigns recorded on an older composite (W944): {}",
+        c["decisions"], unexplained.len(), c["contradictedDecisions"], c["staleDecisions"], c["expiredDecisions"], c["staleCampaigns"]
+    );
+    for m in unexplained.iter().filter_map(|m| m.as_str()) {
+        println!("  - {m}");
+    }
+    for c in c["configurations"].as_array().into_iter().flatten() {
+        println!("  campaigns recorded on {}: {} defeat(s) no decision explains; see `audit --config {}`", c["config"].as_str().unwrap_or(""), c["unexplainedDefeats"], c["config"].as_str().unwrap_or(""));
+    }
     println!("Hardware metrics ({} failing):", s["metricsFailing"]);
     let rows = s["metrics"].as_array().cloned().unwrap_or_default();
     if rows.is_empty() {
