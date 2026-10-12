@@ -222,3 +222,20 @@ fn output_has_no_network_resource_loads() {
         }
     }
 }
+
+// ---- GH #225: navigation is focused, not the whole tree on every page --------
+
+#[test]
+fn nav_is_focused_and_full_listing_is_one_page() {
+    let (out, code) = run_export(&[]);
+    assert_eq!(code, 0);
+    let all = read(&out.join("all-elements.html"));
+    assert!(all.contains("Parts__Derived.html"), "all-elements.html lists every element");
+    let page = read(&elem_page(&out, "Parts::Derived"));
+    assert!(page.contains("all-elements.html"), "page links to the full listing");
+    // An element page lists its own path, not unrelated deep elements.
+    let mut htmls = Vec::new();
+    files_with_ext(&out.join("elements"), "html", &mut htmls);
+    let links = |p: &str| p.matches("class=\"el").count();
+    assert!(links(&page) < links(&all), "an element page carries fewer nav links than the full listing");
+}

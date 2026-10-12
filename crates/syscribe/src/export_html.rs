@@ -183,26 +183,36 @@ fn render_refs(
 
 // ── navigation ───────────────────────────────────────────────────────────────
 
-/// Build the `<nav class="sitenav">` namespace tree, shared by every page.
-/// `current` marks the active element page (empty for non-element pages).
+/// Build the `<nav class="sitenav">` namespace tree. `current` marks the active
+/// element page (empty for non-element pages).
+///
+/// The tree is *focused*, not complete (GH #225): embedding every qualified name
+/// in every page made the site O(N²). A page lists the top-level packages, the
+/// siblings along the path to `current`, and `current`'s own children; the full
+/// listing lives once in `all-elements.html`.
 fn build_nav(elements: &[RawElement], rel_root: &str, current: &str) -> String {
-    let mut qnames: Vec<&str> = elements.iter().map(|e| e.qualified_name.as_str()).collect();
+    let mut qnames: Vec<&str> = elements
+        .iter()
+        .map(|e| e.qualified_name.as_str())
+        .filter(|q| !q.is_empty())
+        .collect();
     qnames.sort_unstable();
+
+    // `q` is shown when its parent is the root, or is `current` or one of its ancestors.
+    let shown = |q: &str| match q.rsplit_once("::") {
+        None => true,
+        Some((parent, _)) => {
+            current == parent || current.strip_prefix(parent).is_some_and(|r| r.starts_with("::"))
+        }
+    };
 
     let mut out = String::from("<nav class=\"sitenav\">\n<h2>Model</h2>\n<ul>\n");
     out.push_str(&format!(
-        "<li><a href=\"{rel_root}index.html\" class=\"pkg\">Overview</a></li>\n"
+        "<li><a href=\"{rel_root}index.html\" class=\"pkg\">Overview</a></li>\n\
+<li><a href=\"{rel_root}all-elements.html\" class=\"pkg\">All elements</a></li>\n"
     ));
-    for q in qnames {
-        let depth = q.matches("::").count();
-        let leaf = q.rsplit("::").next().unwrap_or(q);
-        let active = if q == current { " active" } else { "" };
-        out.push_str(&format!(
-            "<li style=\"padding-left:{}rem\"><a class=\"el{active}\" href=\"{rel_root}elements/{}.html\">{}</a></li>\n",
-            depth as f32 * 0.6,
-            sanitize(q),
-            esc(leaf),
-        ));
+    for q in qnames.into_iter().filter(|q| shown(q)) {
+        out.push_str(&nav_item(q, rel_root, current));
     }
     out.push_str("</ul>\n<h2>Reports</h2>\n<ul>\n");
     for (name, label) in [
@@ -217,6 +227,35 @@ fn build_nav(elements: &[RawElement], rel_root: &str, current: &str) -> String {
     }
     out.push_str("</ul>\n</nav>\n");
     out
+}
+
+fn nav_item(q: &str, rel_root: &str, current: &str) -> String {
+    let depth = q.matches("::").count();
+    let leaf = q.rsplit("::").next().unwrap_or(q);
+    let active = if q == current { " active" } else { "" };
+    format!(
+        "<li style=\"padding-left:{}rem\"><a class=\"el{active}\" href=\"{rel_root}elements/{}.html\">{}</a></li>\n",
+        depth as f32 * 0.6,
+        sanitize(q),
+        esc(leaf),
+    )
+}
+
+/// The complete, indented element listing, written once (GH #225).
+fn all_elements_page(elements: &[RawElement]) -> String {
+    let rel_root = "";
+    let mut qnames: Vec<&str> = elements
+        .iter()
+        .map(|e| e.qualified_name.as_str())
+        .filter(|q| !q.is_empty())
+        .collect();
+    qnames.sort_unstable();
+    let mut body = String::from("<h1>All elements</h1>\n<ul class=\"allel\" style=\"list-style:none\">\n");
+    for q in qnames {
+        body.push_str(&nav_item(q, rel_root, ""));
+    }
+    body.push_str("</ul>\n");
+    page_shell("All elements", rel_root, &build_nav(elements, rel_root, ""), &body, "", "")
 }
 
 // ── page shell ───────────────────────────────────────────────────────────────
@@ -815,6 +854,8 @@ fn write_site(
 
     // Index page.
     std::fs::write(out_dir.join("index.html"), index_page(elements, &index_json))?;
+
+    std::fs::write(out_dir.join("all-elements.html"), all_elements_page(elements))?;
 
     // Element pages.
     for elem in elements {

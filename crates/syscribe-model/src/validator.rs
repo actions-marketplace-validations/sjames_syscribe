@@ -1326,7 +1326,12 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 findings.push(error(
                     "E006",
                     &file,
-                    &format!("`id` '{}' does not match FEAT pattern", id),
+                    &format!(
+                        "`id` '{}' does not match FEAT pattern `FEAT(-[A-Z0-9]{{2,12}})+` \
+                         (an id derived from a `featureTree:` name needs every segment to be 2-12 \
+                         letters/digits; set an explicit `id:` otherwise)",
+                        id
+                    ),
                 ));
             }
         }
@@ -6315,6 +6320,20 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 }
             }
 
+            // GH #224: behaviour-only references — a state's entry/do/exit action,
+            // a transition's effect and its `accept` payload type.
+            let mut behaviour_refs: Vec<String> = Vec::new();
+            for v in [fm.entry_action.as_ref(), fm.do_action.as_ref(), fm.exit_action.as_ref()].into_iter().flatten() {
+                collect_behaviour_ref(v, &mut behaviour_refs);
+            }
+            collect_behaviour_refs(fm.sub_states.as_deref().unwrap_or(&[]), &mut behaviour_refs);
+            collect_transition_refs(fm.transitions.as_deref().unwrap_or(&[]), &mut behaviour_refs);
+            for s in &behaviour_refs {
+                if let Some(target) = resolver.resolve_scoped_ref(elements, &elem.qualified_name, s) {
+                    referenced_defs.insert(target.qualified_name.clone());
+                }
+            }
+
             // features, connections, performs, flow_connections, etc. —
             // scan typedBy inside each mapping entry (and nested ports sub-key)
             for list in [
@@ -9605,6 +9624,50 @@ fn single_quoted_tokens(s: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// A behaviour reference given as a qualified-name string or a `{typedBy: <qn>}` /
+/// `{payload: <qn>}` map (GH #224).
+fn collect_behaviour_ref(v: &serde_yaml::Value, out: &mut Vec<String>) {
+    match v {
+        serde_yaml::Value::String(s) => out.push(s.clone()),
+        serde_yaml::Value::Mapping(m) => {
+            for k in ["typedBy", "payload"] {
+                if let Some(t) = yaml_field(m, k).and_then(|x| x.as_str()) {
+                    out.push(t.to_string());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_transition_refs(transitions: &[serde_yaml::Value], out: &mut Vec<String>) {
+    for t in transitions {
+        let Some(tm) = t.as_mapping() else { continue };
+        for k in ["effect", "accept"] {
+            if let Some(v) = yaml_field(tm, k) {
+                collect_behaviour_ref(v, out);
+            }
+        }
+    }
+}
+
+fn collect_behaviour_refs(sub_states: &[serde_yaml::Value], out: &mut Vec<String>) {
+    for s in sub_states {
+        let Some(sm) = s.as_mapping() else { continue };
+        for k in ["entryAction", "doAction", "exitAction"] {
+            if let Some(v) = yaml_field(sm, k) {
+                collect_behaviour_ref(v, out);
+            }
+        }
+        if let Some(serde_yaml::Value::Sequence(ts)) = yaml_field(sm, "transitions") {
+            collect_transition_refs(ts, out);
+        }
+        if let Some(serde_yaml::Value::Sequence(inner)) = yaml_field(sm, "subStates") {
+            collect_behaviour_refs(inner, out);
+        }
+    }
 }
 
 /// Recursively scan a list of YAML mappings for `typedBy:` string values and resolve them

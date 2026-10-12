@@ -962,7 +962,10 @@ fn explode_feature_entry(
     };
     if id_absent {
         let seg_id = |s: &str| -> String {
-            s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase()
+            // GH #227: a FEAT id segment is 2-12 characters, so a long name is
+            // cut to 12 (a resulting collision is E101); a 1-character name
+            // still needs an explicit `id:` and is reported by E006.
+            s.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect::<String>().to_uppercase()
         };
         let derived_id = format!("FEAT-{}", segments.iter().map(|s| seg_id(s)).collect::<Vec<_>>().join("-"));
         map.insert("id".into(), derived_id.into());
