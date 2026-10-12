@@ -572,6 +572,10 @@ pub struct Node {
     /// What a port carries (GH #335), for a `[diagram.portSides]` rule; `None` elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow: Option<FlowKind>,
+    /// Outside the view's `include:` (GH #338): drawn faded as context, or left out under a style with
+    /// `context = "hide"`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub faded: bool,
 }
 
 /// The tone of a [`NodeMark`]: how the node is coloured (`style::node_style`).
@@ -676,6 +680,9 @@ pub struct Edge {
     /// What the edge carries (GH #335); `None` when the model does not say, drawn as today.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flow: Option<FlowKind>,
+    /// Outside the view's `include:` (GH #338), like [`Node::faded`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub faded: bool,
 }
 
 /// What a connection carries (GH #335): it picks the stroke from the style table and, under a `[diagram.portSides]`
@@ -768,6 +775,10 @@ pub struct LayoutHints {
     /// would otherwise pull the tree out of shape).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub overlay_kinds: Vec<EdgeKind>,
+    /// Keep the node order across the flow (`layout.layers`, GH #338): ELK's crossing minimisation then follows
+    /// the order of `nodes` among siblings instead of choosing its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub model_order: bool,
 }
 
 impl LayoutHints {
@@ -780,6 +791,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![EdgeKind::Inheritance],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Ibd => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -788,6 +800,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::FixedSide,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::StateMachine => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -796,6 +809,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Sequence => LayoutHints {
                 algorithm: LayoutAlgorithm::Fixed,
@@ -804,6 +818,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Requirement => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -812,6 +827,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![EdgeKind::Derive, EdgeKind::Satisfy, EdgeKind::Verify, EdgeKind::Refine],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Allocation => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -820,6 +836,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::UseCase => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -828,6 +845,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![EdgeKind::Inheritance],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Action => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -836,6 +854,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::FeatureModel => LayoutHints {
                 algorithm: LayoutAlgorithm::Tree,
@@ -844,6 +863,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![EdgeKind::Requires, EdgeKind::Excludes],
+                model_order: false,
             },
             // Trees and arguments read top-down; the layered engine (not mrtree)
             // because a shared event or sub-goal makes the structure a DAG.
@@ -854,6 +874,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             // Hazard to test reads left to right; the links point upstream
             // (OSLC), so they are reversed for layering (GH #223).
@@ -864,6 +885,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![EdgeKind::Derive, EdgeKind::Verify, EdgeKind::Trace, EdgeKind::Satisfy],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::ZoneConduit => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -872,6 +894,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::ThreatGraph => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -880,6 +903,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
             DiagramKind::Custom => LayoutHints {
                 algorithm: LayoutAlgorithm::Layered,
@@ -888,6 +912,7 @@ impl LayoutHints {
                 port_constraints: PortConstraints::Free,
                 reversed_kinds: vec![],
                 overlay_kinds: vec![],
+                model_order: false,
             },
         }
     }
@@ -916,6 +941,13 @@ pub struct DiagramGraph {
     /// The project's `[diagram.styles]` (GH #335), layered over the built-in flow-kind styles by the writers.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub flow_styles: std::collections::BTreeMap<FlowKind, FlowStyle>,
+    /// The diagram's `style:` (GH #338), resolved against `[diagram.style.<name>]` when the project's config is
+    /// applied (`vis::flow::apply`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    /// `layout.flow` set the direction (GH #338), so writers that otherwise keep their own default (PlantUML) follow it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flow_set: bool,
 }
 
 impl DiagramGraph {
@@ -930,7 +962,34 @@ impl DiagramGraph {
             layout_hints: LayoutHints::for_kind(kind),
             derived: false,
             flow_styles: Default::default(),
+            style: None,
+            flow_set: false,
         }
+    }
+
+    /// Reorder the nodes so every parent precedes its children, keeping the order otherwise.
+    pub fn parents_first(&mut self) {
+        let mut placed: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out = Vec::with_capacity(self.nodes.len());
+        let mut rest = std::mem::take(&mut self.nodes);
+        while !rest.is_empty() {
+            let before = rest.len();
+            let mut keep = Vec::new();
+            for n in rest {
+                if n.parent.as_ref().map_or(true, |p| placed.contains(p)) {
+                    placed.insert(n.id.clone());
+                    out.push(n);
+                } else {
+                    keep.push(n);
+                }
+            }
+            if keep.len() == before {
+                out.extend(keep);
+                break;
+            }
+            rest = keep;
+        }
+        self.nodes = out;
     }
 
     pub fn node(&self, id: &str) -> Option<&Node> {
@@ -1095,6 +1154,7 @@ mod tests {
             feature: None,
             mark: None,
             flow: None,
+            faded: false,
         };
         g.nodes.push(mk("a", None, Some(Rect { x: 0.0, y: 0.0, w: None, h: None })));
         g.nodes.push(mk("b", Some("a"), None));
@@ -1117,6 +1177,7 @@ mod tests {
             label: None,
             waypoints: Some(vec![Point { x: 1.0, y: 2.0 }]),
             flow: None,
+            faded: false,
         });
         let json = serde_json::to_string(&g).unwrap();
         let back: DiagramGraph = serde_json::from_str(&json).unwrap();

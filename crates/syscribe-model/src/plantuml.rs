@@ -83,6 +83,11 @@ pub fn render_plantuml_in(element: &RawElement, elements: &[RawElement], cfg: Op
     render_graph(element, graph, cfg)
 }
 
+/// PlantUML of an already-built graph of `element` (a variant view, GH #338); `None` for a kind with no mapping.
+pub fn render_plantuml_graph(element: &RawElement, graph: vis::DiagramGraph, cfg: Option<&PlantumlConfig>) -> Option<String> {
+    render_graph(element, graph, cfg)
+}
+
 fn render_graph(element: &RawElement, graph: vis::DiagramGraph, cfg: Option<&PlantumlConfig>) -> Option<String> {
 
     // @startuml identifier / PlantUML output filename stem — must not contain
@@ -333,12 +338,16 @@ fn render_bdd(graph: &DiagramGraph, id: &str, cfg: Option<&PlantumlConfig>) -> S
 fn ibd_mark(node: &Node) -> (String, String) {
     // an actor or a part of the test set-up (GH #337)
     let role = node.stereotype.as_deref().filter(|s| matches!(*s, "actor" | "environment"));
+    let stereotypes: String = role.into_iter().map(str::to_string).chain(node.mark.iter().flat_map(|m| m.badges.iter().cloned())).map(|b| format!(" <<{b}>>")).collect();
+    // outside the view's `include:` (GH #338): pale, whatever the mark
+    if node.faded {
+        return (stereotypes, format!(" #f7f7f7;line:{};text:{}", FADED_LINE.trim_start_matches('#'), FADED_LINE.trim_start_matches('#')));
+    }
     let mark = node.mark.as_ref().filter(|m| !m.is_detail_only());
     if mark.is_none() && role.is_none() {
         return (String::new(), String::new());
     }
     let st = crate::vis::style::node_style(node);
-    let stereotypes: String = role.into_iter().map(str::to_string).chain(mark.into_iter().flat_map(|m| m.badges.iter().cloned())).map(|b| format!(" <<{b}>>")).collect();
     let mut colours = format!(" {};line:{}", st.fill, st.stroke.trim_start_matches('#'));
     if mark.is_some_and(|m| m.emphasis) {
         colours.push_str(";line.bold");
@@ -347,6 +356,9 @@ fn ibd_mark(node: &Node) -> (String, String) {
     }
     (stereotypes, colours)
 }
+
+/// The line and text colour of what lies outside a view (GH #338).
+const FADED_LINE: &str = "#bbbbbb";
 
 fn render_ibd_container(
     node: &Node,
@@ -405,6 +417,10 @@ fn render_ibd(graph: &DiagramGraph, id: &str, cfg: Option<&PlantumlConfig>) -> S
     let mut out = String::new();
     out.push_str(&format!("@startuml {}\n", id));
     out.push_str(&style_preamble(cfg));
+    // `layout.flow` (GH #338)
+    if graph.flow_set {
+        out.push_str(if graph.layout_hints.direction == vis::LayoutDirection::Down { "top to bottom direction\n" } else { "left to right direction\n" });
+    }
     out.push('\n');
 
     // Top-level containers: have children and no parent themselves.
@@ -433,6 +449,9 @@ fn render_ibd(graph: &DiagramGraph, id: &str, cfg: Option<&PlantumlConfig>) -> S
             continue;
         }
         let connector = match (e.kind, crate::vis::style::flow_override(e, graph)) {
+            // outside the view's `include:` (GH #338)
+            (EdgeKind::Binding, _) if e.faded => format!("-[{FADED_LINE},dashed]->"),
+            _ if e.faded => format!("-[{FADED_LINE}]->"),
             (EdgeKind::Binding, _) => "..>".to_string(),
             // the flow kind's stroke (GH #335); PlantUML takes an integer thickness and a `#` colour
             (_, Some(st)) => {
@@ -447,7 +466,9 @@ fn render_ibd(graph: &DiagramGraph, id: &str, cfg: Option<&PlantumlConfig>) -> S
             _ => "-->".to_string(),
         };
         let stereo = e.flow.map(|f| format!(" <<{}>>", f.as_str())).unwrap_or_default();
-        out.push_str(&format!("{} {} {} : {}{stereo}\n", sanitize_id(&src), connector, sanitize_id(&tgt), e.kind.as_str()));
+        // the variant view's `[only X]` (GH #338) on an edge only one product has
+        let only = e.label.as_deref().and_then(|l| l.rfind("[only ").map(|i| format!(" {}", &l[i..]))).unwrap_or_default();
+        out.push_str(&format!("{} {} {} : {}{only}{stereo}\n", sanitize_id(&src), connector, sanitize_id(&tgt), e.kind.as_str()));
     }
 
     out.push_str("\n@enduml\n");

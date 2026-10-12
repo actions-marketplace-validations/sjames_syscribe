@@ -31,6 +31,16 @@ fn text(s: &str) -> String {
     s.replace('"', "#quot;").replace('\n', " ")
 }
 
+/// A label for a place Mermaid reads unquoted (a port's circle, an edge's `|…|`): as it is, unless it holds a
+/// bracket, which starts a shape there (`[only CONF-A]`, GH #338); then quoted.
+fn bare_or_quoted(label: &str) -> String {
+    if !label.contains(['[', ']', '(', ')', '{', '}']) {
+        label.to_string()
+    } else {
+        format!("\"{label}\"")
+    }
+}
+
 /// A member line inside a `class … { }` body. Braces would end the body
 /// early, so they are replaced; everything else is shown as written.
 fn member(s: &str) -> String {
@@ -98,7 +108,8 @@ fn click_lines(out: &mut String, nodes: &[&Node], links: &dyn Fn(&str) -> Option
 pub fn render_mermaid(graph: &DiagramGraph, links: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     Some(match graph.kind {
         DiagramKind::Bdd | DiagramKind::Requirement => render_class(graph, links),
-        DiagramKind::Ibd => render_flowchart(graph, "LR", links),
+        // an IBD follows its layout direction (left to right unless `layout.flow` says otherwise, GH #338)
+        DiagramKind::Ibd => render_flowchart(graph, if graph.layout_hints.direction == super::ir::LayoutDirection::Down { "TD" } else { "LR" }, links),
         DiagramKind::StateMachine => render_state(graph),
         DiagramKind::Sequence => render_sequence(graph),
         DiagramKind::Allocation
@@ -214,7 +225,7 @@ fn flow_node(node: &Node) -> String {
         NodeKind::Context => format!("{id}([\"{label}\"])"),
         NodeKind::Justification => format!("{id}((\"J: {label}\"))"),
         NodeKind::Assumption => format!("{id}((\"A: {label}\"))"),
-        NodeKind::Port => format!("{id}(({label}))"),
+        NodeKind::Port => format!("{id}(({}))", bare_or_quoted(&label)),
         NodeKind::UseCase => format!("{id}([\"{label}\"])"),
         NodeKind::Actor => format!("{id}[/\"{label}\"/]"),
         NodeKind::Note => format!("{id}>\"{label}\"]"),
@@ -295,22 +306,33 @@ fn render_flowchart(graph: &DiagramGraph, direction: &str, links: &dyn Fn(&str) 
         };
         out.push_str(&format!("  {s} {connector}"));
         if let Some(l) = label {
-            out.push_str(&format!("|{}|", text(&l).replace('|', "/")));
+            out.push_str(&format!("|{}|", bare_or_quoted(&text(&l).replace('|', "/"))));
         }
         out.push_str(&format!(" {t}\n"));
     }
     // the flow kind's stroke (GH #335): Mermaid styles a link by its index
     for (i, e) in graph.edges.iter().enumerate() {
+        let mut css: Vec<String> = Vec::new();
         if let Some(st) = super::style::flow_override(e, graph) {
-            let mut css = format!("stroke:{},stroke-width:{}px", st.stroke, st.width);
+            css.push(format!("stroke:{},stroke-width:{}px", st.stroke, st.width));
             if let Some(d) = &st.dash {
-                css.push_str(&format!(",stroke-dasharray:{}", d.replace(',', " ")));
+                css.push(format!("stroke-dasharray:{}", d.replace(',', " ")));
             }
-            out.push_str(&format!("  linkStyle {i} {css}\n"));
+        }
+        // outside the view's `include:` (GH #338)
+        if e.faded {
+            css.push("opacity:0.25".to_string());
+        }
+        if !css.is_empty() {
+            out.push_str(&format!("  linkStyle {i} {}\n", css.join(",")));
         }
     }
     let nodes: Vec<&Node> = drawn.iter().filter_map(|id| graph.node(id)).collect();
     tone_classes(&mut out, &nodes);
+    let faded: Vec<String> = nodes.iter().filter(|n| n.faded).map(|n| mermaid_id(&n.id)).collect();
+    if !faded.is_empty() {
+        out.push_str(&format!("  classDef faded opacity:0.25\n  class {} faded\n", faded.join(",")));
+    }
     click_lines(&mut out, &nodes, links);
     out
 }
@@ -441,6 +463,7 @@ mod tests {
             feature: None,
             mark: None,
             flow: None,
+            faded: false,
         }
     }
 
@@ -454,6 +477,7 @@ mod tests {
             label: label.map(str::to_string),
             waypoints: Some(vec![Point { x: 0.0, y: 0.0 }]),
             flow: None,
+            faded: false,
         }
     }
 

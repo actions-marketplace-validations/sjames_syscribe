@@ -214,6 +214,7 @@ pub fn generate(
                 feature: None,
                 mark: None,
                 flow: None,
+                faded: false,
             });
         }
     }
@@ -240,6 +241,7 @@ pub fn generate(
                     label: None,
                     waypoints: None,
                     flow: None,
+                    faded: false,
                 });
             }
         }
@@ -261,6 +263,7 @@ pub fn generate(
                     label: Some(label),
                     waypoints: None,
                     flow: None,
+                    faded: false,
                 });
             }
         }
@@ -287,6 +290,7 @@ pub fn generate(
                     label: Some(display_name(e)),
                     waypoints: None,
                     flow: None,
+                    faded: false,
                 });
             }
         }
