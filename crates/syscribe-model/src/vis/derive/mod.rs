@@ -32,7 +32,7 @@ pub mod zone_conduit;
 use crate::element::{ElementType, RawElement};
 use crate::resolver::Resolver;
 
-use super::ir::{stereotype_for_type, DiagramGraph, DiagramKind, Node, NodeKind, PortDirection};
+use super::ir::{stereotype_for_type, DiagramGraph, DiagramKind, FlowKind, Node, NodeKind, PortDirection, Side};
 use super::manifest::{apply_layout, Issue};
 
 pub(crate) fn w417(message: String) -> Issue {
@@ -178,6 +178,35 @@ pub(crate) fn short_name(qname: &str) -> &str {
     qname.rsplit("::").next().unwrap_or(qname)
 }
 
+/// The flow kind a `PortDef` declares (GH #335): its own `flowKind:`, else the nearest one up its `supertype:`
+/// chain. `None` for anything that is not a `PortDef`.
+pub(crate) fn port_def_flow(def: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Option<FlowKind> {
+    let mut cur = Some(def);
+    let mut seen: Vec<&str> = Vec::new();
+    while let Some(d) = cur {
+        if d.frontmatter.element_type != Some(ElementType::PortDef) || seen.contains(&d.qualified_name.as_str()) {
+            return None;
+        }
+        seen.push(&d.qualified_name);
+        if let Some(k) = d.frontmatter.flow_kind.as_deref().and_then(FlowKind::parse) {
+            return Some(k);
+        }
+        cur = yaml_strings(d.frontmatter.supertype.as_ref()).first().and_then(|s| resolver.resolve_ref(elements, s));
+    }
+    None
+}
+
+/// The flow kind of a port element (GH #335): a `Port` file's own `flowKind:`, else its `PortDef`'s; a `PortDef`'s.
+pub(crate) fn port_element_flow(e: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Option<FlowKind> {
+    match e.frontmatter.element_type {
+        Some(ElementType::PortDef) => port_def_flow(e, elements, resolver),
+        Some(ElementType::Port) => e.frontmatter.flow_kind.as_deref().and_then(FlowKind::parse).or_else(|| {
+            yaml_strings(e.frontmatter.typed_by.as_ref()).first().and_then(|t| resolver.resolve_ref(elements, t)).and_then(|d| port_def_flow(d, elements, resolver))
+        }),
+        _ => None,
+    }
+}
+
 pub(crate) fn display_name(e: &RawElement) -> String {
     e.frontmatter.name.clone().unwrap_or_else(|| short_name(&e.qualified_name).to_string())
 }
@@ -192,6 +221,10 @@ pub(crate) struct Feature {
     pub direction: Option<PortDirection>,
     pub multiplicity: Option<String>,
     pub unit: Option<String>,
+    /// A port's `flowKind:`, else its `PortDef`'s (GH #335).
+    pub flow: Option<FlowKind>,
+    /// A port's `side:` override (GH #335).
+    pub side: Option<Side>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,10 +247,9 @@ pub(crate) fn features_of(e: &RawElement, elements: &[RawElement], resolver: &Re
         let Some(name) = map_str(m, "name") else { continue };
         let typed_by = yaml_strings(m.get(serde_yaml::Value::String("typedBy".into()))).into_iter().next();
         let declared = map_str(m, "type");
-        let target_type = typed_by
-            .as_deref()
-            .and_then(|t| resolver.resolve_ref(elements, t))
-            .and_then(|t| t.frontmatter.element_type.clone());
+        let target = typed_by.as_deref().and_then(|t| resolver.resolve_ref(elements, t));
+        let target_type = target.and_then(|t| t.frontmatter.element_type.clone());
+        let flow = map_str(m, "flowKind").and_then(FlowKind::parse).or_else(|| target.and_then(|t| port_def_flow(t, elements, resolver)));
         let role = match declared {
             Some("Port") => FeatureRole::Port,
             Some("Part") | Some("Item") => FeatureRole::Part,
@@ -236,6 +268,8 @@ pub(crate) fn features_of(e: &RawElement, elements: &[RawElement], resolver: &Re
             direction: map_str(m, "direction").and_then(PortDirection::parse),
             multiplicity: map_str(m, "multiplicity").map(str::to_string),
             unit: map_str(m, "unit").map(str::to_string),
+            flow,
+            side: map_str(m, "side").and_then(Side::parse),
         });
     }
     out
@@ -270,6 +304,7 @@ pub(crate) fn block_node(
         banners: super::banners_of(e, elements, resolver),
         feature: None,
         mark: None,
+        flow: None,
     }
 }
 
@@ -285,13 +320,14 @@ pub(crate) fn port_node(id: String, owner_qname: &str, f: &Feature, parent: &str
         stereotype: Some("port".to_string()),
         parent: Some(parent.to_string()),
         direction: f.direction,
-        side: None,
+        side: f.side,
         lines: Vec::new(),
         is_abstract: false,
         pin: None,
         banners: Vec::new(),
         feature: None,
         mark: None,
+        flow: f.flow,
     }
 }
 

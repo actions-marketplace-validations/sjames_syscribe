@@ -41,6 +41,8 @@ pub const KEY_KIND: &str = "kind";
 pub const KEY_PARENT: &str = "parent";
 /// Key, within one `shapes:`/`edges:` entry, overriding the display label.
 pub const KEY_LABEL: &str = "label";
+/// An edge's flow kind (GH #335).
+pub const KEY_FLOW_KIND: &str = "flowKind";
 pub const KEY_SOURCE: &str = "source";
 pub const KEY_TARGET: &str = "target";
 /// Key, within one `layout:` entry keyed by an edge id, listing pinned waypoints.
@@ -211,6 +213,7 @@ fn parse_edge(id: &str, v: &Value, issues: &mut Vec<Issue>) -> Option<Edge> {
         kind,
         label: str_of(m, KEY_LABEL).map(str::to_string),
         waypoints: None,
+        flow: str_of(m, KEY_FLOW_KIND).and_then(super::ir::FlowKind::parse),
     })
 }
 
@@ -380,6 +383,8 @@ pub fn build(
             banners: resolved.map(|e| super::banners_of(e, elements, resolver)).unwrap_or_default(),
             feature: None,
             mark: None,
+            // a port shape carries its port's flow kind (GH #335)
+            flow: if s.kind == NodeKind::Port { resolved.and_then(|e| super::derive::port_element_flow(e, elements, resolver)) } else { None },
         });
     }
 
@@ -392,6 +397,11 @@ pub fn build(
                         // An endpoint naming no shape is `W403` in the validator;
                         // the edge cannot be drawn, so it is not part of the graph.
                         if graph.node(&e.source).is_some() && graph.node(&e.target).is_some() {
+                            let mut e = e;
+                            // a connection or flow with no `flowKind:` of its own takes either port's (GH #335)
+                            if e.flow.is_none() && matches!(e.kind, EdgeKind::Connection | EdgeKind::Flow) {
+                                e.flow = graph.node(&e.source).and_then(|n| n.flow).or_else(|| graph.node(&e.target).and_then(|n| n.flow));
+                            }
                             graph.edges.push(e);
                         }
                     }

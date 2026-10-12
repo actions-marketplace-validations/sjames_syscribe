@@ -73,6 +73,17 @@ pub fn render_plantuml_with(
 ) -> Option<String> {
     let resolver = Resolver::new(elements);
     let (graph, _issues) = vis::build_graph_with(element, elements, &resolver, cyber)?;
+    render_graph(element, graph, cfg)
+}
+
+/// [`render_plantuml`] under the project's `.syscribe.toml` at `model_root`: `[cyber]` and `[diagram]` (GH #335).
+pub fn render_plantuml_in(element: &RawElement, elements: &[RawElement], cfg: Option<&PlantumlConfig>, model_root: &std::path::Path) -> Option<String> {
+    let resolver = Resolver::new(elements);
+    let (graph, _issues) = vis::build_graph_in(element, elements, &resolver, model_root)?;
+    render_graph(element, graph, cfg)
+}
+
+fn render_graph(element: &RawElement, graph: vis::DiagramGraph, cfg: Option<&PlantumlConfig>) -> Option<String> {
 
     // @startuml identifier / PlantUML output filename stem — must not contain
     // spaces so PlantUML names the .svg predictably.  Derive from the file stem.
@@ -398,11 +409,22 @@ fn render_ibd(graph: &DiagramGraph, id: &str, cfg: Option<&PlantumlConfig>) -> S
         if src == tgt {
             continue;
         }
-        let connector = match e.kind {
-            EdgeKind::Binding => "..>",
-            _ => "-->",
+        let connector = match (e.kind, crate::vis::style::flow_override(e, graph)) {
+            (EdgeKind::Binding, _) => "..>".to_string(),
+            // the flow kind's stroke (GH #335); PlantUML takes an integer thickness and a `#` colour
+            (_, Some(st)) => {
+                let line = match st.dash.as_deref() {
+                    Some(d) if crate::vis::style::is_dotted(d) => ",dotted",
+                    Some(_) => ",dashed",
+                    None => "",
+                };
+                let color = if st.stroke.starts_with('#') { st.stroke.clone() } else { format!("#{}", st.stroke) };
+                format!("-[{color},thickness={}{line}]->", st.width.round().max(1.0) as i64)
+            }
+            _ => "-->".to_string(),
         };
-        out.push_str(&format!("{} {} {} : {}\n", sanitize_id(&src), connector, sanitize_id(&tgt), e.kind.as_str()));
+        let stereo = e.flow.map(|f| format!(" <<{}>>", f.as_str())).unwrap_or_default();
+        out.push_str(&format!("{} {} {} : {}{stereo}\n", sanitize_id(&src), connector, sanitize_id(&tgt), e.kind.as_str()));
     }
 
     out.push_str("\n@enduml\n");
