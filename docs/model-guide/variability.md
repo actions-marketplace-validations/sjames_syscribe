@@ -34,6 +34,20 @@ id: FEAT-CORTEXM-001
 name: CortexM
 groupKind: optional
 ---
+# Features/Platform/RiscV.md
+---
+type: FeatureDef
+id: FEAT-RISCV-001
+name: RiscV
+groupKind: optional
+---
+# Features/Wdt.md               (an optional top-level feature)
+---
+type: FeatureDef
+id: FEAT-WDT-001
+name: Wdt
+groupKind: optional
+---
 ```
 
 Two orthogonal axes (`ADR-FM-003`):
@@ -109,7 +123,18 @@ crossTreeConstraints:
     excludes: [Wdt]
 ```
 
-`feature`/`requires`/`excludes` values resolve the same way everywhere in this section: a value containing `::` is already an absolute qname; one starting with `FEAT` is a stable id; anything else is a dotted path relative to the sheet, resolved exactly like a `featureTree:` entry's `name:`. A `feature:` that doesn't resolve to a `FeatureDef` synthesized from *this sheet's own* `featureTree:` is `E233` — there's nothing local to attach the constraint to.
+`feature`/`requires`/`excludes` values resolve the same way everywhere in this section: a value containing `::` is already an absolute qname; one starting with `FEAT` is a stable id; anything else is a dotted path relative to the sheet, resolved exactly like a `featureTree:` entry's `name:`. A `feature:` that doesn't resolve to a `FeatureDef` synthesized from *this sheet's own* `featureTree:` is `E233` — there's nothing local to attach the constraint to. Inline `requires:`/`excludes:` on a `featureTree:` entry also accept a path relative to the sheet when it names another entry of the same sheet, so `requires: [Protection.Afci]` works next to `requires: [FEAT-GTI-AFCI]` and `requires: [Features::Protection::Afci]`. A value that names no entry of the sheet is left as written and resolved as a qname or id.
+
+**Which form each field takes.** The dotted tree path is a name *inside the sheet* only. Everywhere else a feature is its qualified name or its `FEAT-` id, and a parameter is `<qualified name>.<parameter>`:
+
+| Field | Accepted forms |
+|---|---|
+| `featureTree:` entry `requires:`/`excludes:`, `crossTreeConstraints:` | `Group.Leaf` (relative to the sheet), `Features::Group::Leaf`, `FEAT-…` |
+| `appliesWhen:`, `Configuration.features:` keys | `Features::Group::Leaf`, `FEAT-…` |
+| `parameterBindings:` keys, `parameterConstraints` | `Features::Group::Leaf.param` |
+| placeholders | `{{Features::Group::Leaf.param}}`, `{{FEAT-….param}}` |
+
+An unresolved reference (`E212`, `E209`, `E239`, `E222`, `E241`) says which form its field accepts and, when one is close, which feature it most likely meant: `appliesWhen: Features::Protection.Afci` reports *did you mean 'Features::Protection::Afci'?*.
 
 **`parameterConstraints:`** (§9.7's cross-feature numeric constraints, normally on a `Package`/`LibraryPackage`/`Namespace` `_index.md`) can also be declared directly on the `FeatureModel` sheet — the natural single home for everything about this feature model:
 
