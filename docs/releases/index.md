@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- **Fixed:** selecting a feature selects its group parents (#228): a `parameterBindings:` entry on a parent no longer raises `E203` when a descendant is selected, and such a parent is not reported as an orphan (`W024`), matching what `configure` already did.
 - **Fixed:** `export-html` no longer embeds the whole namespace tree in every page (#225). Each page lists the top-level packages, the siblings along the path to the element and its own children; the complete listing is written once as `all-elements.html`. The `model/` site drops from about 175 MB to about 21 MB.
 - **Fixed:** `W007` no longer fires for a type used only as a transition `accept` payload, or an action used only as a state's `entryAction`/`doAction`/`exitAction` or a transition `effect` (#224).
 - **Fixed:** a `featureTree:` id derived from a long name (`Platform.HighPerformance`) is cut to the 12-character FEAT segment limit instead of failing `E006`; a 1-character segment still needs an explicit `id:`, and the `E006` message now says so (#227).

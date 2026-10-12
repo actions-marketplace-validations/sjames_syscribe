@@ -55,6 +55,8 @@ Two orthogonal axes (`ADR-FM-003`):
 - **`groupKind`** describes how a feature's **children** are grouped: `optional` · `alternative` (XOR) · `or`.
 - **`mandatory: true`** describes the feature's **membership** relative to its parent — selected whenever the parent is (or always, at top level). It is independent of `groupKind`, so a node can be a *mandatory XOR group* as above. (The legacy `groupKind: mandatory` is a shorthand for `mandatory: true` on a leaf.)
 
+  Selecting a feature selects its group parents: a `Configuration` need not list `Platform: true` when it selects `Platform.Eco`. A `parameterBindings:` entry on `Platform` is then valid (no `E203`), and `Platform` is not an orphan (`W024`). Listing the parent explicitly is still allowed.
+
   A **mandatory group with optional children** (a `Protection` node that is in every product, whose `Afci` and `RapidShutdown` children are each optional) is spelled `mandatory: true` with `groupKind: optional`. Being selected in every `Configuration` is what `mandatory` means, so it does not raise `W012`; only an optional member that every `Configuration` happens to select does.
 
 **Abstract features.** `isAbstract: true` marks a feature that only groups: it has no realisation of its own and exists to give its children a place in the tree (a `Platform` whose children are the real choices). It behaves as an abstract feature does in a proper feature model:

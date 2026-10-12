@@ -10625,6 +10625,12 @@ pub fn parameter_binding_findings(
             &crate::variability::feature_id_to_qname(elements),
         );
         let is_selected = |feat: &str| sel.get(feat).copied().unwrap_or(false);
+        // GH #228: selecting a feature selects its group parents, so a binding on a
+        // parent is valid when any descendant is selected (as `configure` already treats it).
+        let is_selected_or_implied = |feat: &str| {
+            is_selected(feat)
+                || sel.iter().any(|(k, v)| *v && k.strip_prefix(feat).is_some_and(|r| r.starts_with("::")))
+        };
         let file = &cfg.file_path;
         let mut bound: HashSet<String> = HashSet::new();
         // Populated lazily — only the first time a dotted key doesn't resolve
@@ -10701,7 +10707,7 @@ pub fn parameter_binding_findings(
                 // transitively-resolved parameter is instead checked against
                 // *its own owning tier's* selection via `E519` below (see
                 // this function's doc comment).
-                if !is_transitive && !is_selected(feat) {
+                if !is_transitive && !is_selected_or_implied(feat) {
                     findings.push(error("E203", file, &format!(
                         "parameterBindings binds '{}' but feature '{}' is not selected", path, feat)));
                 }

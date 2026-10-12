@@ -730,7 +730,10 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     for fd in &fdefs {
         let q = fd.qualified_name.as_str();
         let referenced = referenced_by_applies_when.contains(q);
-        let selected = sel_count.get(q).copied().unwrap_or(0) > 0;
+        // GH #228: a group parent is selected whenever one of its descendants is.
+        let prefix = format!("{q}::");
+        let selected = sel_count.get(q).copied().unwrap_or(0) > 0
+            || sel_count.iter().any(|(k, n)| *n > 0 && k.starts_with(&prefix));
         if !referenced && !selected {
             f.push(warn("W024", &fd.file_path, format!(
                 "orphan feature '{}' is referenced by no appliesWhen and selected true by no Configuration", q)));
