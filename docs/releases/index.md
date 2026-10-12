@@ -2,7 +2,7 @@
 
 `RELEASES`
 
-## Unreleased
+## 0.54.0 — 2026-10-13
 
 - **Changed (behaviour):** a command given an option it does not know now fails with a usage error (stderr names the option and lists the valid ones, exit 1) instead of ignoring it. About 40 commands used to ignore unknown options silently, among them `audit`, `matrix`, `metrics`, `cyber-risk`, `feature-check`, `export-html`, `diff`, `claim`, `suspect`, `baseline`, `plantuml`, `magicgrid`, `safety-case` and `zones`, so a mistyped `audit --deny` was never applied in CI. `scripts` still forwards its arguments to user scripts. A table-driven test covers about 48 commands, and the drift tests now require every accepted option to be documented on its help page.
 - **Changed (behaviour):** `impact --kinds <unknown>`, `export-reqif --scope <unknown>` and `trade-study --config <unknown>` are usage errors (exit 1); `export-reqif` used to write an empty document and `trade-study` an empty grid.
