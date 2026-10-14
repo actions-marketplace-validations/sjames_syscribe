@@ -460,7 +460,7 @@ fn strict_mode_reports_any_conflicting_pair() {
         r.send("Pkg::Go", &[]);
         r
     };
-    assert!(r.error().is_some_and(|e| e.contains("t0") && e.contains("t2")), "{:?}", r.error());
+    assert!(r.error().is_some_and(|e| e.contains("t0") && e.contains("t1")), "{:?}", r.error());
 }
 
 #[test]

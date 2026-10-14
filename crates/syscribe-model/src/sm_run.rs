@@ -849,7 +849,7 @@ impl<'m> Run<'m> {
                     }
                 }
                 if self.opts.strict {
-                    if let Some(b) = enabled.iter().skip(1).find(|b| m.transitions[**b].target != m.transitions[enabled[0]].target) {
+                    if let Some(b) = enabled.get(1) {
                         let a = enabled[0];
                         return Err(format!(
                             "strict: transitions t{a} ({}) and t{b} ({}) are both enabled with equal priority",
@@ -882,6 +882,14 @@ impl<'m> Run<'m> {
                         kept.remove(i); // t is deeper: it preempts k
                         continue;
                     } else {
+                        // Neither source is below the other: nothing ranks them, only document order does.
+                        if self.opts.strict {
+                            return Err(format!(
+                                "strict: transitions t{k} ({}) and t{t} ({}) are both enabled in different regions and exit the same states; only document order would pick one",
+                                self.describe(k),
+                                self.describe(t)
+                            ));
+                        }
                         continue 'next;
                     }
                 }
@@ -889,7 +897,32 @@ impl<'m> Run<'m> {
             }
             kept.push(t);
         }
+        if self.opts.strict {
+            self.check_write_races(&kept)?;
+        }
         Ok(if kept.is_empty() { None } else { Some(kept) })
+    }
+
+    /// Strict mode: transitions taken together run in region order, so two that assign the same variable leave a value
+    /// that depends only on where the regions sit in the file.
+    fn check_write_races(&self, taken: &[usize]) -> R<()> {
+        let writes = |t: usize| -> Vec<usize> {
+            self.m.transitions[t].actions.iter().filter_map(|a| if let Action::Assign { var, .. } = a { Some(*var) } else { None }).collect()
+        };
+        for (i, a) in taken.iter().enumerate() {
+            let wa = writes(*a);
+            for b in &taken[i + 1..] {
+                if let Some(v) = writes(*b).into_iter().find(|v| wa.contains(v)) {
+                    return Err(format!(
+                        "strict: transitions t{a} ({}) and t{b} ({}) are taken together and both assign '{}'; the result depends on region order",
+                        self.describe(*a),
+                        self.describe(*b),
+                        self.m.variables[v].name
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn describe(&self, t: usize) -> String {
@@ -1083,7 +1116,7 @@ impl<'m> Run<'m> {
 
     /// Run an executable `ActionDef` to completion on the machine's variables of the same names: its `in` and
     /// `inout` parameters are read from them, its `out` and `inout` values written back.
-    fn run_behavior(&mut self, prog: &crate::act_ir::ActionProgram, target: &str) -> R<String> {
+    fn run_behavior(&mut self, prog: &crate::act_ir::ActionProgram, target: &str) -> R<(String, Vec<crate::act_run::Sent>)> {
         use crate::act_run::{ActOptions, ActRun, Status as AS};
         let mut ar = ActRun::new(prog, ActOptions::default());
         for slot in prog.defs[0].slots.iter().filter(|s| s.kind == "in" || s.kind == "inout") {
@@ -1103,7 +1136,14 @@ impl<'m> Run<'m> {
                 self.vars[i] = self.pinned(i, v);
             }
         }
-        Ok(format!("action {target} executed in {} firing(s)", ar.trace().len()))
+        Ok((format!("action {target} executed in {} firing(s)", ar.trace().len()), ar.sent().to_vec()))
+    }
+
+    /// Record a message in the trace and queue it for whoever composes the machine.
+    fn emit(&mut self, event: String, via: Option<String>, vals: Vec<(String, Value)>, step: &mut Step) {
+        let shown = vals.iter().map(|(k, v)| format!("{k}={}", format_value(v))).collect::<Vec<_>>().join(", ");
+        step.actions.push(format!("send {event}{}{}", via.as_ref().map(|p| format!(" via {p}")).unwrap_or_default(), if shown.is_empty() { String::new() } else { format!(" ({shown})") }));
+        self.outbox.push(Sent { time: self.time, event, via, payload: vals });
     }
 
     fn run_actions(&mut self, acts: &[Action], scope: Option<&Scope>, step: &mut Step) -> R<()> {
@@ -1111,8 +1151,17 @@ impl<'m> Run<'m> {
             match a {
                 Action::Behavior { target, .. } => match self.m.behaviors.get(target) {
                     Some(prog) => {
-                        let note = self.run_behavior(prog, target)?;
+                        let (note, sent) = self.run_behavior(prog, target)?;
                         step.actions.push(note);
+                        // an activity's SendActions leave the machine like its own `send:` effects (REQ-TRS-ACTSEND-001);
+                        // the activity's event is `<port>/<event>` when it names a port
+                        for m in sent {
+                            let (via, event) = match m.event.split_once('/') {
+                                Some((p, e)) => (Some(p.to_string()), e.to_string()),
+                                None => (None, m.event.clone()),
+                            };
+                            self.emit(event, via, m.values, step);
+                        }
                     }
                     None => step.actions.push(format!("behavior {target}")),
                 },
@@ -1121,9 +1170,7 @@ impl<'m> Run<'m> {
                     for (k, e) in payload {
                         vals.push((k.clone(), self.eval(e, scope, &format!("payload '{k}' of send {event}"))?));
                     }
-                    let shown = vals.iter().map(|(k, v)| format!("{k}={}", format_value(v))).collect::<Vec<_>>().join(", ");
-                    step.actions.push(format!("send {event}{}{}", via.as_ref().map(|p| format!(" via {p}")).unwrap_or_default(), if shown.is_empty() { String::new() } else { format!(" ({shown})") }));
-                    self.outbox.push(Sent { time: self.time, event: event.clone(), via: via.clone(), payload: vals });
+                    self.emit(event.clone(), via.clone(), vals, step);
                 }
                 Action::Assign { var, expr } => {
                     let name = self.m.variables[*var].name.clone();

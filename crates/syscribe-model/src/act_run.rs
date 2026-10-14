@@ -57,6 +57,9 @@ pub struct ActStep {
 pub struct Sent {
     pub event: String,
     pub args: Vec<(String, String)>,
+    /// The same payload as typed values, for a state machine that emits the message (REQ-TRS-ACTSEND-001).
+    #[serde(skip)]
+    pub values: Vec<(String, Value)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -590,16 +593,19 @@ impl<'p> ActRun<'p> {
                 for (k, v) in child.outputs() {
                     self.pins.insert(format!("{}.{k}", s.name), v);
                 }
+                self.sent.extend(child.sent.iter().cloned());
                 st.note = Some(format!("performed {} in {} firing(s)", cd.qname, child.trace.len()));
             }
             NodeKind::Send { event, args } => {
                 let mut shown = Vec::new();
+                let mut values = Vec::new();
                 for a in args {
                     let v = self.eval(&a.expr, &format!("sub-action '{}' parameter '{}'", s.name, a.name))?;
                     shown.push((a.name.clone(), format_value(&v)));
+                    values.push((a.name.clone(), v));
                 }
                 st.sent = Some(event.clone());
-                self.sent.push(Sent { event: event.clone(), args: shown });
+                self.sent.push(Sent { event: event.clone(), args: shown, values });
             }
             NodeKind::If { cond, then, els } => {
                 let b = self.truth(cond, s.uid, 1, &format!("sub-action '{}' condition", s.name))?;
