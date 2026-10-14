@@ -19,7 +19,7 @@ Script commands, separated by `;`:
 
 The trace lists every microstep: virtual time, cause (event, timer, change, done,
 eventless), transition, states exited and entered, actions run and variables
-changed. `--strict` makes an unhandled event and equal-priority conflicts errors.
+changed. `--strict` makes an unhandled event and equal-priority conflicts errors: two enabled transitions out of one state (even to the same target), two transitions of different parallel regions whose exit sets overlap so that only document order would choose (a deeper source preempting an ancestor's is a defined priority, not a tie), and two transitions taken together that assign the same variable (the result would depend on region order).
 `--json` in `--do` script mode prints {active, error, machine, machineHash, terminated, time, trace,
 variables}; in scenario mode it prints {machineHash, verdicts:[{machine, scenario, status, steps,
 testCase}]}, plus `coverage` with `--coverage`.

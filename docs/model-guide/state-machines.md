@@ -184,4 +184,15 @@ guard: "s.v > {{Features::GridProfile.overVoltagePu}}"
 
 Virtual time is kept on a grid of one nanosecond, so a delay split into parts (`99 ms` then `1 ms`) reaches a timer exactly like the whole (`100 ms`) at any absolute time; durations finer than 1 ns are rounded.
 
+### Strict mode
+
+`simulate --strict` turns silent tie-breaking into errors, so a run that depends on document order cannot pass unnoticed:
+
+* an event no transition accepts;
+* two enabled transitions out of one state, even when both go to the same target (their effects or assignments can differ, and only one runs);
+* two transitions in different parallel regions whose exit sets overlap, for example one region leaving the parallel state while another reacts to the same event; a deeper source preempting an ancestor's is a defined priority and is not reported;
+* two transitions taken together that assign the same variable, since the final value would depend on where the regions sit in the file. This is reported even for commutative updates such as `n := n + 1`; give each region its own variable.
+
+Without `--strict` document order decides and nothing is reported.
+
 Deviations from SCXML, deliberately: no history, fork/join, `invoke`, external `send` or multi-event transitions (none exist in the SysML v2 model); typed, unit-checked expressions instead of ECMAScript; a virtual clock instead of delayed sends; an expression error stops the run instead of raising `error.execution`; equal-priority conflicts (including two regions' transitions that exit the same states, which only document order would rank) and unhandled events are reported in strict mode; change triggers are SysML v2 one-shot observations, not SCXML level-triggered eventless transitions; behaviour references (`effect: Pkg::Action`, `entryAction: Pkg::Action`) are recorded in the trace but not executed.
