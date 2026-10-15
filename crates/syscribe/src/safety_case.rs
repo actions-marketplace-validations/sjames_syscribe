@@ -48,6 +48,7 @@ pub fn cmd_safety_case(
     let verdict_of = |tc: &RawElement| match tc_verdict(tc, results) {
         TcVerdict::Pass => Verdict::Pass,
         TcVerdict::Fail => Verdict::Fail,
+        TcVerdict::Waived => Verdict::Waived,
         TcVerdict::Unknown => Verdict::Unknown,
     };
     let mut case = safety_case::build(
@@ -339,8 +340,12 @@ fn print_completeness(c: &Completeness) {
         c.requirements, c.requirements_without_tests
     );
     println!(
-        "  test cases: {} ({} pass, {} fail, {} unknown)",
-        c.testcases, c.tests_pass, c.tests_fail, c.tests_unknown
+        "  test cases: {} ({} pass, {} fail, {} unknown{})",
+        c.testcases,
+        c.tests_pass,
+        c.tests_fail,
+        c.tests_unknown,
+        if c.tests_waived > 0 { format!(", {} waived", c.tests_waived) } else { String::new() }
     );
     println!("  undeveloped nodes: {}", c.undeveloped_nodes);
     for id in &c.undeveloped_ids {
@@ -365,6 +370,7 @@ fn completeness_json(c: &Completeness) -> serde_json::Value {
         "testsPass": c.tests_pass,
         "testsFail": c.tests_fail,
         "testsUnknown": c.tests_unknown,
+        "testsWaived": c.tests_waived,
         "undevelopedNodes": c.undeveloped_nodes,
         "undevelopedIds": c.undeveloped_ids,
         "unresolvedRefs": c.unresolved_refs,

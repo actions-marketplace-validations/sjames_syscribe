@@ -147,7 +147,7 @@ fn verdict_tone(v: Verdict) -> Tone {
     match v {
         Verdict::Pass => Tone::Ok,
         Verdict::Fail => Tone::Bad,
-        Verdict::Unknown => Tone::Warn,
+        Verdict::Unknown | Verdict::Waived => Tone::Warn,
     }
 }
 

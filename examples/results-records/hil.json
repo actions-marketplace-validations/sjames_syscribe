@@ -1,0 +1,10 @@
+[
+  {"testCase": "TC-BRK-001", "scenario": "Request reaches the actuator in time", "verdict": "fail",
+   "measurements": [{"name": "latency", "value": "6.4 ms", "limit": {"op": "<", "value": "5 ms"}}],
+   "provenance": {"build": {"commit": "abc1234"}, "environment": "TE-HIL-001", "operator": "alice",
+                  "artefacts": [{"uri": "s3://rig/run42/log.txt",
+                                 "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"}]}},
+  {"testCase": "TC-BRK-001", "scenario": "Request during a bus fault is not lost", "verdict": "waived",
+   "rationale": "fault injector out for calibration; accepted in review RR-7, retest planned",
+   "provenance": {"build": {"commit": "abc1234"}, "environment": "TE-HIL-001"}}
+]

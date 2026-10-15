@@ -15,6 +15,7 @@
 
 pub mod config;
 pub mod envelope;
+pub mod results;
 pub mod runtime;
 
 use std::path::{Path, PathBuf};
@@ -89,6 +90,19 @@ pub fn apply_foreign_plugins(elements: &mut Vec<RawElement>, model_root: &Path) 
     let mut owned_dirs: Vec<(PathBuf, String)> = Vec::new(); // (dir, anchor file_path)
 
     for (owner_idx, pkg) in &confirmed {
+        if let Some(entry) = plugins.get(&pkg.alias).filter(|e| !e.is_foreign()) {
+            elements[*owner_idx].derive_findings.push(finding(
+                "E552",
+                &pkg.index_path,
+                &format!(
+                    "foreignFormat '{}' names a plugin of kind \"{}\" ([plugins.{}] in .syscribe.toml); only a foreign-format plugin (no kind, or kind = \"foreign\") can ingest a package",
+                    pkg.alias,
+                    entry.kind.as_deref().unwrap_or(""),
+                    pkg.alias
+                ),
+            ));
+            continue;
+        }
         let Some(entry) = plugins.get(&pkg.alias) else {
             elements[*owner_idx].derive_findings.push(finding(
                 "E551",

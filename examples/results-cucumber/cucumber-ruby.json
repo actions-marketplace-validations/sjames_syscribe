@@ -1,0 +1,709 @@
+[
+  {
+    "uri": "features/brake.feature",
+    "id": "brake-request-timing",
+    "keyword": "Feature",
+    "name": "Brake request timing",
+    "description": "",
+    "line": 2,
+    "tags": [
+      {
+        "name": "@feature-tag",
+        "line": 1
+      }
+    ],
+    "elements": [
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 29150
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;request-reaches-the-actuator-in-time",
+        "keyword": "Scenario",
+        "name": "Request reaches the actuator in time",
+        "description": "",
+        "line": 8,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 7
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 9,
+            "match": {
+              "location": "features/step_definitions/steps.rb:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 9736
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the actuator receives it within 5 ms",
+            "line": 10,
+            "match": {
+              "location": "features/step_definitions/steps.rb:6"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 8445
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 13801
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;request-during-a-bus-fault-is-not-lost",
+        "keyword": "Scenario",
+        "name": "Request during a bus fault is not lost",
+        "description": "",
+        "line": 13,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 12
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a CAN bus fault is injected",
+            "line": 14,
+            "match": {
+              "location": "features/step_definitions/steps.rb:7"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 8824
+            }
+          },
+          {
+            "keyword": "And ",
+            "name": "a brake request is sent",
+            "line": 15,
+            "match": {
+              "location": "features/step_definitions/steps.rb:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 7741
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the actuator still receives it",
+            "line": 16,
+            "match": {
+              "location": "features/step_definitions/steps.rb:8"
+            },
+            "result": {
+              "status": "failed",
+              "error_message": "message dropped after fault (RuntimeError)\n./features/step_definitions/steps.rb:8:in `\"the actuator still receives it\"'\nfeatures/brake.feature:16:in `Then the actuator still receives it'",
+              "duration": 83930
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 13404
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;parking-brake-holds",
+        "keyword": "Scenario",
+        "name": "Parking brake holds",
+        "description": "",
+        "line": 19,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@extref:TAP:parking-brake",
+            "line": 18
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "the parking brake is applied",
+            "line": 20,
+            "match": {
+              "location": "features/step_definitions/steps.rb:9"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 8881
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the vehicle does not move",
+            "line": 21,
+            "match": {
+              "location": "features/step_definitions/steps.rb:10"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 7767
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 13059
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;a-pending-one",
+        "keyword": "Scenario",
+        "name": "A pending one",
+        "description": "",
+        "line": 24,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 23
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step is pending",
+            "line": 25,
+            "match": {
+              "location": "features/step_definitions/steps.rb:11"
+            },
+            "result": {
+              "status": "pending",
+              "error_message": "not written yet (Cucumber::Pending)\n./features/step_definitions/steps.rb:11:in `\"a step is pending\"'\nfeatures/brake.feature:25:in `When a step is pending'",
+              "duration": 83001
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "nothing else matters",
+            "line": 26,
+            "match": {
+              "location": "features/step_definitions/steps.rb:12"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 13961
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;an-undefined-one",
+        "keyword": "Scenario",
+        "name": "An undefined one",
+        "description": "",
+        "line": 29,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 28
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step has no definition",
+            "line": 30,
+            "match": {
+              "location": "features/brake.feature:30"
+            },
+            "result": {
+              "status": "undefined"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 14125
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;2",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "description": "",
+        "line": 39,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 30 km/h",
+            "line": 34,
+            "match": {
+              "location": "features/step_definitions/steps.rb:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 23158
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 5 ms",
+            "line": 35,
+            "match": {
+              "location": "features/step_definitions/steps.rb:5"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 11954
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 14018
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;3",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "description": "",
+        "line": 40,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 60 km/h",
+            "line": 34,
+            "match": {
+              "location": "features/step_definitions/steps.rb:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 16172
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 5 ms",
+            "line": 35,
+            "match": {
+              "location": "features/step_definitions/steps.rb:5"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 11466
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 14306
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;4",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "description": "",
+        "line": 41,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 120 km/h",
+            "line": 34,
+            "match": {
+              "location": "features/step_definitions/steps.rb:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 16125
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 2 ms",
+            "line": 35,
+            "match": {
+              "location": "features/step_definitions/steps.rb:5"
+            },
+            "result": {
+              "status": "failed",
+              "error_message": "latency too high at 120 km/h (limit 2 ms) (RuntimeError)\n./features/step_definitions/steps.rb:5:in `/^the latency is below (\\d+) ms$/'\nfeatures/brake.feature:41:in `Then the latency is below 2 ms'\nfeatures/brake.feature:35:in `Then the latency is below <limit> ms'",
+              "duration": 87323
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 14574
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;flaky-one",
+        "keyword": "Scenario",
+        "name": "Flaky one",
+        "description": "",
+        "line": 44,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 43
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a flaky step runs",
+            "line": 45,
+            "match": {
+              "location": "features/step_definitions/steps.rb:13"
+            },
+            "result": {
+              "status": "failed",
+              "error_message": "flaky first attempt (RuntimeError)\n./features/step_definitions/steps.rb:13:in `\"a flaky step runs\"'\nfeatures/brake.feature:45:in `When a flaky step runs'",
+              "duration": 91483
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "before": [
+          {
+            "match": {
+              "location": "features/step_definitions/steps.rb:14"
+            },
+            "result": {
+              "status": "failed",
+              "error_message": "rig not reachable in Before hook (RuntimeError)\n./features/step_definitions/steps.rb:14:in `Before'",
+              "duration": 88247
+            }
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;hook-failure",
+        "keyword": "Scenario",
+        "name": "Hook failure",
+        "description": "",
+        "line": 48,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 47
+          },
+          {
+            "name": "@hookfail",
+            "line": 47
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 49,
+            "match": {
+              "location": "features/step_definitions/steps.rb:3"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "description": "",
+        "line": 4,
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "features/step_definitions/steps.rb:2"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 14265
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;untagged-scenario",
+        "keyword": "Scenario",
+        "name": "Untagged scenario",
+        "description": "",
+        "line": 51,
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 52,
+            "match": {
+              "location": "features/step_definitions/steps.rb:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 9548
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

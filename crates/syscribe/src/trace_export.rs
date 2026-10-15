@@ -470,6 +470,7 @@ pub fn build_document(
                 verdict: results.map(|_| match tc_verdict(tc, results) {
                     TcVerdict::Pass => "pass",
                     TcVerdict::Fail => "fail",
+                    TcVerdict::Waived => "waived",
                     TcVerdict::Unknown => "unknown",
                 }),
             }),

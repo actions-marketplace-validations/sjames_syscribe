@@ -1274,7 +1274,7 @@ fn main() {
                 let mut file: Option<&str> = None;
                 let mut i = 0;
                 while i < rest.len() {
-                    if rest[i] == "--format" || rest[i] == "--run" || rest[i] == "--config" { i += 2; continue; }
+                    if rest[i] == "--format" || rest[i] == "--run" || rest[i] == "--config" || rest[i] == "--environment" || rest[i] == "--build-commit" || rest[i] == "--operator" || rest[i] == "--artefact" || rest[i] == "--utc-offset" { i += 2; continue; }
                     if rest[i].starts_with("--") { i += 1; continue; }
                     file = Some(rest[i].as_str());
                     break;
@@ -1286,9 +1286,21 @@ fn main() {
                     }
                 }
                 match file {
-                    Some(f) => ingest::cmd_ingest_results(model_root, format, f, rest.windows(2).find(|w| w[0] == "--run").map(|w| w[1].as_str()), rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str()), &elems),
+                    Some(f) => {
+                        let val = |name: &str| rest.windows(2).find(|w| w[0] == name).map(|w| w[1].as_str());
+                        let opts = ingest::RecordOpts {
+                            replace: rest.iter().any(|a| a == "--replace"),
+                            strict: rest.iter().any(|a| a == "--strict"),
+                            environment: val("--environment"),
+                            build_commit: val("--build-commit"),
+                            operator: val("--operator"),
+                            utc_offset: val("--utc-offset"),
+                            artefacts: rest.windows(2).filter(|w| w[0] == "--artefact").map(|w| w[1].as_str()).collect(),
+                        };
+                        ingest::cmd_ingest_results(model_root, format, f, val("--run"), val("--config"), &opts, &elems)
+                    }
                     None => {
-                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit|session-log] [--run <run-id>] [--config <CONF-id>] <file>");
+                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit|session-log|records] [--run <run-id>] [--config <CONF-id>] [--replace] [--strict] [--environment <TE-id>] [--build-commit <sha>] [--operator <name>] [--artefact <file>]... [--utc-offset <Z|+HH:MM>] <file>");
                         std::process::exit(1);
                     }
                 }
@@ -1827,10 +1839,11 @@ fn main() {
                             .filter(|a| !a.starts_with("--"))
                             .map(|s| s.as_str());
                         let dry_run = rest.iter().any(|a| a == "--dry-run");
+                        let report = rest.windows(2).find(|w| w[0] == "--report").map(|w| w[1].as_str());
                         match alias {
-                            Some(a) if dry_run => plugins::cmd_run(&vcfg, model_root, a),
+                            Some(a) if dry_run => plugins::cmd_run(&vcfg, model_root, a, report),
                             _ => {
-                                eprintln!("Usage: plugins run <alias> --dry-run");
+                                eprintln!("Usage: plugins run <alias> --dry-run   (a foreign-format plugin)\n       plugins run <alias> --report <file> --dry-run   (a results plugin)");
                                 1
                             }
                         }

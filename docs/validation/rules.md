@@ -547,7 +547,7 @@ A model composes peer repositories declared in the `[repos]` table of the model-
 | W511 | A peer repo's git `HEAD` has drifted from its configured `ref:` — checkout is not at the pinned snapshot. Never raised when drift cannot be determined (no git, not a work tree, ref unresolved). Opt-in; `--deny W511` for a CI reproducibility gate. |
 | W512 | A peer repo's `path` is a **git submodule** of the composing model's repo, and its `ref:` resolves to a different commit than the gitlink the parent repo records — `.syscribe.toml` disagrees with `.gitmodules`. Independent of `W511` (gitlink pin vs ref, not checkout vs ref). Never raised when `path` is not a submodule. Opt-in; `--deny W512`. |
 
-## Foreign-format ingestion via stdio-subprocess plugins (E550–E551, W550–W553, E108, ADR-SYS-PLUGIN-002)
+## Foreign-format ingestion via stdio-subprocess plugins (E550–E553, W550–W553, E108, ADR-SYS-PLUGIN-002)
 
 > **Reserved, never emitted:** `E530`–`E532` and `W530`–`W534` are reserved for the parked sandboxed-WASM plugin design (`ADR-SYS-PLUGIN-001`, never merged). No shipped code emits them; they stay unassigned so a future finding cannot be misattributed to that mechanism. Stdio plugins use their own range below.
 
@@ -562,6 +562,8 @@ package declares `foreignFormat:`** — a model with none is unaffected.
 | E108 | Two elements — any origin (hand-authored, FMEA/TARA row explosion, SysML v2 ingestion, stdio plugin, or annotated source) — share a qualified name; the message names both files. |
 | E550 | `[plugins.<alias>].command` cannot be resolved — not found on `PATH`, or (given as a path) does not exist / is not executable. |
 | E551 | A package declares `foreignFormat: <alias>` with no matching `[plugins.<alias>]` entry in `.syscribe.toml`. |
+| E552 | A plugin's `kind` does not match its use: a `foreignFormat:` package names a `[plugins.<alias>]` entry whose `kind` is not `foreign` (the default), or `ingest-results --format plugin:<alias>` / `plugins run` names an entry that is not a results plugin (`kind = "results"`), or the `kind` is unknown (REQ-TRS-RESPLUG-001) |
+| E553 | A results plugin could not be used by `ingest-results --format plugin:<alias>`: no `[plugins.<alias>]` entry, the report cannot be read, the command was not found, failed to start, timed out (`timeout_ms`), exited non-zero, wrote an invalid envelope or no records, or returned records the record validator rejects. Nothing is written (REQ-TRS-RESPLUG-001) |
 | W550 | Plugin process execution failed — spawn error, non-zero exit, I/O error, or killed after exceeding `timeout_ms`. That package contributes zero elements this run. |
 | W551 | The plugin's stdout was not a well-formed envelope JSON object, or the plugin self-reported its own parse diagnostics (folded into this one finding). |
 | W552 | One element's frontmatter did not deserialize cleanly — that element dropped, siblings kept. |
@@ -628,6 +630,16 @@ un-baselined links stay silent in `validate` and are listed only by `suspect lis
 | Code | Condition |
 |---|---|
 | W090 | Suspect link: a trace-link target's normative content changed since the source's `traceBaselines:` entry for it was captured. Review, then re-baseline with `suspect accept <src> <tgt>`. Gate with `--deny W090` |
+
+## Stale results (W091, REQ-TRS-RESJOIN-001)
+
+A result recorded with `ingest-results --format records` is joined to its `TestCase` and stores a hash of that
+TestCase and of each requirement it verifies, taken with the suspect-link projection (editorial fields excluded).
+`validate` recomputes them. **Opt-in by data:** records ingested without hashes stay silent.
+
+| Code | Condition |
+|---|---|
+| `W091` | Stale result: results recorded (`ingest-results --format records`) for a non-draft `TestCase` predate a change to the TestCase or to a requirement it `verifies:` (normative projection hash, as for `W090`; editorial fields and ordinary status changes do not count), or the requirement no longer exists. The verdict is unchanged and `trace` marks it `[stale]`. Re-run the test and re-ingest. Records ingested without hashes are silent. Gate with `--deny W091` |
 
 ## Release baselines (E520–E522, W520, ADR-SYS-BASELINE-001)
 
@@ -1266,7 +1278,7 @@ a `SafetyGoal`'s `ftti:` string counts as an `ftti` quantity.
 | W612 | the effective TestCase set is empty |
 | W613 | a `TestCase` named explicitly in `testCases:` is `draft`/`retired` |
 | W614 | an `approved`/`active` plan demonstrates a `Requirement` that no member verifies (honours goal-closure) |
-| W615 | results-gated: an `approved` plan has members whose ingested verdict is Fail, flaky or Missing — one finding per plan listing them |
+| W615 | results-gated: an `approved` plan has members whose ingested verdict is Fail, flaky or Missing — one finding per plan listing them. For a plan with `runsOn:` and recorded results (`ingest-results --format records`), a member without `testFunctions:` is judged on each listed environment: a failure there, or no passing result there, is listed as `<test> @ <environment>` (REQ-TRS-RESENV-001) |
 | W616 | two plans share an identical `(configurations, scope)` pair and their effective member sets are redundant (one contains the other, or overlap ≥ 0.5) |
 
 A duplicate `TestPlan` `id` is the generic `E101`.

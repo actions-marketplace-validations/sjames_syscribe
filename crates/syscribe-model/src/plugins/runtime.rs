@@ -14,6 +14,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use super::config::PluginEntry;
+#[cfg(test)]
 use super::envelope::PluginRequest;
 
 /// Poll interval while waiting for the child to exit or its timeout to elapse.
@@ -124,7 +125,7 @@ fn tail(s: &str, max_bytes: usize) -> String {
 /// Spawn the plugin, write `req` to its stdin, and return its raw stdout text
 /// on a clean (exit-0) run. Callers that want the parsed envelope should feed
 /// the result into [`super::envelope::convert`]; `--dry-run` prints it as-is.
-pub fn invoke_raw(entry: &PluginEntry, req: &PluginRequest, model_root: &Path) -> Result<String, PluginError> {
+pub fn invoke_raw<R: serde::Serialize>(entry: &PluginEntry, req: &R, model_root: &Path) -> Result<String, PluginError> {
     let cmd_path = resolve_command(&entry.command, model_root).ok_or(PluginError::NotFound)?;
 
     let mut child = Command::new(&cmd_path)
@@ -246,6 +247,7 @@ mod tests {
             command: command.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
             timeout_ms,
+            kind: None,
         }
     }
 

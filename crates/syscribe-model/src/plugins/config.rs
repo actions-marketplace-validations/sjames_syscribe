@@ -22,6 +22,22 @@ pub struct PluginEntry {
     /// Wall-clock execution budget before the plugin process is killed (`W550`).
     #[serde(default = "default_timeout_ms")]
     pub timeout_ms: u64,
+    /// What the plugin does: absent or `"foreign"` ingests a `foreignFormat:` package into model elements;
+    /// `"results"` converts a test report into result records (REQ-TRS-RESPLUG-001).
+    #[serde(default)]
+    pub kind: Option<String>,
+}
+
+impl PluginEntry {
+    /// A results plugin (`kind = "results"`).
+    pub fn is_results(&self) -> bool {
+        self.kind.as_deref() == Some("results")
+    }
+
+    /// A foreign-format plugin (no `kind`, or `kind = "foreign"`).
+    pub fn is_foreign(&self) -> bool {
+        matches!(self.kind.as_deref(), None | Some("foreign"))
+    }
 }
 
 fn default_timeout_ms() -> u64 {

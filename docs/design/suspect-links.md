@@ -206,7 +206,7 @@ add `("suspect", include_str!("../../../prompts/help/suspect.md"))` to `HELP`
 
 ### Validation code
 
-The suspect pass emits warning **`W090`** (stale baseline). It is non-fatal by
+The suspect pass emits warning **`W090`** (stale baseline). Recorded test results use the same projection hash to notice that a result predates a change to its test or requirement (`W091`, `REQ-TRS-RESJOIN-001`); there is no `accept` for them, since a result is evidence of a run, not a review. It is non-fatal by
 default and gateable in CI with `--deny W090` (exit code 2 when a suspect link
 exists). It is documented in `prompts/help/suspect.md` and the validation code
 reference.

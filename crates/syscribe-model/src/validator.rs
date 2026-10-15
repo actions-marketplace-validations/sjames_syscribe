@@ -964,6 +964,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 // `feat/wasm-plugins`, unmerged).
                 "E550" => "E550",
                 "E551" => "E551",
+                "E552" => "E552",
                 "W550" => "W550",
                 "W551" => "W551",
                 "W552" => "W552",
@@ -1997,6 +1998,25 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             }
                         }
                     }
+                    // REQ-TRS-RESENV-001: a plan that names its environments is judged on each of them. A member
+                    // without `testFunctions:` is judged on its recorded results there; a rig with no passing result
+                    // is missing exactly as an absent function is, and a failure on it is a failure.
+                    let envs = crate::result_join::runs_on_ids(elem, elements, &resolver);
+                    if !envs.is_empty() && results.has_records() {
+                        let unhealthy = crate::result_join::unhealthy_environments(elements);
+                        for env in &envs {
+                            let view = results.view_for_env(env, &unhealthy);
+                            for tc in members.iter().filter(|t| t.frontmatter.test_functions.as_ref().map_or(true, |f| f.is_empty())) {
+                                let what = match crate::results::testcase_verdict(tc, Some(&view)) {
+                                    crate::safety_case::Verdict::Fail => "FAILED",
+                                    crate::safety_case::Verdict::Unknown => "missing",
+                                    _ => continue,
+                                };
+                                let tc_id = tc.frontmatter.id.as_deref().unwrap_or(tc.qualified_name.as_str());
+                                bad.push((tc_id.to_string(), format!("@ {env}"), what));
+                            }
+                        }
+                    }
                     if !bad.is_empty() {
                         bad.sort();
                         bad.dedup();
@@ -2012,7 +2032,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             "W615",
                             &file,
                             &format!(
-                                "approved TestPlan has {} member test function(s) that failed, were flaky or were missing from the ingested results: {}{}",
+                                "approved TestPlan has {} member test function(s) or recorded result(s) that failed, were flaky or were missing from the ingested results: {}{}",
                                 bad.len(),
                                 list,
                                 more
@@ -3255,6 +3275,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         if let Some(serde_yaml::Value::String(func)) = map.get(&func_key) {
                             match results.verdict_for(func) {
                                 FnVerdict::Pass => {}
+                                // a waiver with its rationale on record is a decision, not a finding
+                                FnVerdict::Waived => {}
                                 FnVerdict::Ignored => findings.push(warning(
                                     "W010",
                                     &file,
@@ -3290,6 +3312,22 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // W091 (REQ-TRS-RESJOIN-001): a result recorded for this TestCase is older than a change to the TestCase or to
+        // a requirement it verifies. The verdict is not altered; it is reported, and gateable with `--deny W091`.
+        if let (Some(results), Some(ElementType::TestCase)) = (&config.results, &fm.element_type) {
+            if fm.status.as_deref().is_some_and(|s| s != "draft") {
+                let tc_id = crate::result_join::canonical(elem);
+                let reasons = crate::result_join::stale_reasons(elem, results.records_for(&tc_id), elements, &resolver);
+                if !reasons.is_empty() {
+                    findings.push(warning(
+                        "W091",
+                        &file,
+                        &format!("results recorded for {tc_id} predate a change: {}. Re-run the test and re-ingest the results", reasons.join("; ")),
+                    ));
                 }
             }
         }

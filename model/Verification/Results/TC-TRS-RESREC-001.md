@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-RESREC-001
 name: "normalised result records carry verdict, measurements and provenance"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/results_records.rs
 verifies:
@@ -29,6 +29,14 @@ Feature: normalised result records carry verdict, measurements and provenance
   Scenario: records from another rig do not erase this one
     Given bench records ingested, then hil records ingested
     Then both are kept, and with --replace the absent ones are dropped
+
+  Scenario: a repeated key in one file keeps the last record
+    Given a file with a failing and then a passing record for one test, scenario and environment
+    Then one record is stored, the passing one, and the ingest reports the superseded count
+
+  Scenario: odd but legitimate input
+    Given a file with a byte-order mark, null optional fields, unicode scenario titles, or 5000 records
+    Then each is ingested, and a non-UTF-8 file is a clean error
 
   Scenario: the old consumers are unchanged
     Given a records ingest

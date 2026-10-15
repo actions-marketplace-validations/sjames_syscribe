@@ -282,7 +282,8 @@ fn verification_section(
         match crate::query::tc_verdict(tc, Some(results)) {
             crate::query::TcVerdict::Pass => pass += 1,
             crate::query::TcVerdict::Fail => fail += 1,
-            crate::query::TcVerdict::Unknown => unknown += 1,
+            // a waiver is a decision on record, not evidence: it is counted with the tests that prove nothing
+            crate::query::TcVerdict::Unknown | crate::query::TcVerdict::Waived => unknown += 1,
         }
     }
     // Goals and plans are model-level: under `--plan` they are left out (null) rather than

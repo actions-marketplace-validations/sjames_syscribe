@@ -1,0 +1,724 @@
+[
+  {
+    "description": "",
+    "elements": [
+      {
+        "description": "",
+        "id": "brake-request-timing;request-reaches-the-actuator-in-time",
+        "keyword": "Scenario",
+        "line": 8,
+        "name": "Request reaches the actuator in time",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1161919
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 9,
+            "name": "a brake request is sent",
+            "match": {
+              "location": "features/step_definitions/steps.js:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 117952
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 10,
+            "name": "the actuator receives it within 5 ms",
+            "match": {
+              "location": "features/step_definitions/steps.js:9"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 114644
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 123472
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 7
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;request-during-a-bus-fault-is-not-lost",
+        "keyword": "Scenario",
+        "line": 13,
+        "name": "Request during a bus fault is not lost",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 85134
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 14,
+            "name": "a CAN bus fault is injected",
+            "match": {
+              "location": "features/step_definitions/steps.js:10"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 72608
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "And ",
+            "line": 15,
+            "name": "a brake request is sent",
+            "match": {
+              "location": "features/step_definitions/steps.js:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 70062
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 16,
+            "name": "the actuator still receives it",
+            "match": {
+              "location": "features/step_definitions/steps.js:11"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 156530,
+              "error_message": "Error: message dropped after fault\n    at World.<anonymous> (/work/js/features/step_definitions/steps.js:11:60)"
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 63107
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 12
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;parking-brake-holds",
+        "keyword": "Scenario",
+        "line": 19,
+        "name": "Parking brake holds",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 56678
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 20,
+            "name": "the parking brake is applied",
+            "match": {
+              "location": "features/step_definitions/steps.js:12"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 66071
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 21,
+            "name": "the vehicle does not move",
+            "match": {
+              "location": "features/step_definitions/steps.js:13"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 70520
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 33797
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@extref:TAP:parking-brake",
+            "line": 18
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;a-pending-one",
+        "keyword": "Scenario",
+        "line": 24,
+        "name": "A pending one",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 71112
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 25,
+            "name": "a step is pending",
+            "match": {
+              "location": "features/step_definitions/steps.js:14"
+            },
+            "result": {
+              "status": "pending",
+              "duration": 86155
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 26,
+            "name": "nothing else matters",
+            "match": {
+              "location": "features/step_definitions/steps.js:15"
+            },
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 33073
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 23
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;an-undefined-one",
+        "keyword": "Scenario",
+        "line": 29,
+        "name": "An undefined one",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 50019
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 30,
+            "name": "a step has no definition",
+            "result": {
+              "status": "undefined",
+              "duration": 0
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 30754
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 28
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;latency-by-speed",
+        "keyword": "Scenario Outline",
+        "line": 39,
+        "name": "Latency by speed",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 49722
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 34,
+            "name": "a brake request is sent at 30 km/h",
+            "match": {
+              "location": "features/step_definitions/steps.js:5"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 229569
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 35,
+            "name": "the latency is below 5 ms",
+            "match": {
+              "location": "features/step_definitions/steps.js:6"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 133843
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 27485
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;latency-by-speed",
+        "keyword": "Scenario Outline",
+        "line": 40,
+        "name": "Latency by speed",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 51184
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 34,
+            "name": "a brake request is sent at 60 km/h",
+            "match": {
+              "location": "features/step_definitions/steps.js:5"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 51007
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 35,
+            "name": "the latency is below 5 ms",
+            "match": {
+              "location": "features/step_definitions/steps.js:6"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 47936
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 40504
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;latency-by-speed",
+        "keyword": "Scenario Outline",
+        "line": 41,
+        "name": "Latency by speed",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 44123
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 34,
+            "name": "a brake request is sent at 120 km/h",
+            "match": {
+              "location": "features/step_definitions/steps.js:5"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 142447
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 35,
+            "name": "the latency is below 2 ms",
+            "match": {
+              "location": "features/step_definitions/steps.js:6"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 80875,
+              "error_message": "Error: latency too high at 120 km\\/h (limit 2 ms)\n    at World.<anonymous> (/work/js/features/step_definitions/steps.js:7:33)"
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 19870
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 32
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;flaky-one",
+        "keyword": "Scenario",
+        "line": 44,
+        "name": "Flaky one",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 42630
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 45,
+            "name": "a flaky step runs",
+            "match": {
+              "location": "features/step_definitions/steps.js:16"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 37015
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 19090
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 43
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;hook-failure",
+        "keyword": "Scenario",
+        "line": 48,
+        "name": "Hook failure",
+        "steps": [
+          {
+            "keyword": "Before",
+            "hidden": true,
+            "result": {
+              "status": "failed",
+              "duration": 38940,
+              "error_message": "Error: rig not reachable in Before hook\n    at World.<anonymous> (/work/js/features/step_definitions/steps.js:18:51)"
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 49,
+            "name": "a brake request is sent",
+            "match": {
+              "location": "features/step_definitions/steps.js:4"
+            },
+            "result": {
+              "status": "skipped",
+              "duration": 0
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 26536
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 47
+          },
+          {
+            "name": "@hookfail",
+            "line": 47
+          }
+        ],
+        "type": "scenario"
+      },
+      {
+        "description": "",
+        "id": "brake-request-timing;untagged-scenario",
+        "keyword": "Scenario",
+        "line": 51,
+        "name": "Untagged scenario",
+        "steps": [
+          {
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 5,
+            "name": "the vehicle is stationary",
+            "match": {
+              "location": "features/step_definitions/steps.js:3"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 45069
+            }
+          },
+          {
+            "arguments": [],
+            "keyword": "When ",
+            "line": 52,
+            "name": "a brake request is sent",
+            "match": {
+              "location": "features/step_definitions/steps.js:4"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 38407
+            }
+          },
+          {
+            "keyword": "After",
+            "hidden": true,
+            "result": {
+              "status": "passed",
+              "duration": 33706
+            }
+          }
+        ],
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          }
+        ],
+        "type": "scenario"
+      }
+    ],
+    "id": "brake-request-timing",
+    "line": 2,
+    "keyword": "Feature",
+    "name": "Brake request timing",
+    "tags": [
+      {
+        "name": "@feature-tag",
+        "line": 1
+      }
+    ],
+    "uri": "features/brake.feature"
+  }
+]

@@ -33,6 +33,8 @@ use crate::resolver::Resolver;
 pub enum Verdict {
     Pass,
     Fail,
+    /// Everything passed or was waived on purpose, with a rationale on record: not a pass (REQ-TRS-RESREC-001).
+    Waived,
     Unknown,
 }
 
@@ -41,6 +43,7 @@ impl Verdict {
         match self {
             Verdict::Pass => "pass",
             Verdict::Fail => "fail",
+            Verdict::Waived => "waived",
             Verdict::Unknown => "unknown",
         }
     }
@@ -221,6 +224,8 @@ pub struct Completeness {
     pub tests_pass: usize,
     pub tests_fail: usize,
     pub tests_unknown: usize,
+    /// TestCases whose evidence was set aside on purpose, with a rationale on record (REQ-TRS-RESREC-001).
+    pub tests_waived: usize,
 }
 
 /// One goal's tree with its verdict and summary.
@@ -240,9 +245,10 @@ pub struct SafetyCase {
 }
 
 impl SafetyCase {
-    /// True when any TestCase leaf anywhere has no recorded verdict.
+    /// True when any TestCase leaf anywhere has no recorded verdict, or only a waived one: a waiver is a decision
+    /// on record, not evidence, so it never makes the case look complete.
     pub fn any_unknown(&self) -> bool {
-        self.completeness.tests_unknown > 0
+        self.completeness.tests_unknown > 0 || self.completeness.tests_waived > 0
     }
 }
 
@@ -489,7 +495,7 @@ impl<'a, 'v> Builder<'a, 'v> {
         n.status = match v {
             Verdict::Pass => NodeStatus::Supported,
             Verdict::Fail => NodeStatus::Failing,
-            Verdict::Unknown => NodeStatus::Unverified,
+            Verdict::Unknown | Verdict::Waived => NodeStatus::Unverified,
         };
         n
     }
@@ -611,6 +617,7 @@ fn summarize(root: &SafetyCaseNode, verdict: GoalVerdict) -> Completeness {
             Verdict::Pass => c.tests_pass += 1,
             Verdict::Fail => c.tests_fail += 1,
             Verdict::Unknown => c.tests_unknown += 1,
+            Verdict::Waived => c.tests_waived += 1,
         }
     }
     let mut ids: Vec<String> = und.into_iter().map(String::from).collect();
@@ -661,6 +668,7 @@ fn merge(total: &mut Completeness, goals: &[GoalTree]) {
             Verdict::Pass => total.tests_pass += 1,
             Verdict::Fail => total.tests_fail += 1,
             Verdict::Unknown => total.tests_unknown += 1,
+            Verdict::Waived => total.tests_waived += 1,
         }
     }
     let mut ids: Vec<String> = und.into_iter().map(String::from).collect();

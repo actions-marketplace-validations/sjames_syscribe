@@ -569,6 +569,7 @@ fn tc_verdict_str(v: TcVerdict) -> &'static str {
     match v {
         TcVerdict::Pass => "pass",
         TcVerdict::Fail => "fail",
+        TcVerdict::Waived => "waived",
         TcVerdict::Unknown => "unknown",
     }
 }
@@ -579,6 +580,7 @@ fn fn_verdict_str(v: FnVerdict) -> &'static str {
         FnVerdict::Fail => "fail",
         FnVerdict::Ignored => "ignored",
         FnVerdict::Flaky => "flaky",
+        FnVerdict::Waived => "waived",
         FnVerdict::Missing => "missing",
     }
 }

@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-RESCUKE-001
 name: "Cucumber JSON is ingested as a built-in format, one record per scenario"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/results_cucumber.rs
 verifies:
@@ -41,6 +41,26 @@ Feature: Cucumber JSON ingestion
   Scenario: other inputs
     Given an NDJSON message-protocol file and a file that is not Cucumber output
     Then each is rejected with a message naming what was found and nothing is written
+
+  Scenario: the three implementations
+    Given real Cucumber.js 11.3.0 and Cucumber-Ruby 3.1.2 reports and a JVM-shaped one, of the same suite
+    Then their verdicts, steps, outline rows and joined TestCases agree, including a hook failing in each
+
+  Scenario: a scenario with no steps of its own
+    Given a scenario whose background passed but which has no steps
+    Then it is not-run, not pass
+
+  Scenario: attempts and rows
+    Given outline rows sharing an id and differing by line, and repeated attempts of one scenario
+    Then the rows are numbered and the attempts fold by the last one
+
+  Scenario: provenance
+    Given start timestamps and nanosecond durations
+    Then startedAt keeps its zone and finishedAt adds the background, steps and hooks
+
+  Scenario: detection and the worked example
+    Given a .json report with no --format and examples/results-cucumber
+    Then it is read as Cucumber and the example behaves as its README says
 
   Scenario: attachments are not stored
     Given a report with a large embedded screenshot

@@ -282,6 +282,12 @@ pub(crate) fn plan_verdict(
     let pkg = variability::package_conditions(elements);
     let feat_alias = variability::feature_id_to_qname(elements);
 
+    // A plan that runs on named environments judges its members on each of them (REQ-TRS-RESENV-001): all must
+    // pass, a rig with no passing result leaves the plan incomplete, and a result on a rig the plan does not
+    // list is ignored. Only once records exist; before that the old function/scenario verdicts decide.
+    let envs = syscribe_model::result_join::runs_on_ids(plan, elements, resolver);
+    let by_env = results.filter(|r| !envs.is_empty() && r.has_records());
+    let unhealthy = syscribe_model::result_join::unhealthy_environments(elements);
     let mut all_pass = true;
     for tc in &members {
         // Members active in none of the plan's configs (escaping) are not part of
@@ -290,10 +296,19 @@ pub(crate) fn plan_verdict(
             all_pass = false;
             continue;
         }
-        match tc_verdict(tc, results) {
+        let verdict = match by_env {
+            Some(r) => match syscribe_model::results::testcase_verdict_in_envs(tc, r, &envs, &unhealthy) {
+                syscribe_model::safety_case::Verdict::Pass => TcVerdict::Pass,
+                syscribe_model::safety_case::Verdict::Fail => TcVerdict::Fail,
+                syscribe_model::safety_case::Verdict::Waived => TcVerdict::Waived,
+                syscribe_model::safety_case::Verdict::Unknown => TcVerdict::Unknown,
+            },
+            None => tc_verdict(tc, results),
+        };
+        match verdict {
             TcVerdict::Fail => return "fail",
             TcVerdict::Pass => {}
-            TcVerdict::Unknown => all_pass = false,
+            TcVerdict::Unknown | TcVerdict::Waived => all_pass = false,
         }
     }
     if all_pass {

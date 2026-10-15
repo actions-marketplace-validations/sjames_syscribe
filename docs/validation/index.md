@@ -54,9 +54,10 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | E520–E522, W520 | Release baselines (§8.19) | Drift of a released (E520) or approved (W520) baseline, seal/manifest tamper, unresolved `supersedes` |
 | E530–E532, W530–W534 | Reserved | Parked sandboxed-WASM plugin design (`ADR-SYS-PLUGIN-001`); never emitted |
 | W540–W544 | SysML v2 submodel ingestion | Stray `.md` in a submodel, unreadable/unparseable `.sysml`, truncated feature chains, unmapped constructs, reversed multiplicity bounds |
-| E550–E551, W550–W553 | Stdio plugins | Missing command or `[plugins]` entry, execution failure, bad envelope, dropped elements |
+| E550–E553, W550–W553 | Stdio plugins | Missing command or `[plugins]` entry, plugin kind mismatch, results-plugin failure, execution failure, bad envelope, dropped elements |
 | E560–E561, W560–W563 | Annotated source | Bad `annotationFormat:` config, invalid marker YAML, skipped blocks, conflicting ingestion modes, auto-filled `implementedBy:` |
 | W090 | Suspect links | A baselined trace-link target changed since review |
+| W091 | Stale results | A recorded test result predates a change to its TestCase or to a requirement it verifies |
 | W099–W103 | Documentation linting (`lint-docs`) | Dangling ids, qnames, SVG refs and image paths in external docs; enumerated package members |
 | E600–E606, E893–E894, W600–W601, W610–W616, W891–W892 | TestPlan, test environments and documentation | TestEnvironment fields and `runsOn`, TestPlan fields, members, selection, demonstrates, configurations; empty PartDef/ActionDef docs |
 | E630–E636, W630–W631 | User-defined link types (§12.10) | Undeclared/malformed `links:`, unresolved targets, source/target type, cardinality, acyclic types, malformed `[linkTypes]` |

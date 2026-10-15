@@ -182,7 +182,7 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ reviews [<qname>] [--open-only] [--json]` / `review <RR-id>` / `reviews --coverage` | List/detail `ReviewRecord`s and their requirement coverage |
 | `syscribe -m model/ trade-study [<TRD-id>] [--json]` | List/score `TradeStudy` elements (normalised, weighted, ranked) |
 | `syscribe -m model/ extref <ref> [--json]` | Find elements by external reference (`extRef`) |
-| `syscribe -m model/ ingest-results [--format cargo-json\|junit\|session-log] <file>` | Record test-run verdicts (`.syscribe/results.json`); `matrix`/`trace` then show executed evidence and `validate` warns W010 for a failed/missing `active` TestCase function |
+| `syscribe -m model/ ingest-results [--format cargo-json\|junit\|session-log\|records\|robot] [--replace] <file>` | Record test-run verdicts (`.syscribe/results.json`); `matrix`/`trace` then show executed evidence and `validate` warns W010 for a failed/missing `active` TestCase function |
 | `syscribe -m model/ list <type> [--status <s>] [--sil <v>] [--has-wcet] [--json]` | (filters) status/integrity/WCET filters + JSON |
 | `syscribe -m model/ matrix [--gaps-only] [--status <s>] [--linked-only]` | (flags) drop covered rows; status filter; coverage-% footer; executed-evidence glyphs when results ingested |
 

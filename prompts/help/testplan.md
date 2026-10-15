@@ -45,6 +45,12 @@ ingested verdict is Fail; `pass` when every member passes; otherwise
     syscribe -m model/ testplan TP-TRS-MCP-001
     syscribe -m model/ testplan TP-TRS-MCP-001 --json
 
+## RESULTS PER RIG
+A plan with `runsOn:` is judged on each listed TestEnvironment alone, using the results recorded on that rig
+(`ingest-results --format records`): every rig must pass, a rig with no passing result leaves the plan
+`incomplete`, results from other rigs are ignored, and results from a retired or out-of-calibration rig do
+not count. Without `runsOn:` a failure on any rig fails the plan.
+
 ## SEE ALSO
     matrix, audit, verification-depth, coverage tree (each accepts the `--plan TP-X` lens),
     ingest-results

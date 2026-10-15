@@ -31,6 +31,15 @@ pub enum Verdict {
     Ignored,
     /// Passed only after a retry (JUnit `flakyFailure`/`rerunFailure`, GH #259): not a pass.
     Flaky,
+    /// Could not run, for instance the rig was unavailable (`records`, REQ-TRS-RESREC-001): not a pass.
+    Blocked,
+    /// Not executed (`records`): not a pass.
+    #[serde(rename = "not-run")]
+    NotRun,
+    /// Ran but could not decide (`records`): not a pass.
+    Inconclusive,
+    /// Deliberately set aside with a recorded rationale (`records`): not a pass, but not a finding either.
+    Waived,
 }
 
 /// Provenance of one sidecar section: which ingest last replaced it.
@@ -53,6 +62,8 @@ pub enum Section {
     Leaf,
     /// `by_scenario` — scenario verdicts (`session-log`).
     Scenario,
+    /// `records` and the verdicts derived from them (`records`, REQ-TRS-RESREC-001).
+    Records,
 }
 
 /// Reduced, persisted view of a test run.
@@ -61,7 +72,7 @@ pub enum Section {
 /// describe the **latest** ingest (unchanged meaning for a single-format
 /// sidecar); `leaf_meta`/`scenario_meta` record which ingest each section came
 /// from. Both are optional, so a sidecar written before they existed still reads.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResultsData {
     pub schema_version: String,
     /// Source format of the latest ingest (`cargo-json` | `junit` | `session-log`).
@@ -99,6 +110,25 @@ pub struct ResultsData {
     /// `by_config` is empty); read it through [`ResultsData::for_config`].
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub by_config: std::collections::BTreeMap<String, ResultsData>,
+    /// The normalised result records (`ingest-results --format records`, REQ-TRS-RESREC-001), latest per
+    /// (test case, scenario, environment).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<crate::result_records::ResultRecord>,
+    /// The verdicts derived from `records`, keyed like `by_scenario` (`"{testCase}::{scenario}"`, and
+    /// `"{testCase}::*"` for a whole-TestCase record); the worst over the environments of a key. Kept apart from
+    /// `by_scenario` so a session-log ingest, which replaces that map, cannot lose them and the reverse.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub by_record: HashMap<String, Verdict>,
+    /// Records of the last records ingest whose `testCase` names no element of the model (REQ-TRS-RESJOIN-001):
+    /// kept so they can be listed, never counted as evidence.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unmatched: Vec<crate::result_records::ResultRecord>,
+    /// Provenance of `records` (the last records ingest).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records_meta: Option<SectionMeta>,
+    /// Set on a freshly parsed records ingest by `--replace`: drop the records it does not contain.
+    #[serde(skip)]
+    pub replace_records: bool,
 }
 
 /// Collapse whitespace and drop control characters (ESC, BEL, C1, …) of text taken from a test
@@ -180,7 +210,7 @@ pub fn failure_notes(tc: &crate::element::RawElement, results: Option<&ResultsDa
 
 /// The exact `Scenario:`/`Scenario Outline:` titles declared in a TestCase's
 /// body, in document order: the identity a `session-log` record names.
-fn gherkin_scenario_titles(doc: &str) -> Vec<String> {
+pub fn gherkin_scenario_titles(doc: &str) -> Vec<String> {
     doc.lines()
         .filter_map(|l| {
             let t = l.trim();
@@ -189,6 +219,17 @@ fn gherkin_scenario_titles(doc: &str) -> Vec<String> {
                 .map(|title| title.trim().to_string())
         })
         .collect()
+}
+
+/// Pass only when everything passed; `waived` when everything passed or was waived and something was waived (a
+/// waiver is never shown as a pass); otherwise unknown.
+fn rolled_up(all_pass_or_waived: bool, waived: bool) -> crate::safety_case::Verdict {
+    use crate::safety_case::Verdict as V;
+    match (all_pass_or_waived, waived) {
+        (true, false) => V::Pass,
+        (true, true) => V::Waived,
+        _ => V::Unknown,
+    }
 }
 
 /// Aggregate a TestCase's ingested verdict (issue #21): scored against its
@@ -202,32 +243,72 @@ pub fn testcase_verdict(tc: &crate::element::RawElement, results: Option<&Result
     let funcs = tc_function_refs(tc);
     if !funcs.is_empty() {
         let mut all_pass = true;
+        let mut waived = false;
         for f in &funcs {
             match results.verdict_for(f) {
                 FnVerdict::Fail => return V::Fail,
                 FnVerdict::Pass => {}
+                FnVerdict::Waived => waived = true,
                 FnVerdict::Ignored | FnVerdict::Missing | FnVerdict::Flaky => all_pass = false,
             }
         }
-        return if all_pass { V::Pass } else { V::Unknown };
+        return rolled_up(all_pass, waived);
     }
     let Some(tc_id) = tc.frontmatter.id.as_deref() else { return V::Unknown };
     let scenarios = gherkin_scenario_titles(&tc.doc);
     if scenarios.is_empty() {
-        return V::Unknown;
+        // Nothing to score scenario by scenario: only a record of the whole TestCase can speak.
+        return match results.testcase_record_verdict(tc_id) {
+            Some(FnVerdict::Fail) => V::Fail,
+            Some(FnVerdict::Pass) => V::Pass,
+            Some(FnVerdict::Waived) => V::Waived,
+            _ => V::Unknown,
+        };
     }
     let mut all_pass = true;
+    let mut waived = false;
     for s in &scenarios {
         match results.scenario_verdict(tc_id, s) {
             FnVerdict::Fail => return V::Fail,
             FnVerdict::Pass => {}
+            FnVerdict::Waived => waived = true,
             FnVerdict::Ignored | FnVerdict::Missing | FnVerdict::Flaky => all_pass = false,
         }
     }
-    if all_pass {
-        V::Pass
-    } else {
-        V::Unknown
+    rolled_up(all_pass, waived)
+}
+
+/// A TestCase's verdict when it must hold on **every** one of `envs` (REQ-TRS-RESENV-001): each environment is
+/// judged on its own records, and the worst decides: a failure anywhere fails, an environment with no passing
+/// result leaves it unknown, and a waiver is shown as a waiver. `unhealthy` environments contribute no result.
+pub fn testcase_verdict_in_envs(
+    tc: &crate::element::RawElement,
+    results: &ResultsData,
+    envs: &[String],
+    unhealthy: &std::collections::HashSet<String>,
+) -> crate::safety_case::Verdict {
+    use crate::safety_case::Verdict as V;
+    let rank = |v: V| match v {
+        V::Fail => 3,
+        V::Unknown => 2,
+        V::Waived => 1,
+        V::Pass => 0,
+    };
+    envs.iter()
+        .map(|env| testcase_verdict(tc, Some(&results.view_for_env(env, unhealthy))))
+        .reduce(|a, b| if rank(b) > rank(a) { b } else { a })
+        .unwrap_or_else(|| testcase_verdict(tc, Some(results)))
+}
+
+/// The lookup outcome a stored verdict stands for. `blocked`, `not-run` and `inconclusive` are not a pass and
+/// are treated as skipped (`Ignored`) by every reader that already handles that.
+pub fn fn_verdict(v: Verdict) -> FnVerdict {
+    match v {
+        Verdict::Pass => FnVerdict::Pass,
+        Verdict::Fail => FnVerdict::Fail,
+        Verdict::Flaky => FnVerdict::Flaky,
+        Verdict::Waived => FnVerdict::Waived,
+        Verdict::Ignored | Verdict::Blocked | Verdict::NotRun | Verdict::Inconclusive => FnVerdict::Ignored,
     }
 }
 
@@ -237,6 +318,8 @@ pub enum FnVerdict {
     Pass,
     Fail,
     Ignored,
+    /// Set aside on purpose, with a rationale on record (`records`): not a pass, not a finding.
+    Waived,
     /// Passed only after a retry (GH #259).
     Flaky,
     /// The function was not present in the ingested run.
@@ -259,7 +342,11 @@ impl ResultsData {
     /// The section this ingest's format owns: `session-log` → `by_scenario`,
     /// every other (function-level) format → `by_leaf`.
     pub fn section(&self) -> Section {
-        if self.format == "session-log" { Section::Scenario } else { Section::Leaf }
+        match self.format.as_str() {
+            "session-log" => Section::Scenario,
+            "records" => Section::Records,
+            _ => Section::Leaf,
+        }
     }
 
     /// This ingest's own provenance record.
@@ -289,6 +376,10 @@ impl ResultsData {
                 if let Some(old) = existing {
                     out.by_scenario = old.by_scenario.clone();
                     out.scenario_meta = old.scenario_meta.clone().or_else(|| legacy_meta(old, Section::Scenario));
+                    out.records = old.records.clone();
+                    out.by_record = old.by_record.clone();
+                    out.records_meta = old.records_meta.clone();
+                    out.unmatched = old.unmatched.clone();
                 }
             }
             Section::Scenario => {
@@ -297,7 +388,30 @@ impl ResultsData {
                     out.by_leaf = old.by_leaf.clone();
                     out.details = old.details.clone();
                     out.leaf_meta = old.leaf_meta.clone().or_else(|| legacy_meta(old, Section::Leaf));
+                    out.records = old.records.clone();
+                    out.by_record = old.by_record.clone();
+                    out.records_meta = old.records_meta.clone();
+                    out.unmatched = old.unmatched.clone();
                 }
+            }
+            Section::Records => {
+                out.records_meta = own;
+                if let Some(old) = existing {
+                    out.by_leaf = old.by_leaf.clone();
+                    out.details = old.details.clone();
+                    out.leaf_meta = old.leaf_meta.clone().or_else(|| legacy_meta(old, Section::Leaf));
+                    out.by_scenario = old.by_scenario.clone();
+                    out.scenario_meta = old.scenario_meta.clone().or_else(|| legacy_meta(old, Section::Scenario));
+                    if !self.replace_records {
+                        // Latest per (test case, scenario, environment): this ingest supersedes the records with the
+                        // same key and keeps the others, so one rig's ingest does not erase another's.
+                        let own_keys: std::collections::HashSet<_> = self.records.iter().map(|r| r.key()).collect();
+                        let mut kept: Vec<_> = old.records.iter().filter(|r| !own_keys.contains(&r.key())).cloned().collect();
+                        kept.extend(self.records.iter().cloned());
+                        out.records = kept;
+                    }
+                }
+                out.by_record = derive_by_record(&out.records);
             }
         }
         out
@@ -331,6 +445,10 @@ impl ResultsData {
             scenario_meta: None,
             count: 0,
             by_config: Default::default(),
+            records: Vec::new(),
+            by_record: HashMap::new(),
+            records_meta: None,
+            unmatched: Vec::new(),
             ..self.clone()
         });
         let mut own = self.clone();
@@ -351,6 +469,13 @@ impl ResultsData {
             out.by_leaf.extend(c.by_leaf.iter().map(|(k, v)| (k.clone(), *v)));
             out.by_scenario.extend(c.by_scenario.iter().map(|(k, v)| (k.clone(), *v)));
             out.details.extend(c.details.iter().map(|(k, v)| (k.clone(), v.clone())));
+            // Records: the configuration's own supersede the global ones with the same key.
+            if !c.records.is_empty() {
+                let own: std::collections::HashSet<_> = c.records.iter().map(|r| r.key()).collect();
+                out.records.retain(|r| !own.contains(&r.key()));
+                out.records.extend(c.records.iter().cloned());
+            }
+            out.by_record.extend(c.by_record.iter().map(|(k, v)| (k.clone(), *v)));
             // A configuration that reports a function has no use for the global failure detail of it,
             // and a bare leaf it reports supersedes the global class-qualified entries of that leaf
             // (`verdict_for` tries the qualified key first, which would otherwise mask the override).
@@ -387,7 +512,7 @@ impl ResultsData {
             FnVerdict::Fail => 4,
             FnVerdict::Flaky => 3,
             FnVerdict::Pass => 2,
-            FnVerdict::Ignored => 1,
+            FnVerdict::Ignored | FnVerdict::Waived => 1,
             FnVerdict::Missing => 0,
         }
     }
@@ -422,10 +547,7 @@ impl ResultsData {
         }
         let hit = if qualified.contains("::") { self.by_leaf.get(&qualified) } else { None };
         match hit.or_else(|| self.by_leaf.get(function_leaf(function_ref))) {
-            Some(Verdict::Pass) => FnVerdict::Pass,
-            Some(Verdict::Fail) => FnVerdict::Fail,
-            Some(Verdict::Ignored) => FnVerdict::Ignored,
-            Some(Verdict::Flaky) => FnVerdict::Flaky,
+            Some(v) => fn_verdict(*v),
             None => FnVerdict::Missing,
         }
     }
@@ -462,13 +584,28 @@ impl ResultsData {
     }
 
     fn scenario_here(&self, tc_id: &str, scenario: &str) -> FnVerdict {
-        match self.by_scenario.get(&format!("{tc_id}::{scenario}")) {
-            Some(Verdict::Pass) => FnVerdict::Pass,
-            Some(Verdict::Fail) => FnVerdict::Fail,
-            Some(Verdict::Ignored) => FnVerdict::Ignored,
-            Some(Verdict::Flaky) => FnVerdict::Flaky,
-            None => FnVerdict::Missing,
+        // A session-log verdict, a record of this scenario and a record of the whole TestCase all speak about it:
+        // the worst one decides.
+        let key = format!("{tc_id}::{scenario}");
+        let whole = format!("{tc_id}::*");
+        [self.by_scenario.get(&key), self.by_record.get(&key), self.by_record.get(&whole)]
+            .into_iter()
+            .flatten()
+            .copied()
+            .reduce(crate::result_records::worst)
+            .map_or(FnVerdict::Missing, fn_verdict)
+    }
+
+    /// The verdict a `records` ingest gave the whole TestCase (a record without a scenario), if any.
+    pub fn testcase_record_verdict(&self, tc_id: &str) -> Option<FnVerdict> {
+        let key = format!("{tc_id}::*");
+        let mut v = self.by_record.get(&key).copied();
+        for c in self.by_config.values() {
+            if let Some(w) = c.by_record.get(&key) {
+                v = Some(v.map_or(*w, |x| crate::result_records::worst(x, *w)));
+            }
         }
+        v.map(fn_verdict)
     }
 
     /// Worst-wins ordering used when two results share a key: Fail > Flaky > Pass > Ignored.
@@ -476,8 +613,8 @@ impl ResultsData {
         match v {
             Verdict::Fail => 3,
             Verdict::Flaky => 2,
-            Verdict::Pass => 1,
-            Verdict::Ignored => 0,
+            Verdict::Pass | Verdict::Waived => 1,
+            Verdict::Ignored | Verdict::Blocked | Verdict::NotRun | Verdict::Inconclusive => 0,
         }
     }
 
@@ -744,6 +881,89 @@ impl ResultsData {
         Ok(data)
     }
 
+    /// Parse a normalised-record file (`--format records`, REQ-TRS-RESREC-001). Strict like `session-log`: a
+    /// malformed record is a hard error naming it, and nothing is stored.
+    pub fn parse_records(text: &str, source: &str) -> Result<Self, String> {
+        let parsed = crate::result_records::parse(text)?;
+        // `count` is what the file held; `records` keeps the last of any repeated key.
+        let count = parsed.len();
+        let records = crate::result_records::keep_last_per_key(parsed);
+        let mut data = Self::finish(HashMap::new(), count, "records", source);
+        data.by_record = derive_by_record(&records);
+        data.records = records;
+        Ok(data)
+    }
+
+    /// Join the records to the TestCases of the model (REQ-TRS-RESJOIN-001): each record gets its TestCase's
+    /// canonical id and the hashes that let a later edit show; records naming nothing move to `unmatched`. An
+    /// ambiguous key, or one naming something that is not a TestCase, is an error.
+    pub fn join_test_cases(&mut self, elems: &[crate::element::RawElement]) -> Result<(), String> {
+        let joined = crate::result_join::join(std::mem::take(&mut self.records), elems)?;
+        // the same test named by id in one record and by extRef in another is one key now
+        self.records = crate::result_records::keep_last_per_key(joined.matched);
+        self.unmatched = joined.unmatched;
+        self.by_record = derive_by_record(&self.records);
+        Ok(())
+    }
+
+    /// True when any record is stored, globally or for a Configuration.
+    pub fn has_records(&self) -> bool {
+        !self.records.is_empty() || self.by_config.values().any(|c| !c.records.is_empty())
+    }
+
+    /// These results as the TestEnvironment `env` alone shows them (REQ-TRS-RESENV-001): only the records made on
+    /// that rig count, and none at all when the rig is `unhealthy` (retired or out of calibration). Function-level
+    /// and session-log verdicts carry no environment and are untouched. Apply it to the Configuration's effective
+    /// results, so the Configuration is chosen first and the environment filters inside it.
+    pub fn view_for_env(&self, env: &str, unhealthy: &std::collections::HashSet<String>) -> ResultsData {
+        let mut out = self.clone();
+        let usable = !unhealthy.contains(env);
+        let on_env = |r: &crate::result_records::ResultRecord| usable && r.provenance.as_ref().and_then(|p| p.environment.as_deref()) == Some(env);
+        out.records.retain(|r| on_env(r));
+        out.by_record = derive_by_record(&out.records);
+        for c in out.by_config.values_mut() {
+            c.records.retain(|r| on_env(r));
+            c.by_record = derive_by_record(&c.records);
+        }
+        out
+    }
+
+    /// Every stored record about `tc_id`, in the global section and in each Configuration's.
+    pub fn records_for<'a>(&'a self, tc_id: &'a str) -> impl Iterator<Item = &'a crate::result_records::ResultRecord> + 'a {
+        self.records.iter().chain(self.by_config.values().flat_map(|c| c.records.iter())).filter(move |r| r.test_case == tc_id)
+    }
+
+    /// A records ingest built from records a built-in adapter produced (not parsed from a records file). `count` is
+    /// what the report held (tests, for Robot), which may be more than the records it folds into.
+    pub fn from_records(records: Vec<crate::result_records::ResultRecord>, count: usize, source: &str) -> Self {
+        let mut data = Self::finish(HashMap::new(), count, "records", source);
+        data.records = records;
+        data
+    }
+
+    /// Replace each record's `environment` with the id of the `TestEnvironment` it names (an id or a qualified
+    /// name); an environment the model does not have is an error, so a typo cannot hide a rig.
+    pub fn resolve_environments(&mut self, elems: &[crate::element::RawElement]) -> Result<(), String> {
+        use crate::element::ElementType;
+        for r in &mut self.records {
+            let Some(env) = r.provenance.as_mut().and_then(|p| p.environment.as_mut()) else { continue };
+            let found = elems.iter().find(|e| {
+                e.frontmatter.element_type == Some(ElementType::TestEnvironment)
+                    && (e.frontmatter.id.as_deref() == Some(env.as_str()) || e.qualified_name == *env)
+            });
+            match found {
+                Some(e) => *env = e.frontmatter.id.clone().unwrap_or_else(|| e.qualified_name.clone()),
+                None => {
+                    return Err(format!("records: record ('{}'): environment '{env}' is not a TestEnvironment of this model", r.test_case));
+                }
+            }
+        }
+        // The same rig named by id in one record and by qualified name in another is one key now.
+        self.records = crate::result_records::keep_last_per_key(std::mem::take(&mut self.records));
+        self.by_record = derive_by_record(&self.records);
+        Ok(())
+    }
+
     fn finish(by_leaf: HashMap<String, Verdict>, count: usize, format: &str, source: &str) -> Self {
         let ingested_at_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -761,6 +981,7 @@ impl ResultsData {
             scenario_meta: None,
             details: HashMap::new(),
             by_config: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -772,8 +993,27 @@ fn legacy_meta(old: &ResultsData, section: Section) -> Option<SectionMeta> {
     let non_empty = match section {
         Section::Leaf => !old.by_leaf.is_empty(),
         Section::Scenario => !old.by_scenario.is_empty(),
+        Section::Records => !old.records.is_empty(),
     };
     (non_empty && old.section() == section).then(|| old.meta())
+}
+
+/// The verdicts derived from `records`: one per `"{testCase}::{scenario}"` key (`"{testCase}::*"` for a
+/// whole-TestCase record), the worst over the environments the key was recorded on.
+pub fn derive_by_record(records: &[crate::result_records::ResultRecord]) -> HashMap<String, Verdict> {
+    let mut out: HashMap<String, Verdict> = HashMap::new();
+    for r in records {
+        let key = format!("{}::{}", r.test_case, r.scenario.as_deref().unwrap_or("*"));
+        out.entry(key).and_modify(|v| *v = crate::result_records::worst(*v, r.verdict)).or_insert(r.verdict);
+    }
+    out
+}
+
+/// Add `from` to `into`, keeping the worse verdict where a key is in both.
+fn merge_worst(into: &mut std::collections::BTreeMap<String, Verdict>, from: &HashMap<String, Verdict>) {
+    for (k, v) in from {
+        into.entry(k.clone()).and_modify(|old| *old = crate::result_records::worst(*old, *v)).or_insert(*v);
+    }
 }
 
 #[cfg(test)]
@@ -1068,6 +1308,9 @@ impl RunHistory {
         match (config, data.section()) {
             (None, Section::Leaf) => rec.by_leaf = leaves(),
             (None, Section::Scenario) => rec.by_scenario = scenarios(),
+            // records: the derived verdicts join the run's scenario map, worst of the two when a key is shared
+            (None, Section::Records) => merge_worst(&mut rec.by_scenario, &data.by_record),
+            (Some(c), Section::Records) => merge_worst(&mut rec.by_config.entry(c.to_string()).or_default().by_scenario, &data.by_record),
             (Some(c), Section::Leaf) => rec.by_config.entry(c.to_string()).or_default().by_leaf = leaves(),
             (Some(c), Section::Scenario) => rec.by_config.entry(c.to_string()).or_default().by_scenario = scenarios(),
         }
@@ -1096,6 +1339,11 @@ impl RunRecord {
             leaf_meta: None,
             scenario_meta: None,
             details: HashMap::new(),
+            records: Vec::new(),
+            by_record: HashMap::new(),
+            records_meta: None,
+            replace_records: false,
+            unmatched: Vec::new(),
             by_config: self
                 .by_config
                 .iter()
@@ -1112,6 +1360,11 @@ impl RunRecord {
                         scenario_meta: None,
                         details: HashMap::new(),
                         by_config: Default::default(),
+                        records: Vec::new(),
+                        by_record: HashMap::new(),
+                        records_meta: None,
+                        replace_records: false,
+                        unmatched: Vec::new(),
                     };
                     r.count = r.by_leaf.len() + r.by_scenario.len();
                     (c.clone(), r)

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 6.1.1 (Python 3.10.12 on linux)" generated="20261015 01:43:41.953" rpa="false" schemaversion="4">
+<suite id="s1" name="Suite" source="/work/suite.robot">
+<kw name="Log" library="BuiltIn" type="SETUP">
+<arg>suite setup</arg>
+<doc>Logs the given message with the given level.</doc>
+<msg timestamp="20261015 01:43:41.976" level="INFO">suite setup</msg>
+<status status="PASS" starttime="20261015 01:43:41.976" endtime="20261015 01:43:41.976"/>
+</kw>
+<test id="s1-t1" name="Request reaches the actuator in time" line="5">
+<kw name="Log" library="BuiltIn">
+<arg>ok</arg>
+<doc>Logs the given message with the given level.</doc>
+<msg timestamp="20261015 01:43:41.977" level="INFO">ok</msg>
+<status status="PASS" starttime="20261015 01:43:41.976" endtime="20261015 01:43:41.977"/>
+</kw>
+<doc>Checks latency</doc>
+<tag>REQ-BRK-001</tag>
+<tag>smoke</tag>
+<tag>TC-BRK-001</tag>
+<status status="PASS" starttime="20261015 01:43:41.976" endtime="20261015 01:43:41.977"/>
+</test>
+<test id="s1-t2" name="Request during a bus fault is not lost" line="10">
+<kw name="Fail" library="BuiltIn">
+<arg>message dropped after fault</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<msg timestamp="20261015 01:43:41.978" level="FAIL">message dropped after fault</msg>
+<status status="FAIL" starttime="20261015 01:43:41.977" endtime="20261015 01:43:41.978"/>
+</kw>
+<tag>TC-BRK-001</tag>
+<status status="FAIL" starttime="20261015 01:43:41.977" endtime="20261015 01:43:41.978">message dropped after fault</status>
+</test>
+<test id="s1-t3" name="Parking brake holds" line="14">
+<kw name="Log" library="BuiltIn">
+<arg>ok</arg>
+<doc>Logs the given message with the given level.</doc>
+<msg timestamp="20261015 01:43:41.979" level="INFO">ok</msg>
+<status status="PASS" starttime="20261015 01:43:41.978" endtime="20261015 01:43:41.979"/>
+</kw>
+<tag>extref:TAP:parking-brake</tag>
+<status status="PASS" starttime="20261015 01:43:41.978" endtime="20261015 01:43:41.979"/>
+</test>
+<test id="s1-t4" name="A skipped one" line="18">
+<kw name="Skip" library="BuiltIn">
+<arg>rig busy</arg>
+<doc>Skips the rest of the current test.</doc>
+<msg timestamp="20261015 01:43:41.979" level="SKIP">rig busy</msg>
+<status status="SKIP" starttime="20261015 01:43:41.979" endtime="20261015 01:43:41.980"/>
+</kw>
+<tag>TC-BRK-002</tag>
+<status status="SKIP" starttime="20261015 01:43:41.979" endtime="20261015 01:43:41.980">rig busy</status>
+</test>
+<test id="s1-t5" name="Untagged test" line="22">
+<kw name="Log" library="BuiltIn">
+<arg>nothing joins this</arg>
+<doc>Logs the given message with the given level.</doc>
+<msg timestamp="20261015 01:43:41.980" level="INFO">nothing joins this</msg>
+<status status="PASS" starttime="20261015 01:43:41.980" endtime="20261015 01:43:41.980"/>
+</kw>
+<status status="PASS" starttime="20261015 01:43:41.980" endtime="20261015 01:43:41.980"/>
+</test>
+<test id="s1-t6" name="Not a testcase tag" line="25">
+<kw name="Log" library="BuiltIn">
+<arg>only requirement tags</arg>
+<doc>Logs the given message with the given level.</doc>
+<msg timestamp="20261015 01:43:41.981" level="INFO">only requirement tags</msg>
+<status status="PASS" starttime="20261015 01:43:41.981" endtime="20261015 01:43:41.981"/>
+</kw>
+<tag>REQ-BRK-001</tag>
+<tag>smoke</tag>
+<status status="PASS" starttime="20261015 01:43:41.981" endtime="20261015 01:43:41.981"/>
+</test>
+<status status="FAIL" starttime="20261015 01:43:41.953" endtime="20261015 01:43:41.982"/>
+</suite>
+<statistics>
+<total>
+<stat pass="4" fail="1" skip="1">All Tests</stat>
+</total>
+<tag>
+<stat pass="1" fail="0" skip="0">extref:TAP:parking-brake</stat>
+<stat pass="2" fail="0" skip="0">REQ-BRK-001</stat>
+<stat pass="2" fail="0" skip="0">smoke</stat>
+<stat pass="1" fail="1" skip="0">TC-BRK-001</stat>
+<stat pass="0" fail="0" skip="1">TC-BRK-002</stat>
+</tag>
+<suite>
+<stat pass="4" fail="1" skip="1" id="s1" name="Suite">Suite</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

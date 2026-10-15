@@ -1,0 +1,1074 @@
+[
+  {
+    "uri": "classpath:features/brake.feature",
+    "id": "brake-request-timing",
+    "keyword": "Feature",
+    "name": "Brake request timing",
+    "description": "",
+    "line": 2,
+    "tags": [
+      {
+        "name": "@feature-tag",
+        "line": 1
+      }
+    ],
+    "elements": [
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;request-reaches-the-actuator-in-time",
+        "keyword": "Scenario",
+        "name": "Request reaches the actuator in time",
+        "line": 8,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 7
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 9,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 2000000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the actuator receives it within 5 ms",
+            "line": 10,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 3000000
+            },
+            "embeddings": [
+              {
+                "mime_type": "image/png",
+                "data": "iVBOR3h4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg="
+              }
+            ]
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:00.000Z",
+        "after": [
+          {
+            "match": {
+              "location": "com.acme.Hooks.after()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 300000
+            }
+          }
+        ],
+        "output": [
+          "log line from the test"
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;request-during-a-bus-fault-is-not-lost",
+        "keyword": "Scenario",
+        "name": "Request during a bus fault is not lost",
+        "line": 13,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 12
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a CAN bus fault is injected",
+            "line": 14,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the actuator still receives it",
+            "line": 15,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 4000000,
+              "error_message": "java.lang.AssertionError: message dropped after fault\n\tat com.acme.BrakeSteps.check(BrakeSteps.java:42)"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:01.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;2",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "line": 40,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 39
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 30 km/h",
+            "line": 35,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 5 ms",
+            "line": 36,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 2500000
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:03.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;3",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "line": 41,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 40
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 60 km/h",
+            "line": 35,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 5 ms",
+            "line": 36,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 2500000
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:04.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;latency-by-speed;;4",
+        "keyword": "Scenario Outline",
+        "name": "Latency by speed",
+        "line": 42,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-003",
+            "line": 41
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent at 120 km/h",
+            "line": 35,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "the latency is below 2 ms",
+            "line": 36,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 2500000,
+              "error_message": "java.lang.AssertionError: latency too high at 120 km/h"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:05.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;flaky-one",
+        "keyword": "Scenario",
+        "name": "Flaky one",
+        "line": 44,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 43
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a flaky step runs",
+            "line": 45,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 1000000,
+              "error_message": "java.lang.IllegalStateException: flaky first attempt"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:10.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;flaky-one",
+        "keyword": "Scenario",
+        "name": "Flaky one",
+        "line": 44,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 43
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a flaky step runs",
+            "line": 45,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1100000
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:11.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;always-fails",
+        "keyword": "Scenario",
+        "name": "Always fails",
+        "line": 52,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 51
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step that always fails",
+            "line": 53,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 900000,
+              "error_message": "java.lang.RuntimeException: attempt 1"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:20.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;always-fails",
+        "keyword": "Scenario",
+        "name": "Always fails",
+        "line": 52,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 51
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step that always fails",
+            "line": 53,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 900000,
+              "error_message": "java.lang.RuntimeException: attempt 2"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:21.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;always-fails",
+        "keyword": "Scenario",
+        "name": "Always fails",
+        "line": 52,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 51
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step that always fails",
+            "line": 53,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 900000,
+              "error_message": "java.lang.RuntimeException: attempt 3"
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:22.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;steady",
+        "keyword": "Scenario",
+        "name": "Steady",
+        "line": 56,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@extref:TAP:parking-brake",
+            "line": 55
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "the parking brake is applied",
+            "line": 57,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:30.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;steady",
+        "keyword": "Scenario",
+        "name": "Steady",
+        "line": 56,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@extref:TAP:parking-brake",
+            "line": 55
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "the parking brake is applied",
+            "line": 57,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ],
+        "start_timestamp": "2026-10-01T08:00:31.000Z"
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;hook-failure",
+        "keyword": "Scenario",
+        "name": "Hook failure",
+        "line": 60,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 59
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 61,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ],
+        "before": [
+          {
+            "match": {
+              "location": "com.acme.Hooks.before()"
+            },
+            "result": {
+              "status": "failed",
+              "duration": 300000,
+              "error_message": "java.lang.IllegalStateException: rig not reachable"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;ambiguous",
+        "keyword": "Scenario",
+        "name": "Ambiguous",
+        "line": 64,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-001",
+            "line": 63
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "two definitions match",
+            "line": 65,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "ambiguous",
+              "duration": 0,
+              "error_message": "cucumber.runtime.AmbiguousStepDefinitionsException: matches 2"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;pending",
+        "keyword": "Scenario",
+        "name": "Pending",
+        "line": 68,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 67
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step is pending",
+            "line": 69,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "pending",
+              "duration": 1500000
+            }
+          },
+          {
+            "keyword": "Then ",
+            "name": "nothing else matters",
+            "line": 70,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "skipped"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;undefined",
+        "keyword": "Scenario",
+        "name": "Undefined",
+        "line": 72,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 71
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a step has no definition",
+            "line": 73,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "undefined"
+            }
+          }
+        ]
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;no-steps",
+        "keyword": "Scenario",
+        "name": "No steps",
+        "line": 76,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          },
+          {
+            "name": "@TC-BRK-002",
+            "line": 75
+          }
+        ],
+        "steps": []
+      },
+      {
+        "keyword": "Background",
+        "name": "",
+        "line": 4,
+        "description": "",
+        "type": "background",
+        "steps": [
+          {
+            "keyword": "Given ",
+            "name": "the vehicle is stationary",
+            "line": 5,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      },
+      {
+        "id": "brake-request-timing;untagged",
+        "keyword": "Scenario",
+        "name": "Untagged",
+        "line": 80,
+        "description": "",
+        "type": "scenario",
+        "tags": [
+          {
+            "name": "@feature-tag",
+            "line": 1
+          }
+        ],
+        "steps": [
+          {
+            "keyword": "When ",
+            "name": "a brake request is sent",
+            "line": 81,
+            "match": {
+              "location": "com.acme.BrakeSteps.step()"
+            },
+            "result": {
+              "status": "passed",
+              "duration": 1500000
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

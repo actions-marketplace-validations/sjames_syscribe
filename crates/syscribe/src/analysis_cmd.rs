@@ -82,6 +82,7 @@ fn verdicts(results: Option<&ResultsData>) -> impl Fn(&RawElement) -> Verdict + 
     move |tc: &RawElement| match tc_verdict(tc, results) {
         TcVerdict::Pass => Verdict::Pass,
         TcVerdict::Fail => Verdict::Fail,
+        TcVerdict::Waived => Verdict::Waived,
         TcVerdict::Unknown => Verdict::Unknown,
     }
 }

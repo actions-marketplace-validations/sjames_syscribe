@@ -19,6 +19,8 @@ use syscribe_model::{
 pub enum TcVerdict {
     Pass,
     Fail,
+    /// Everything passed or was waived on purpose, with a rationale on record: shown as waived, never as a pass.
+    Waived,
     Unknown,
 }
 
@@ -32,9 +34,17 @@ pub enum TcVerdict {
 /// "covered by a recorded session that actually passed" there too, instead of
 /// this always reading `Unknown` for want of a `testFunctions:` entry.
 pub fn tc_verdict(tc: &RawElement, results: Option<&ResultsData>) -> TcVerdict {
-    match syscribe_model::results::testcase_verdict(tc, results) {
+    // A TestCase with its own `runsOn:` is judged on each of those environments (REQ-TRS-RESENV-001). Here the
+    // entries are matched as written, so name the environments by id; a plan resolves them properly.
+    let own: Vec<String> = tc.frontmatter.runs_on.iter().flatten().cloned().collect();
+    let verdict = match results {
+        Some(r) if !own.is_empty() && r.has_records() => syscribe_model::results::testcase_verdict_in_envs(tc, r, &own, &Default::default()),
+        _ => syscribe_model::results::testcase_verdict(tc, results),
+    };
+    match verdict {
         syscribe_model::safety_case::Verdict::Pass => TcVerdict::Pass,
         syscribe_model::safety_case::Verdict::Fail => TcVerdict::Fail,
+        syscribe_model::safety_case::Verdict::Waived => TcVerdict::Waived,
         syscribe_model::safety_case::Verdict::Unknown => TcVerdict::Unknown,
     }
 }
@@ -1926,11 +1936,30 @@ pub fn cmd_trace(
                 // Annotate the displayed id with the ingested verdict, when results
                 // are present and not linked-only (issue #21).
                 let annotated = match evidence {
-                    Some(_) => match tc_verdict(tc, evidence) {
-                        TcVerdict::Pass => format!("{tc_id} [pass]"),
-                        TcVerdict::Fail => format!("{tc_id} [fail]"),
-                        TcVerdict::Unknown => format!("{tc_id} [unknown]"),
-                    },
+                    Some(res) => {
+                        let label = match tc_verdict(tc, evidence) {
+                            TcVerdict::Pass => format!("{tc_id} [pass]"),
+                            TcVerdict::Fail => format!("{tc_id} [fail]"),
+                            TcVerdict::Waived => format!("{tc_id} [waived]"),
+                            TcVerdict::Unknown => format!("{tc_id} [unknown]"),
+                        };
+                        // A result older than a change to the test or to what it verifies says so (REQ-TRS-RESJOIN-001).
+                        let canonical = syscribe_model::result_join::canonical(tc);
+                        let label = if syscribe_model::result_join::stale_reasons(tc, res.records_for(&canonical), elements, resolver).is_empty() {
+                            label
+                        } else {
+                            format!("{label} [stale]")
+                        };
+                        // The environments the test is not passing on, so one rig's failure is not read as another's.
+                        let mut bad: Vec<&str> = res
+                            .records_for(&canonical)
+                            .filter(|r| r.verdict != syscribe_model::results::Verdict::Pass)
+                            .filter_map(|r| r.provenance.as_ref()?.environment.as_deref())
+                            .collect();
+                        bad.sort();
+                        bad.dedup();
+                        if bad.is_empty() { label } else { format!("{label} @ {}", bad.join(", ")) }
+                    }
                     None => tc_id.to_string(),
                 };
                 let via = via_suffix(elements, resolver, tc, syscribe_model::link_types::BaseLink::Verifies, elem);
@@ -3327,6 +3356,8 @@ verifies:
 #   - function: "mymod::tests::normal_case"   # last segment resolved in sourceFile
 #     scenario: "Normal case"                 # must equal a Scenario: title below
 # sourceFile: tests/my_tests.rs
+# runsOn: [TE-PREFIX-001]    # judged on these rigs: results are kept per TestEnvironment (`ingest-results --environment`)
+# extRef: "RIG:SYS-012"    # the id your test tool uses; `ingest-results --format records` joins a result named by it
 ---
 
 ## Test Procedure
@@ -3350,6 +3381,7 @@ name: "..."
 status: draft
 scope: integration   # unit|smoke|integration|hil|certification|security|regression
 # configurations: [CONF-PREFIX-001]   # the product variant(s); omit = config-agnostic
+# runsOn: [TE-PREFIX-001]              # judged on each of these rigs: all must pass (results are kept per rig)
 # demonstrates:                        # optional: goals/requirements this plan evidences
 #   - SG-PREFIX-001
 testCases:                             # explicit members (TC-*)

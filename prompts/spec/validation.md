@@ -772,7 +772,7 @@ The `lint-docs` command scans external `.md`/`.svg` docs for references that no 
 | `W612` | warning | the effective TestCase set is empty (no resolvable `testCases:` and no `selection:` match) |
 | `W613` | warning | a `TestCase` named explicitly in `testCases:` has status `draft`/`retired` |
 | `W614` | warning | an `approved`/`active` plan `demonstrates:` a `Requirement` that no member verifies (honours goal-closure — a member verifying a leaf of a demonstrated parent counts) |
-| `W615` | warning | results-gated: an `approved` plan has members whose ingested verdict is Fail, flaky or Missing — one finding per plan listing them (only when a results sidecar is loaded) |
+| `W615` | warning | results-gated: an `approved` plan has members whose ingested verdict is Fail, flaky or Missing — one finding per plan listing them (only when a results sidecar is loaded). For a plan with `runsOn:` and recorded results (`ingest-results --format records`), a member without `testFunctions:` is judged on each listed environment: a failure there, or no passing result there, is listed as `<test> @ <environment>` (REQ-TRS-RESENV-001) |
 | `W616` | warning | two plans share an identical `(configurations, scope)` pair and their effective member sets are redundant: one contains the other, or Jaccard overlap ≥ 0.5 (likely redundant) |
 
 A duplicate `TestPlan` `id` is the generic `E101` (duplicate stable id).
@@ -849,6 +849,12 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 |---|---|
 | `W090` | Suspect link: a trace-link target's normative content (body + normative frontmatter) changed since the source's `traceBaselines:` entry for it was captured. Review, then re-baseline with `suspect accept <src> <tgt>`. Unbaselined links are silent. Gate with `--deny W090` |
 
+## Stale results (W091, REQ-TRS-RESJOIN-001)
+
+| Code | Condition |
+|---|---|
+| `W091` | Stale result: results recorded (`ingest-results --format records`) for a non-draft `TestCase` predate a change to the TestCase or to a requirement it `verifies:` (normative projection hash, as for `W090`; editorial fields and ordinary status changes do not count), or the requirement no longer exists. The verdict is unchanged and `trace` marks it `[stale]`. Re-run the test and re-ingest. Records ingested without hashes are silent. Gate with `--deny W091` |
+
 ## Release baselines (E520–E522, W520, ADR-SYS-BASELINE-001)
 
 | Code | Condition |
@@ -868,12 +874,14 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `W543` | Advisory: a `.sysml`/`.kerml` file in a `sysmlSubmodel:` subtree contains parsed constructs with no Syscribe mapping (`actor`, package-level `filter`, a KerML declaration, a `metadata` application whose `about` target does not resolve, a package declared with a qualified name, an `other package member` such as a package-level `connect`/`ref`/`succession`, an unresolved package-level `satisfy`/`include`, …); raised once per file with per-kind counts, and the constructs are not ingested (REQ-TRS-SYSMLV2-030/-097/-098/-100) |
 | `W544` | Advisory: an ingested usage's multiplicity has integer bounds with lower greater than upper, a negative bound, or a non-integer numeric literal bound (REQ-TRS-SYSMLV2-066); name or expression bounds are not evaluated |
 
-## Foreign-format stdio plugins (E550, E551, W550–W553, ADR-SYS-PLUGIN-002)
+## Foreign-format stdio plugins (E550–E553, W550–W553, ADR-SYS-PLUGIN-002)
 
 | Code | Condition |
 |---|---|
 | `E550` | A `foreignFormat:` plugin's command was not found (the `[plugins.<alias>]` executable cannot be spawned) |
 | `E551` | A package declares `foreignFormat: <alias>` but `.syscribe.toml` has no matching `[plugins.<alias>]` entry |
+| `E552` | A plugin's `kind` does not match its use: a `foreignFormat:` package names a `[plugins.<alias>]` entry whose `kind` is not `foreign` (the default), or `ingest-results --format plugin:<alias>` / `plugins run` names an entry that is not a results plugin (`kind = "results"`), or the `kind` is unknown (REQ-TRS-RESPLUG-001) |
+| `E553` | A results plugin could not be used by `ingest-results --format plugin:<alias>`: no `[plugins.<alias>]` entry, the report cannot be read, the command was not found, failed to start, timed out (`timeout_ms`), exited non-zero, wrote an invalid envelope or no records, or returned records the record validator rejects. Nothing is written (REQ-TRS-RESPLUG-001) |
 | `W550` | A plugin process failed to spawn, timed out (`timeout_ms`), exited non-zero, or hit an I/O error; the package contributes no elements |
 | `W551` | A plugin's stdout is not a valid `{elements, diagnostics}` envelope, or the plugin reported one or more `diagnostics` in its envelope (relayed, previewed in the message) |
 | `W552` | A plugin-emitted element was dropped because its frontmatter is not valid (bad qname or does not deserialize); sibling elements are kept |

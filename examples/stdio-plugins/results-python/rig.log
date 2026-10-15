@@ -1,0 +1,4 @@
+RIGLOG v1 run=42 build=abc1234 operator=alice
+CASE RIG:BRK-1 | Request reaches the actuator in time | PASS | latency=3.1ms limit<5ms
+CASE RIG:BRK-1 | Request during a bus fault is not lost | FAIL | note=message dropped after fault
+CASE RIG:UNKNOWN-9 | Something the model does not know | PASS |

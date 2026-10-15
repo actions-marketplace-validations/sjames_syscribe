@@ -66,6 +66,10 @@ fn v(x: Option<Verdict>) -> &'static str {
         Some(Verdict::Fail) => "fail",
         Some(Verdict::Ignored) => "ignored",
         Some(Verdict::Flaky) => "flaky",
+        Some(Verdict::Blocked) => "blocked",
+        Some(Verdict::NotRun) => "not-run",
+        Some(Verdict::Inconclusive) => "inconclusive",
+        Some(Verdict::Waived) => "waived",
         None => "absent",
     }
 }
@@ -111,13 +115,30 @@ fn failures(model_root: &Path, json_out: bool) -> i32 {
         }
     }
     rows.sort_by(|a, b| a.0.cmp(&b.0));
+    // Recorded results that are not a pass, one per (test, scenario, environment) (REQ-TRS-RESENV-001).
+    let mut recs: Vec<(String, Verdict, Option<&str>)> = Vec::new();
+    for layer in std::iter::once(&data).chain(data.by_config.values()) {
+        for r in layer.records.iter().filter(|r| r.verdict != Verdict::Pass) {
+            let env = r.provenance.as_ref().and_then(|p| p.environment.as_deref());
+            let name = format!("{}{}{}", r.test_case, r.scenario.as_deref().map(|s| format!(" / {s}")).unwrap_or_default(), env.map(|e| format!(" @ {e}")).unwrap_or_default());
+            recs.push((name, r.verdict, env));
+        }
+    }
+    recs.sort_by(|a, b| a.0.cmp(&b.0));
+    recs.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
     if json_out {
         let list: Vec<_> = rows
             .iter()
             .map(|(k, vd, d)| json!({"function": k, "verdict": v(Some(*vd)), "message": d.and_then(|d| d.message.clone()), "time": d.and_then(|d| d.time)}))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&json!({ "failures": list })).unwrap_or_default());
-    } else if rows.is_empty() {
+        let unmatched: Vec<_> = data
+            .unmatched
+            .iter()
+            .map(|r| json!({"testCase": r.test_case, "scenario": r.scenario, "verdict": v(Some(r.verdict))}))
+            .collect();
+        let records: Vec<_> = recs.iter().map(|(n, vd, env)| json!({"record": n, "verdict": v(Some(*vd)), "environment": env})).collect();
+        println!("{}", serde_json::to_string_pretty(&json!({ "failures": list, "records": records, "unmatched": unmatched })).unwrap_or_default());
+    } else if rows.is_empty() && recs.is_empty() {
         println!("No failing, skipped or flaky functions.");
     } else {
         for (k, vd, d) in &rows {
@@ -128,6 +149,19 @@ fn failures(model_root: &Path, json_out: bool) -> i32 {
                 .map(|m| format!("  — {}", syscribe_model::results::one_line(m)))
                 .unwrap_or_default();
             println!("{k}  {}{time}{msg}", v(Some(*vd)));
+        }
+    }
+    if !json_out && !recs.is_empty() {
+        println!("Recorded results that are not a pass ({}):", recs.len());
+        for (n, vd, _) in &recs {
+            println!("  {n}  {}", v(Some(*vd)));
+        }
+    }
+    // Records that named no TestCase of the model (REQ-TRS-RESJOIN-001): evidence for nothing, so they are listed.
+    if !json_out && !data.unmatched.is_empty() {
+        println!("Unmatched records ({}), they name no TestCase of this model:", data.unmatched.len());
+        for r in &data.unmatched {
+            println!("  {}{}  {}", r.test_case, r.scenario.as_deref().map(|s| format!(" / {s}")).unwrap_or_default(), v(Some(r.verdict)));
         }
     }
     0

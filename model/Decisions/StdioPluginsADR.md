@@ -155,3 +155,15 @@ abstraction in the first place. The fixed kind list itself is untouched and shar
 is about *which qnames* qualify, not loosening *which kinds* do. A hand-authored element of a
 matching kind sitting outside any `foreignFormat:` package is unaffected — still rejected by `E104`,
 confirmed by a regression test alongside the new widening.
+
+## Addendum: results plugins (REQ-TRS-RESPLUG-001)
+
+The same mechanism converts test reports. A `[plugins.<alias>]` entry gains an optional `kind`: absent or
+`"foreign"` is the package-ingesting plugin decided above, `"results"` converts a report into normalised result
+records (`ingest-results --format plugin:<alias>`). The two protocols differ only in their request
+(`reportPath` and the optional `run`/`config`/`environment` instead of a package) and response (`records`
+instead of `elements`); spawning, the stdin close, the stdout and stderr draining, `timeout_ms` and the no-sandbox
+trust level are shared (`invoke_raw` is generic over the request). Nothing a results plugin returns bypasses the
+record validator, so the plugin boundary adds no new way to store evidence. A `kind` that does not match its use
+is `E552`; a results-plugin failure is `E553`. The foreign-format decision, including its trust model, is
+unchanged.
