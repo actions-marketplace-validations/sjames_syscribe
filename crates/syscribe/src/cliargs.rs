@@ -90,6 +90,7 @@ fn spec_for(cmd: &str) -> Option<Spec> {
         "applies-when" => &[("--set", Value), ("--clear", Switch), ("--dry-run", Switch), ("--json", Switch)],
         "claim" => &[("--by", Value), ("--dry-run", Switch)],
         "meta" => &[("--def", Value), ("--group-by", Value), ("--json", Switch)],
+        "budgets" => &[("--json", Switch)],
         "release" | "move" | "set" => &[("--dry-run", Switch)],
         "scaffold-gherkin" => &[("--fix", Switch)],
         "plantuml" => &[("--dry-run", Switch), ("--output", ValueOrEq), ("-o", Value), ("--jar", ValueOrEq)],

@@ -5004,6 +5004,33 @@ Each violation is `E660` (`W660` under `severity: warning`) on the rule, naming 
 
 A malformed rule is `E662` and is not evaluated; a selector that chooses no component is `W662`.
 
+### 8.21 Resource Budgets
+
+`REQ-TRS-BUD-001`..`-003` (GH #368). A software `PartDef`/`Part` declares the static memory it uses, and the hardware part it is allocated to declares what it offers; `validate` checks the one against the other and `syscribe budgets` reports it.
+
+| Field | On | Description |
+|---|---|---|
+| `ram`, `flash`, `nvm` | software part | Static memory used, a size |
+| `stack` | software part | Stack, a size; counts toward RAM |
+| `ramCapacity`, `flashCapacity`, `nvmCapacity` | hardware part | Memory offered, a size |
+| `margin` | hardware part | Percentage of capacity that may be used, 0–100 (number or `"80%"`); default `[budgets] margin` in `.syscribe.toml`, else 100 |
+
+A **size** is a number of bytes or text with a unit: `B`, `kB`/`MB`/`GB` (powers of 1000) or `KiB`/`MiB`/`GiB` (powers of 1024). `KB` is ambiguous and a malformed size or margin is **`E691`**.
+
+For a hardware part with a capacity, the *contributors* are the components allocated to it (`allocatedTo:`, `allocatedFrom:` or an `Allocation`) and, transitively, every component in their `features:`, each counted once. Use above `capacity × margin / 100` is **`E690`**, naming the contributors, largest first. A part with no capacity for a resource is not checked for it, and the fields on any other element type are `W047`.
+
+```yaml
+---
+type: PartDef
+name: Stm32G474
+domain: hardware
+ramCapacity: 128 kB
+flashCapacity: 512 kB
+margin: 80
+---
+The microcontroller. Software allocated to it may use at most 80 % of each memory.
+```
+
 ## 9 Variability and Variation Points
 
 ### 9.1 Variation Definitions
@@ -6498,6 +6525,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E681` | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
 | `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
 | `E683` | A specialising `AttributeDef` widens its supertype: a `range:` not contained in the supertype's (an open end of the supertype is not covered by a closed end), or a different `pattern:` (REQ-TRS-DATA-002). |
+| `E690` | The static memory of the components allocated to a hardware part (and of everything they contain, each counted once) exceeds `capacity × margin / 100` for a resource it declares a capacity for (`ramCapacity`, `flashCapacity`, `nvmCapacity`); RAM includes `stack`. Names the part, the resource, the use, the limit and the contributors, largest first (REQ-TRS-BUD-002). |
+| `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). |
 
 #### Warnings
 
@@ -9188,6 +9217,7 @@ since `status: in_progress` alone already signals active work.
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
 | `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
 | `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
+| Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |

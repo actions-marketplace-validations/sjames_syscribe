@@ -726,6 +726,16 @@ pub struct RawFrontmatter {
     pub pattern: Option<serde_yaml::Value>,
     /// On an `AttributeDef`: the value taken when none is given (REQ-TRS-DATA-001).
     pub default: Option<serde_yaml::Value>,
+    /// On a `PartDef`/`Part`: static memory the part uses (REQ-TRS-BUD-001); `ram` and `stack` count toward RAM.
+    pub ram: Option<serde_yaml::Value>,
+    pub flash: Option<serde_yaml::Value>,
+    pub nvm: Option<serde_yaml::Value>,
+    pub stack: Option<serde_yaml::Value>,
+    /// On a hardware `PartDef`/`Part`: the memory it offers, and the percentage of it that may be used.
+    pub ram_capacity: Option<serde_yaml::Value>,
+    pub flash_capacity: Option<serde_yaml::Value>,
+    pub nvm_capacity: Option<serde_yaml::Value>,
+    pub margin: Option<serde_yaml::Value>,
     /// On an `ArchitectureRule`: `forbid-dependency` or `independence` (REQ-TRS-ARCH-001).
     pub kind: Option<String>,
     /// On an `ArchitectureRule`: the selector of the components the rule starts from (REQ-TRS-ARCH-002).

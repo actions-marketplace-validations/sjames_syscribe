@@ -80,6 +80,7 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | E650, E651, W650 | Stereotype checks and selectors (GH #379, #376) | A `MetadataDef` `checks:` entry fails on a carrier, or is malformed; a malformed stereotype selector |
 | E670–E672 | Operations (GH #364) | An operation's `errors:` or `realizedBy:` is wrong, or its signature differs from the realising `ActionDef`'s |
 | E680–E683 | Data types (GH #366) | An `AttributeDef`'s `range`/`pattern` is malformed, its `default` or a bound value violates them, or a subtype widens them |
+| E690, E691 | Resource budgets (GH #368) | Software memory allocated to a hardware part exceeds its capacity and margin; a malformed size or margin |
 | E660–E662, W660–W662 | Architecture rules (GH #369) | An `ArchitectureRule`: a forbidden dependency (with its path), a shared element where independence is claimed, a malformed rule, or a selector that chooses nothing |
 | E640, E641, W640–W642 | Cyber risk configuration (GH #222) | `[cyber]` method/tables in `.syscribe.toml`, per-category impact ratings, attack-potential factors |
 | E960–E965, E967, W960–W979 | Security-analysis completeness | TARA row integrity, risk inputs and treatment, attack-tree shape, zone/conduit consistency, `VulnerabilityReport` hygiene |

@@ -1274,6 +1274,23 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("autoApply");
             }
         }
+        // Budget fields belong to a PartDef or Part (REQ-TRS-BUD-001).
+        if !matches!(fm.element_type, Some(ElementType::PartDef | ElementType::Part)) {
+            for (set, name) in [
+                (fm.ram.is_some(), "ram"),
+                (fm.flash.is_some(), "flash"),
+                (fm.nvm.is_some(), "nvm"),
+                (fm.stack.is_some(), "stack"),
+                (fm.ram_capacity.is_some(), "ramCapacity"),
+                (fm.flash_capacity.is_some(), "flashCapacity"),
+                (fm.nvm_capacity.is_some(), "nvmCapacity"),
+                (fm.margin.is_some(), "margin"),
+            ] {
+                if set {
+                    unknown_keys.push(name);
+                }
+            }
+        }
         // `range:`, `pattern:` and `default:` belong to an AttributeDef (REQ-TRS-DATA-001).
         if !matches!(fm.element_type, Some(ElementType::AttributeDef)) {
             for (set, name) in [(fm.range.is_some(), "range"), (fm.pattern.is_some(), "pattern"), (fm.default.is_some(), "default")] {
@@ -9553,6 +9570,12 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
     // Architecture rules (REQ-TRS-ARCH-001..005, GH #369).
     for (is_error, code, file, msg) in crate::arch_rules::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
+
+    // Resource budgets (REQ-TRS-BUD-001, -002, GH #368).
+    let default_margin = crate::budgets::project_margin(config.model_root.as_deref());
+    for (is_error, code, file, msg) in crate::budgets::check(elements, &resolver, default_margin) {
         findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 

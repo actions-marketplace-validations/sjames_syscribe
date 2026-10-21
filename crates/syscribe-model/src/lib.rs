@@ -10,6 +10,7 @@ pub mod annotations;
 pub mod arch_rules;
 pub mod operations;
 pub mod data_types;
+pub mod budgets;
 pub mod attack_tree;
 pub mod baseline;
 pub mod build_config;

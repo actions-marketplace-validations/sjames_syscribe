@@ -47,6 +47,9 @@ computed by the tool and never authored.
 | `range` | AttributeDef | string | absent | Numeric interval of the type's values: `lo..hi`, `[lo, hi)`, … (GH #366) |
 | `pattern` | AttributeDef | string | absent | Regular expression a string value must match in full (GH #366) |
 | `default` | AttributeDef | any | absent | Value taken when none is given; must satisfy `range`/`pattern` (GH #366) |
+| `ram`, `flash`, `nvm`, `stack` | PartDef/Part | size | absent | Static memory a software part uses; `stack` counts toward RAM (GH #368) |
+| `ramCapacity`, `flashCapacity`, `nvmCapacity` | PartDef/Part | size | absent | Memory a hardware part offers (GH #368) |
+| `margin` | PartDef/Part | percent | `[budgets] margin`, else 100 | Percentage of capacity that may be used (GH #368) |
 | `kind` | ArchitectureRule | string | **required** | `forbid-dependency` or `independence` (GH #369) |
 | `from` | ArchitectureRule | map | **required** | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
 | `to` | ArchitectureRule | map | **required** | Selector of the components the rule is about (same keys as `from`) |
