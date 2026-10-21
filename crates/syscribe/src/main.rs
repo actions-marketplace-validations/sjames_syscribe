@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 mod annotations;
+mod budgetcmd;
 mod metacmd;
 mod audit;
 mod aw;
@@ -912,6 +913,13 @@ fn main() {
                 // REQ-TRS-LINKTYPE-007 — traverse one named link. Read-only.
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let code = linktypes::cmd_follow(&elems, &resolver, &vcfg, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "budgets" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = budgetcmd::cmd_budgets(&elems, model_root, rest);
                 if code != 0 {
                     std::process::exit(code);
                 }

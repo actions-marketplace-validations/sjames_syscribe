@@ -4980,6 +4980,33 @@ Each violation is `E660` (`W660` under `severity: warning`) on the rule, naming 
 
 A malformed rule is `E662` and is not evaluated; a selector that chooses no component is `W662`.
 
+### 8.21 Resource Budgets
+
+`REQ-TRS-BUD-001`..`-003` (GH #368). A software `PartDef`/`Part` declares the static memory it uses, and the hardware part it is allocated to declares what it offers; `validate` checks the one against the other and `syscribe budgets` reports it.
+
+| Field | On | Description |
+|---|---|---|
+| `ram`, `flash`, `nvm` | software part | Static memory used, a size |
+| `stack` | software part | Stack, a size; counts toward RAM |
+| `ramCapacity`, `flashCapacity`, `nvmCapacity` | hardware part | Memory offered, a size |
+| `margin` | hardware part | Percentage of capacity that may be used, 0–100 (number or `"80%"`); default `[budgets] margin` in `.syscribe.toml`, else 100 |
+
+A **size** is a number of bytes or text with a unit: `B`, `kB`/`MB`/`GB` (powers of 1000) or `KiB`/`MiB`/`GiB` (powers of 1024). `KB` is ambiguous and a malformed size or margin is **`E691`**.
+
+For a hardware part with a capacity, the *contributors* are the components allocated to it (`allocatedTo:`, `allocatedFrom:` or an `Allocation`) and, transitively, every component in their `features:`, each counted once. Use above `capacity × margin / 100` is **`E690`**, naming the contributors, largest first. A part with no capacity for a resource is not checked for it, and the fields on any other element type are `W047`.
+
+```yaml
+---
+type: PartDef
+name: Stm32G474
+domain: hardware
+ramCapacity: 128 kB
+flashCapacity: 512 kB
+margin: 80
+---
+The microcontroller. Software allocated to it may use at most 80 % of each memory.
+```
+
 ## 9 Variability and Variation Points
 
 ### 9.1 Variation Definitions
@@ -6467,6 +6494,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E690` | The static memory of the components allocated to a hardware part (and of everything they contain, each counted once) exceeds `capacity × margin / 100` for a resource it declares a capacity for (`ramCapacity`, `flashCapacity`, `nvmCapacity`); RAM includes `stack`. Names the part, the resource, the use, the limit and the contributors, largest first (REQ-TRS-BUD-002). |
+| `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). |
 
 #### Warnings
 
@@ -9156,6 +9185,7 @@ since `status: in_progress` alone already signals active work.
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
 | `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
+| Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |

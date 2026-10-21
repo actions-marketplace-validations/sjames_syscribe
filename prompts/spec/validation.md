@@ -846,6 +846,8 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E661` | error | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `W661` | warning | The same violation under `severity: warning`. |
 | `E662` | error | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E690` | error | The static memory of the components allocated to a hardware part (and of everything they contain, each counted once) exceeds `capacity × margin / 100` for a resource it declares a capacity for (`ramCapacity`, `flashCapacity`, `nvmCapacity`); RAM includes `stack`. Names the part, the resource, the use, the limit and the contributors, largest first (REQ-TRS-BUD-002). |
+| `E691` | error | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). |
 | `W662` | warning | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | `W316` | warning | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 

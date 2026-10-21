@@ -58,7 +58,7 @@ fn the_report_gives_used_capacity_limit_and_contributors_largest_first() {
     assert_eq!(c[1]["element"], "Sw::B");
     let flash = row(&rows, "flash");
     assert_eq!(flash["usedBytes"], 200_000, "{flash}");
-    assert_eq!(flash["marginPercent"], 100, "the default margin");
+    assert_eq!(flash["marginPercent"], 80, "one margin per part, for every resource");
 }
 
 #[test]

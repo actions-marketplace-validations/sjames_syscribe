@@ -25,7 +25,7 @@ use crate::tagged_values as tv;
 pub type Finding = (bool, &'static str, String, String);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Via {
+pub(crate) enum Via {
     Connections,
     TypedBy,
     Allocations,
@@ -100,16 +100,16 @@ impl ComponentSelector {
 }
 
 /// The dependency graph: `deps[x]` are the components `x` depends on, with the edge source.
-struct Graph {
-    names: Vec<String>,
-    deps: Vec<BTreeMap<usize, Via>>,
+pub(crate) struct Graph {
+    pub(crate) names: Vec<String>,
+    pub(crate) deps: Vec<BTreeMap<usize, Via>>,
 }
 
 fn is_component(e: &RawElement) -> bool {
     matches!(e.frontmatter.element_type, Some(ElementType::PartDef | ElementType::Part)) && !e.file_path.starts_with(tv::BUILTIN_PREFIX)
 }
 
-fn build_graph(elements: &[RawElement], resolver: &Resolver, via: &BTreeSet<Via>) -> (Graph, BTreeMap<String, usize>) {
+pub(crate) fn build_graph(elements: &[RawElement], resolver: &Resolver, via: &BTreeSet<Via>) -> (Graph, BTreeMap<String, usize>) {
     let comps: Vec<&RawElement> = elements.iter().filter(|e| is_component(e)).collect();
     let index: BTreeMap<String, usize> = comps.iter().enumerate().map(|(i, c)| (c.qualified_name.clone(), i)).collect();
     let mut g = Graph { names: comps.iter().map(|c| c.qualified_name.clone()).collect(), deps: vec![BTreeMap::new(); comps.len()] };

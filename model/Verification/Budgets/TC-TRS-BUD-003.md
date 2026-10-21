@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-003
 name: "A budgets report shows use against capacity"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/budgets_cli.rs
 verifies:

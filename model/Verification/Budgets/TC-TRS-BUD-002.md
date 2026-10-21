@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-002
 name: "Memory used by what is allocated to an element is checked against its capacity"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/budgets.rs
 verifies:

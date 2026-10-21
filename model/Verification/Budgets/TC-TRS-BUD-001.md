@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-001
 name: "Software parts declare their static memory and hardware its capacity"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/budgets.rs
 verifies:
