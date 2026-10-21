@@ -64,6 +64,12 @@ fn upstream_targets<'a>(
         let down = syscribe_model::link_types::static_str(&decl.inbound_label());
         add(&targets, name, name, down, &mut out);
     }
+    // Reference-typed tagged values of an applied stereotype (REQ-TRS-META-013).
+    for (_, r) in syscribe_model::tagged_values::reference_values(elements, resolver, e) {
+        if let Some(t) = resolver.resolve_ref(elements, &r) {
+            out.push((t.qualified_name.clone(), "taggedValue", "taggedValue", "taggedValueOf"));
+        }
+    }
     // appliesWhen: feature references in the (opaque) expression — best-effort token resolve.
     if let Some(expr) = applies_when_str(&fm.applies_when) {
         for tok in expr.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':' || c == '-')) {
@@ -119,6 +125,7 @@ const BUILTIN_BASES: &[&str] = &[
     "allocatedTo",
     "derivedFromSafetyGoal",
     "appliesWhen",
+    "taggedValue",
 ];
 
 pub struct ImpactOptions<'a> {

@@ -821,7 +821,7 @@ gives no coverage credit. The built-in fields themselves are never relaxed.
 | `W057` | warning | An `ISQ::` quantity type or `SI::` unit is not known to this tool's tables (a subset of the SysML v2 library; SI-prefixed units such as `kN`, `mm`, `MHz` are parsed and known) — usually a typo; no dimensional check is possible for it |
 | `W056` | A `connections:` endpoint's later segment (the port after the part) is not found on the part it follows — advisory; models often wire a sibling port loosely |
 
-## Stereotypes — metadata applications (E317, E318, W045)
+## Stereotypes — metadata applications (E317, E318, E322–E327, W045)
 
 A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysMLv2 metadata, not UML).
 
@@ -830,6 +830,12 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E317` | error | A `metadata:` application does not resolve to a `MetadataDef`. |
 | `E318` | error | A `metadata:` application's `MetadataDef` declares `annotates:` that excludes the annotated element's type (abstract `Element`/`Definition`/`Usage` match; stdlib metadata recognised). |
 | `W045` | warning | A tagged-value key in a `metadata:` application is not a declared feature of the `MetadataDef`. |
+| `E322` | error | A tagged value has the wrong type or a unit of a different dimension than its `MetadataDef` feature declares (`typedBy`, `unit`); also raised on the definition when a feature's `default` violates its own typing. |
+| `E323` | error | A tagged value is outside the feature's declared `range` (`lo..hi`). |
+| `E324` | error | A tagged value is not in the feature's declared `enumValues`. |
+| `E325` | error | A tagged value has fewer or more values than the feature's declared `multiplicity` (an omitted required value included; a `default` counts as one value). |
+| `E326` | error | A reference-typed tagged value (`typedBy:` an element-type name such as `PartDef`) does not resolve, or resolves to an element of another type. |
+| `E327` | error | A `constraints:` entry of a `MetadataDef` evaluates false for an application (`A implies B` is accepted), or does not parse (reported on the definition). |
 
 ## Stable-ID prefixes, unknown fields, locale variants and about comments (W046, W047, W049, W051, W052)
 

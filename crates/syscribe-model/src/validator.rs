@@ -1514,6 +1514,30 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
         }
 
+        // E322 / E327: the definition's own declarations (REQ-TRS-META-012, -014, GH #375): a
+        // default must satisfy its feature's typing, and each `constraints:` entry must parse.
+        if matches!(fm.element_type, Some(crate::element::ElementType::MetadataDef)) {
+            use crate::tagged_values as tv;
+            let def_name = fm.name.clone().unwrap_or_default();
+            for spec in tv::feature_specs(&fm.features) {
+                if let Some(d) = &spec.default {
+                    for v in tv::values_of(d) {
+                        for (code, msg) in tv::check_value(&def_name, &spec, v) {
+                            let msg = format!("default: {msg}");
+                            findings.push(if code == "E322" { error("E322", &file, &msg) } else if code == "E323" { error("E323", &file, &msg) } else { error("E324", &file, &msg) });
+                        }
+                    }
+                }
+            }
+            for c in fm.constraints.iter().flatten() {
+                if let Some(src) = c.as_str() {
+                    if let Err(e) = tv::parse_constraint(src) {
+                        findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' does not parse: {e}")));
+                    }
+                }
+            }
+        }
+
         // E317 / E318 / W045: stereotype applications via `metadata:` (REQ-TRS-META-001).
         // Each application must resolve to a MetadataDef (E317); if that def declares
         // `annotates:`, this element's type must be allowed (E318); each tagged-value key
@@ -1580,6 +1604,63 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                     k, app.def
                                 ),
                             ));
+                        }
+                    }
+                    // E322–E327: typed tagged values (REQ-TRS-META-010..014, GH #375).
+                    {
+                        use crate::tagged_values as tv;
+                        let specs = tv::feature_specs(&def_el.frontmatter.features);
+                        let def_label = def_el.frontmatter.name.clone().unwrap_or_else(|| app.def.clone());
+                        for spec in &specs {
+                            let given: Vec<&serde_yaml::Value> = app
+                                .values
+                                .iter()
+                                .filter(|(k, _)| k == &spec.name)
+                                .flat_map(|(_, v)| tv::values_of(v))
+                                .collect();
+                            let count = if given.is_empty() && spec.default.is_some() { 1 } else { given.len() };
+                            if spec.mult_declared {
+                                if let Some((c, m)) = tv::check_multiplicity(&def_label, spec, count) {
+                                    findings.push(error(c, &file, &m));
+                                }
+                            }
+                            for v in given {
+                                // An unsubstituted `{{Feature.param}}` is checked under `--config`.
+                                if v.as_str().is_some_and(|t| t.contains("{{")) {
+                                    continue;
+                                }
+                                if spec.is_typed() {
+                                    for (c, m) in tv::check_value(&def_label, spec, v) {
+                                        findings.push(error(c, &file, &m));
+                                    }
+                                }
+                                if let tv::Kind::Element(want) = spec.kind() {
+                                    if let Some(r) = v.as_str() {
+                                        let ok = resolver
+                                            .resolve_ref(elements, r)
+                                            .is_some_and(|t| format!("{:?}", t.frontmatter.element_type.clone().unwrap_or(crate::element::ElementType::Unknown)) == want);
+                                        if !ok {
+                                            findings.push(error(
+                                                "E326",
+                                                &file,
+                                                &format!("tagged value '{}' of stereotype '{def_label}' = '{r}' does not resolve to a {want}", spec.name),
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // E327: constraints of the definition, evaluated for this application.
+                        for c in def_el.frontmatter.constraints.iter().flatten() {
+                            let Some(src) = c.as_str() else { continue };
+                            let Ok(e) = tv::parse_constraint(src) else { continue };
+                            if tv::evaluate(&e, &specs, &app.values) == tv::Verdict::Violated {
+                                findings.push(error(
+                                    "E327",
+                                    &file,
+                                    &format!("constraint '{src}' of stereotype '{def_label}' is violated"),
+                                ));
+                            }
                         }
                     }
                 }

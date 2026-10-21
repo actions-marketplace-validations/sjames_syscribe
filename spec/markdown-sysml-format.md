@@ -3307,6 +3307,16 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   or via the abstract `Element`/`Definition`/`Usage` — is **`E318`**;
 - a tagged-value key that is not a declared `features:` attribute of the `MetadataDef` is
   warning **`W045`**.
+- a `features:` entry may also declare `typedBy` (`ScalarValues::Integer|Real|Boolean|String`, or an
+  element-type name such as `PartDef` for a reference), `unit`, `range: "lo..hi"`, `enumValues`,
+  `multiplicity` (`1`, `0..1`, `1..*`) and `default`. A wrong type or unit dimension is **`E322`**,
+  a value outside `range` **`E323`**, outside `enumValues` **`E324`**, a count outside
+  `multiplicity` **`E325`**, a reference that does not resolve to the stated element type
+  **`E326`**. A feature that declares none of these is checked by name only (REQ-TRS-META-010..013);
+- a `MetadataDef` may carry `constraints:` — boolean expressions over its own tagged values
+  (`integrity >= 2 implies goal != ""`) — and a false one is **`E327`** on the applying element
+  (REQ-TRS-META-014). An absent String is `""` and an absent Boolean `false`; a constraint over
+  an absent number is undecided, not violated.
 
 Applied stereotypes are shown by `show` as **«Name»** banners and are filterable with
 `list <Type> --metadata <MetadataDef>`.
@@ -6344,6 +6354,12 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E319` | Results-gated: `Requirement` at `verified` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `E317` | A `metadata:` application does not resolve to a `MetadataDef` (§8.15.2) |
 | `E318` | A `metadata:` application's `MetadataDef` declares `annotates:` that excludes the annotated element's type (the abstract `Element`/`Definition`/`Usage` metaclasses match; standard-library metadata is recognised) |
+| `E322` | A tagged value has the wrong type, or a unit of another dimension, than its `MetadataDef` feature declares; also a feature `default` that violates its own typing |
+| `E323` | A tagged value is outside the feature's declared `range` |
+| `E324` | A tagged value is not in the feature's declared `enumValues` |
+| `E325` | A tagged value's count violates the feature's declared `multiplicity` (an omitted required value included) |
+| `E326` | A reference-typed tagged value does not resolve, or resolves to an element of another type |
+| `E327` | A `constraints:` entry of a `MetadataDef` is violated by an application, or does not parse |
 
 #### Warnings
 

@@ -415,6 +415,14 @@ pub fn validate_projected(
     let mut config = config.clone();
     config.machine_config = crate::placeholders::matching_config(full, &wanted).map(|c| c.qualified_name.clone());
     let res = validator::validate_with_config(&active, &config);
+    // Tagged values that hold a feature-parameter placeholder are checked at this variant's value
+    // (REQ-TRS-META-015). Only a substituted copy is checked, and only for the typed-value codes.
+    if crate::placeholders::metadata_any(&active) {
+        let mut view = active.clone();
+        crate::placeholders::substitute(&mut view, full, &wanted);
+        let typed = validator::validate_with_config(&view, &config);
+        findings.extend(typed.findings.into_iter().filter(|f| matches!(f.code, "E322" | "E323" | "E324" | "E325" | "E326" | "E327")));
+    }
     findings.extend(
         res.findings
             .into_iter()

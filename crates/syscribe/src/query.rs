@@ -606,7 +606,7 @@ pub fn cmd_show(
     if let Some(ref s) = fm.status { println!("| **status** | {} |", s); }
     // Applied stereotypes (MetadataDef applications, REQ-TRS-META-001) as «Name» banners.
     {
-        let apps = syscribe_model::element::metadata_applications(&fm.metadata);
+        let apps = syscribe_model::tagged_values::effective_applications(elements, resolver, elem);
         if !apps.is_empty() {
             let parts: Vec<String> = apps
                 .iter()
@@ -618,7 +618,10 @@ pub fn cmd_show(
                         let vs: Vec<String> = a
                             .values
                             .iter()
-                            .map(|(k, v)| format!("{}={}", k, custom_field_display(v)))
+                            .map(|(k, v)| {
+                                let mark = if a.defaulted.contains(k) { " (default)" } else { "" };
+                                format!("{}={}{}", k, custom_field_display(v), mark)
+                            })
                             .collect();
                         format!("«{}» {}", nm, vs.join(", "))
                     }
@@ -1487,6 +1490,7 @@ pub fn cmd_list(
     // extra fields a CI runner needs (REQ-TRS-OUT-014); other types get the
     // generic set.
     if json {
+        let list_resolver = Resolver::new(elements);
         let items: Vec<_> = matches
             .iter()
             .map(|e| {
@@ -1500,6 +1504,23 @@ pub fn cmd_list(
                     "asilLevel": e.frontmatter.asil_level,
                     "wcet": e.frontmatter.wcet,
                 });
+                // Stereotype applications as `{def, values, defaulted}`, defaults filled in
+                // (REQ-TRS-META-012); the key is absent when the element applies none.
+                let apps = syscribe_model::tagged_values::effective_applications(elements, &list_resolver, e);
+                if !apps.is_empty() {
+                    let apps: Vec<_> = apps
+                        .iter()
+                        .map(|a| {
+                            let values: serde_json::Map<String, serde_json::Value> = a
+                                .values
+                                .iter()
+                                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(serde_json::Value::Null)))
+                                .collect();
+                            serde_json::json!({"def": a.def, "values": values, "defaulted": a.defaulted})
+                        })
+                        .collect();
+                    obj.as_object_mut().unwrap().insert("metadata".into(), serde_json::json!(apps));
+                }
                 if is_testcase {
                     let verifies: Vec<&str> = e.frontmatter.verifies
                         .as_deref().unwrap_or(&[])
@@ -2356,7 +2377,8 @@ pub fn cmd_refs(elements: &[RawElement], resolver: &Resolver, key: &str) {
     let mut rows: Vec<(String, String, String)> = Vec::new(); // (source_qname, rel, source_type)
     for other in elements {
         if std::ptr::eq(other, elem) { continue; }
-        for (rel, tgt) in outbound_refs(other) {
+        let tagged = syscribe_model::tagged_values::reference_values(elements, resolver, other);
+        for (rel, tgt) in outbound_refs(other).into_iter().chain(tagged) {
             if &tgt == target_qn || target_id == Some(tgt.as_str()) {
                 let stype = tl(other.frontmatter.element_type.as_ref()).to_string();
                 rows.push((other.qualified_name.clone(), rel, stype));
