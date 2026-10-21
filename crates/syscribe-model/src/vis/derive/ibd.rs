@@ -597,7 +597,7 @@ fn parents_first_and_view(graph: &mut DiagramGraph, drawn: &[Drawn], filters: &F
     graph.parents_first();
     let Some(view) = filters.view.as_ref() else { return };
     for k in view.unknown.keys() {
-        issues.push(w421(format!("`include` has an unknown key '{k}' (known: members, kinds, domains, tags, features, depth) — ignored")));
+        issues.push(w421(format!("`include` has an unknown key '{k}' (known: members, kinds, domains, tags, features, stereotypes, depth) — ignored")));
     }
     for k in &view.malformed {
         let what = if k == "depth" { "a whole number" } else { "a list of names" };
@@ -644,7 +644,17 @@ fn parents_first_and_view(graph: &mut DiagramGraph, drawn: &[Drawn], filters: &F
         }
         wanted = (!v.is_empty()).then_some(v);
     }
-    let criteria = kinds.is_some() || domains.is_some() || view.tags.is_some() || wanted.is_some();
+    // stereotype selectors: each must parse and name a MetadataDef, else it is ignored (REQ-TRS-META-024)
+    let view_resolver = Resolver::new(elements);
+    let mut selectors: Vec<crate::tagged_values::Selector> = Vec::new();
+    for s in view.stereotypes.iter().flatten() {
+        match crate::tagged_values::parse_selector(&serde_yaml::Value::String(s.clone())) {
+            Ok(sel) if crate::tagged_values::find_metadata_def(elements, &view_resolver, &sel.def).is_some() => selectors.push(sel),
+            Ok(sel) => issues.push(w421(format!("`include.stereotypes` entry '{}' is not a stereotype — ignored", sel.def))),
+            Err(why) => issues.push(w421(format!("`include.stereotypes` entry '{s}': {why} — ignored"))),
+        }
+    }
+    let criteria = kinds.is_some() || domains.is_some() || view.tags.is_some() || wanted.is_some() || !selectors.is_empty();
     if !criteria {
         return;
     }
@@ -669,6 +679,17 @@ fn parents_first_and_view(graph: &mut DiagramGraph, drawn: &[Drawn], filters: &F
             wanted.as_ref().map_or(true, |ws| {
                 d.features.iter().map(|f| canon(f)).any(|f| ws.iter().any(|w| f == *w || f.starts_with(&format!("{w}::"))))
             })
+        })
+        .filter(|d| {
+            selectors.is_empty()
+                || selectors.iter().any(|sel| {
+                    // the usage element and its definition (an inline usage has no element of its own)
+                    [Some(d.element_ref.as_str()), d.definition.as_deref()]
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|r| view_resolver.resolve_ref(elements, r))
+                        .any(|e| crate::tagged_values::selector_matches(elements, &view_resolver, e, sel))
+                })
         })
         .filter(|d| kinds.is_none() || reached.contains(&d.id))
         .map(|d| d.id.clone())

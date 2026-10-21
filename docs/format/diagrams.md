@@ -361,6 +361,7 @@ layout: {flow: left-to-right, layers: [power, sensing]}
 | `domains` | parts whose usage or definition has that `domain:` |
 | `tags` | parts whose usage or definition has that tag |
 | `features` | parts whose `appliesWhen:` names that feature (qname or `FEAT-*` id) or one beneath it |
+| `stereotypes` | stereotype selectors (`Safety`, `Safety where integrity >= 2`; a specialisation counts): parts, or their definitions, that apply one. An entry that is malformed or names no `MetadataDef` is `W421` and ignored |
 
 A named style lives in `.syscribe.toml`:
 

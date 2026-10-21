@@ -1557,6 +1557,9 @@ pub struct CoverageRule {
     pub cal: Option<Vec<String>>,
     /// `"QM"` (not integrity-rated) and/or integers.
     pub sil: Option<Vec<String>>,
+    /// Stereotype selectors (any of): the requirement applies one, or a specialisation, under its `where`
+    /// (REQ-TRS-META-053). Needs the model to evaluate, so only [`CoveragePolicy::rule_for_element`] matches it.
+    pub stereotype: Option<Vec<crate::tagged_values::Selector>>,
     pub rule: ParentRule,
 }
 
@@ -1634,7 +1637,7 @@ impl CoveragePolicy {
                             p.problems.push(format!("{at} must be a table"));
                             continue;
                         };
-                        let mut rule = CoverageRule { req_class: None, requirement_kind: None, status: None, tag: None, asil: None, cal: None, sil: None, rule: ParentRule::Both };
+                        let mut rule = CoverageRule { req_class: None, requirement_kind: None, status: None, tag: None, asil: None, cal: None, sil: None, stereotype: None, rule: ParentRule::Both };
                         let mut have_rule = false;
                         for (rk, rv) in t {
                             let list = strings(rv);
@@ -1668,6 +1671,15 @@ impl CoveragePolicy {
                                     }
                                 }
                                 ("tag", Some(l)) => rule.tag = Some(l),
+                                ("stereotype", Some(l)) => {
+                                    let all_strings = rv.as_array().map_or(rv.is_str(), |a| a.iter().all(|x| x.is_str()));
+                                    let parsed: Result<Vec<_>, String> = l.iter().map(|s| crate::tagged_values::parse_selector(&serde_yaml::Value::String(s.clone())).map_err(|e| format!("stereotype '{s}': {e}"))).collect();
+                                    match (all_strings, parsed) {
+                                        (true, Ok(sels)) => rule.stereotype = Some(sels),
+                                        (false, _) => p.problems.push(format!("{at}: stereotype entries must be strings such as \"Safety\" or \"Safety where integrity >= 2\"")),
+                                        (_, Err(e)) => p.problems.push(format!("{at}: {e}")),
+                                    }
+                                }
                                 ("asil", Some(l)) => {
                                     let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_uppercase()).collect();
                                     if l.iter().all(|x| ["A", "B", "C", "D"].contains(&x.as_str())) {
@@ -1710,6 +1722,16 @@ impl CoveragePolicy {
 
     /// The rule applying to a requirement and its source (`"default"` or `"rule #N"`).
     pub fn rule_for(&self, fm: &crate::element::RawFrontmatter) -> (ParentRule, String) {
+        self.rule_for_with(fm, &|_| false)
+    }
+
+    /// [`Self::rule_for`] for an element of `elements`: a `stereotype` selector is matched against the
+    /// element's stereotype applications, specialisations included (REQ-TRS-META-053).
+    pub fn rule_for_element(&self, elements: &[crate::element::RawElement], resolver: &crate::resolver::Resolver, elem: &crate::element::RawElement) -> (ParentRule, String) {
+        self.rule_for_with(&elem.frontmatter, &|s| crate::tagged_values::selector_matches(elements, resolver, elem, s))
+    }
+
+    fn rule_for_with(&self, fm: &crate::element::RawFrontmatter, stereo: &dyn Fn(&crate::tagged_values::Selector) -> bool) -> (ParentRule, String) {
         let any = |sel: &Option<Vec<String>>, have: &[String]| sel.as_ref().is_none_or(|s| s.iter().any(|x| have.iter().any(|h| h.eq_ignore_ascii_case(x))));
         let tags = fm.tags.clone().unwrap_or_default();
         let kind: Vec<String> = fm.requirement_kind.iter().cloned().collect();
@@ -1725,7 +1747,7 @@ impl CoveragePolicy {
             sil.push(s.to_string());
         }
         for (i, r) in self.rules.iter().enumerate() {
-            if any(&r.req_class, &class) && any(&r.requirement_kind, &kind) && any(&r.status, &status) && any(&r.tag, &tags) && any(&r.asil, &asil) && any(&r.cal, &cal) && any(&r.sil, &sil) {
+            if any(&r.req_class, &class) && any(&r.requirement_kind, &kind) && any(&r.status, &status) && any(&r.tag, &tags) && any(&r.asil, &asil) && any(&r.cal, &cal) && any(&r.sil, &sil) && r.stereotype.as_ref().is_none_or(|sels| sels.iter().any(stereo)) {
                 return (r.rule, format!("rule #{}", i + 1));
             }
         }

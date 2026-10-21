@@ -4558,6 +4558,7 @@ A view says what a diagram is about, not where things go (`REQ-TRS-VIS-031`, GH 
 | `domains` | `domain:` values of the usage element or its definition |
 | `tags` | `tags:` of the usage element or its definition |
 | `features` | Features, by qname or `FEAT-*` id: parts whose `appliesWhen:` (inline, usage element or definition) names one of them or a feature beneath one |
+| `stereotypes` | Stereotype selectors (`Def` or `Def where <expr>`, REQ-TRS-META-024): parts whose usage element or definition applies one, a specialisation counting. A malformed entry or one naming no `MetadataDef` is `W421` and ignored |
 | `depth` | As the diagram's `depth:`, which wins when both are set |
 | `members` | The list form's member filter (§8.16.8.2); members outside it are not drawn at all |
 

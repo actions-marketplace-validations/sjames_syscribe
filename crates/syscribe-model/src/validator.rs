@@ -5596,8 +5596,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // `[coverage]` parent_rule = "rollup" (GH #253): a parent is covered through its leaves when every
     // live leaf descendant has an active verifying TestCase. Never for an integrity-rated parent
     // (E898), and draft / rejected / obsolete leaves are skipped. Shared by W305 and W310.
-    let parent_rolled_up = |req_id: &str, fm: &crate::element::RawFrontmatter| -> bool {
-        if config.coverage.rule_for(fm).0 != crate::config::ParentRule::Rollup || crate::config::is_integrity_rated(fm) {
+    let parent_rolled_up = |req_id: &str, req: &RawElement| -> bool {
+        let fm = &req.frontmatter;
+        if config.coverage.rule_for_element(elements, &resolver, req).0 != crate::config::ParentRule::Rollup || crate::config::is_integrity_rated(fm) {
             return false;
         }
         let live = |id: &str| {
@@ -5700,7 +5701,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             } else {
                 !active_tcs.is_empty()
             };
-            let covered = covered || (is_parent && parent_rolled_up(req_id, &target.frontmatter));
+            let covered = covered || (is_parent && parent_rolled_up(req_id, target));
             if !covered {
                 let need = if is_parent {
                     "active system-integration TestCase (testLevel L3, L4, or L5)"
@@ -6055,7 +6056,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // (L3 system test, L4 system integration test, or L5 HIL/acceptance).
         // Leaf-level test cases (L1/L2) on derived requirements are not sufficient to
         // verify the emergent, composed behaviour expressed by the parent.
-        let (cov_rule, cov_source) = config.coverage.rule_for(&elem.frontmatter);
+        let (cov_rule, cov_source) = config.coverage.rule_for_element(elements, &resolver, elem);
         if is_parent && cov_rule != crate::config::ParentRule::Both && crate::config::is_integrity_rated(&elem.frontmatter) {
             findings.push(error("E898", &elem.file_path, &format!(
                 "{req_id} is integrity-rated (ASIL/CAL/SIL) but {cov_source} of [coverage] sets parent_rule = \"{}\"; an integrity-rated parent needs \"both\"",
@@ -6070,7 +6071,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             });
             // Under `rollup` a parent whose every live leaf descendant has an active verifying
             // TestCase is covered through them (GH #253); never an integrity-rated parent (E898).
-            let is_rolled_up = !has_integration_tc && parent_rolled_up(req_id, &elem.frontmatter);
+            let is_rolled_up = !has_integration_tc && parent_rolled_up(req_id, elem);
             if is_rolled_up {
                 rolled_up.insert(req_id.to_string());
             }

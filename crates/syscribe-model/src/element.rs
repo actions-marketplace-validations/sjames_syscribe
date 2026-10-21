@@ -1613,7 +1613,7 @@ impl<'de> Deserialize<'de> for IncludeSpec {
         use serde::de::Error;
         let v = serde_yaml::Value::deserialize(d)?;
         let serde_yaml::Value::Mapping(m) = v else {
-            return serde_yaml::from_value::<Vec<String>>(v).map(IncludeSpec::List).map_err(|e| D::Error::custom(format!("{e} (or, on a derived IBD, a mapping of members, kinds, domains, tags, features, depth)")));
+            return serde_yaml::from_value::<Vec<String>>(v).map(IncludeSpec::List).map_err(|e| D::Error::custom(format!("{e} (or, on a derived IBD, a mapping of members, kinds, domains, tags, features, stereotypes, depth)")));
         };
         let mut view = ViewInclude::default();
         for (k, val) in m {
@@ -1625,6 +1625,7 @@ impl<'de> Deserialize<'de> for IncludeSpec {
                 "domains" => &mut view.domains,
                 "tags" => &mut view.tags,
                 "features" => &mut view.features,
+                "stereotypes" => &mut view.stereotypes,
                 "depth" => {
                     match serde_yaml::from_value::<usize>(val.clone()) {
                         Ok(n) => view.depth = Some(n),
@@ -1661,6 +1662,8 @@ pub struct ViewInclude {
     pub tags: Option<Vec<String>>,
     /// Features (qname or `FEAT-*` id): parts whose `appliesWhen:` names one of them or a feature beneath one.
     pub features: Option<Vec<String>>,
+    /// Stereotype selectors (`Def` or `Def where <expr>`): parts that apply one, on the usage element or its definition.
+    pub stereotypes: Option<Vec<String>>,
     /// Same as the diagram's `depth:`, which wins when both are set.
     pub depth: Option<usize>,
     /// Any other key, reported as `W421`.

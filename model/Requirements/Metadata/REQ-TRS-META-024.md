@@ -14,5 +14,5 @@ A selector `{stereotype: Def, where: key>=2}` shall be usable wherever the tool 
 ## Behavior
 
 - The selector selects elements applying `Def` (with specialisation) whose tagged values satisfy `where`.
-- It is written as a mapping or as the string `Def where <expr>`, parsed by one function. It is accepted in a TestPlan's `selection.stereotypes:` (a TestCase is selected when it, or a requirement it verifies, matches) and by `matrix --select` (repeatable, ANDed). Diagram `include:` and `ArchitectureRule` scopes (#334, #369) will use it when they exist.
+- It is written as a mapping or as the string `Def where <expr>`, parsed by one function. It is accepted in a TestPlan's `selection.stereotypes:` (a TestCase is selected when it, or a requirement it verifies, matches) and by `matrix --select` (repeatable, ANDed). A derived IBD's `include: {stereotypes: […]}` (#338) takes selector strings. `ArchitectureRule` scopes (#369) will use it when they exist.
 - A malformed selector, or one naming no `MetadataDef`, is `E651` on the TestPlan, and a usage error (exit 1) for `matrix --select`.

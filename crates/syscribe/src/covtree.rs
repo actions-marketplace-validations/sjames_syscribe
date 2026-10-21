@@ -96,8 +96,8 @@ fn build(
 ) -> Node {
     let k = key(e);
     path.insert(k.clone());
-    let (rule, _source) = policy.rule_for(&e.frontmatter);
-    if let Some(v) = guard_violation(e, result, policy) {
+    let (rule, _source) = policy.rule_for_element(elements, resolver, e);
+    if let Some(v) = guard_violation(e, result, policy, elements, resolver) {
         violations.push(v);
     }
     let mut child_ids: Vec<&String> = result.derived_children.get(&k).map(|v| v.iter().collect()).unwrap_or_default();
@@ -150,9 +150,9 @@ fn build(
 }
 
 /// The integrity guard of `[coverage]`: a parent that is integrity-rated must keep the `both` rule.
-fn guard_violation(e: &RawElement, result: &ValidationResult, policy: &CoveragePolicy) -> Option<String> {
+fn guard_violation(e: &RawElement, result: &ValidationResult, policy: &CoveragePolicy, elements: &[RawElement], resolver: &Resolver) -> Option<String> {
     let k = key(e);
-    let (rule, source) = policy.rule_for(&e.frontmatter);
+    let (rule, source) = policy.rule_for_element(elements, resolver, e);
     let is_parent = result.derived_children.get(&k).is_some_and(|v| !v.is_empty());
     (is_parent && rule != ParentRule::Both && is_integrity_rated(&e.frontmatter)).then(|| {
         format!(
@@ -207,7 +207,7 @@ fn summarise(
         .get(&k)
         .map(|v| v.iter().filter(|tc| resolver.resolve_ref(elements, tc).is_some_and(|t| t.frontmatter.status.as_deref() == Some("active"))).count())
         .unwrap_or(0);
-    let (rule, _) = policy.rule_for(&e.frontmatter);
+    let (rule, _) = policy.rule_for_element(elements, resolver, e);
     let n = Node { id: k.clone(), name: e.frontmatter.name.clone(), status: e.frontmatter.status.clone(), leaf, own, leaves, direct, rule, children: Vec::new() };
     if !cut {
         memo.insert(k, n.clone());
@@ -329,7 +329,8 @@ pub fn cmd_rollup(
         .collect();
     reqs.sort_by_key(|e| key(e));
     // The integrity guard covers every requirement, whatever the display filters keep.
-    let mut violations: Vec<String> = elements.iter().filter(|e| Resolver::is_native_requirement(e)).filter_map(|e| guard_violation(e, result, policy)).collect();
+    let guard_resolver = Resolver::new(elements);
+    let mut violations: Vec<String> = elements.iter().filter(|e| Resolver::is_native_requirement(e)).filter_map(|e| guard_violation(e, result, policy, elements, &guard_resolver)).collect();
     violations.sort();
     violations.dedup();
     if !violations.is_empty() {
@@ -408,7 +409,8 @@ pub fn class_summary(
     if !policy.problems.is_empty() {
         return Err(policy.problems.join("; "));
     }
-    let violations: Vec<String> = elements.iter().filter(|e| Resolver::is_native_requirement(e)).filter_map(|e| guard_violation(e, result, policy)).collect();
+    let guard_resolver = Resolver::new(elements);
+    let violations: Vec<String> = elements.iter().filter(|e| Resolver::is_native_requirement(e)).filter_map(|e| guard_violation(e, result, policy, elements, &guard_resolver)).collect();
     if !violations.is_empty() {
         return Err(violations.join("; "));
     }

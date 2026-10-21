@@ -163,3 +163,50 @@ fn removing_the_style_restores_the_output() {
     let off = graph(&model("[ids]\nmax_digits = 8\n", ""));
     assert_eq!(serde_json::to_string(&base).unwrap(), serde_json::to_string(&off).unwrap());
 }
+
+// ── a view's `include: {stereotypes: […]}` (REQ-TRS-META-024, GH #338) ──────────────────────────────
+
+fn build(root: &Path) -> (DiagramGraph, Vec<syscribe_model::vis::Issue>) {
+    let elements = walk_model(root).unwrap();
+    let resolver = Resolver::new(&elements);
+    let d = elements.iter().find(|e| e.qualified_name == "Diagrams::InvIBD").unwrap();
+    build_graph_in(d, &elements, &resolver, root).unwrap()
+}
+
+fn faded(g: &DiagramGraph, name: &str) -> bool {
+    part(g, name).faded
+}
+
+#[test]
+fn a_view_can_include_the_parts_that_apply_a_stereotype() {
+    let g = build(&model("", "include: {stereotypes: [External]}\n")).0;
+    assert!(!faded(&g, "ctl") && !faded(&g, "sensor"), "they apply External");
+    assert!(faded(&g, "bus") && faded(&g, "bridge"), "the rest is context");
+}
+
+#[test]
+fn a_selector_condition_and_specialisation_are_honoured_in_a_view() {
+    let root = model("", "include: {stereotypes: [\"Safety where integrity >= 2\"]}\n");
+    write(&root, "Inv/Bridge.md", "---\ntype: PartDef\nname: Bridge\nmetadata:\n  - type: Inv::Safety\n    integrity: 3\nfeatures:\n  - name: i\n    typedBy: Inv::Port\n    direction: in\n  - name: j\n    typedBy: Inv::Port\n    direction: in\n---\n\nBridge.\n");
+    let g = build(&root).0;
+    assert!(!faded(&g, "bridge") && faded(&g, "bus") && faded(&g, "ctl"));
+    let root = model("", "include: {stereotypes: [External]}\n");
+    write(&root, "Inv/Remote.md", "---\ntype: MetadataDef\nname: Remote\nsupertype: Inv::External\n---\n");
+    write(&root, "Inv/Bus.md", "---\ntype: PartDef\nname: Bus\nmetadata:\n  - Inv::Remote\nfeatures:\n  - name: o\n    typedBy: Inv::Port\n    direction: out\n---\n\nBus.\n");
+    assert!(!faded(&build(&root).0, "bus"), "a Remote is an External");
+}
+
+#[test]
+fn it_composes_with_the_other_view_keys() {
+    let g = build(&model("", "include: {stereotypes: [External], tags: [nope]}\n")).0;
+    assert!(["bus", "bridge", "ctl", "sensor"].iter().all(|p| faded(&g, p)), "both keys must hold");
+}
+
+#[test]
+fn a_malformed_or_unknown_selector_is_w421_and_ignored() {
+    for inc in ["{stereotypes: [\"Safety where integrity >=\"]}", "{stereotypes: [Nonesuch]}", "{stereotypes: 7}"] {
+        let (g, issues) = build(&model("", &format!("include: {inc}\n")));
+        assert!(issues.iter().any(|i| i.code == "W421" && i.message.contains("stereotypes")), "{inc}: {issues:?}");
+        assert!(["bus", "ctl"].iter().all(|p| !faded(&g, p)), "{inc}: a key that is ignored selects nothing out");
+    }
+}
