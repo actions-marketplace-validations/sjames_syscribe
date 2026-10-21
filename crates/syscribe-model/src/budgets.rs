@@ -158,16 +158,7 @@ pub fn compute(elements: &[RawElement], resolver: &Resolver, default_margin: f64
     let mut rows = Vec::new();
     for (hw, c, margin) in caps {
         let Some(&h) = index.get(&hw.qualified_name) else { continue };
-        // components allocated to this part, and what they contain, each once
-        let mut seen: BTreeSet<usize> = ga.deps.iter().enumerate().filter(|(_, d)| d.contains_key(&h)).map(|(i, _)| i).collect();
-        let mut q: VecDeque<usize> = seen.iter().copied().collect();
-        while let Some(x) = q.pop_front() {
-            for &y in gc.deps[x].keys() {
-                if seen.insert(y) {
-                    q.push_back(y);
-                }
-            }
-        }
+        let seen = reach(&ga, &gc, h);
         for (k, resource) in ["ram", "flash", "nvm"].into_iter().enumerate() {
             let Some(capacity) = c[k] else { continue };
             let mut contributors: Vec<(String, f64)> = seen
@@ -182,8 +173,164 @@ pub fn compute(elements: &[RawElement], resolver: &Resolver, default_margin: f64
     (rows, findings)
 }
 
+/// The components allocated to `h`, and everything they contain, each once.
+fn reach(ga: &crate::arch_rules::Graph, gc: &crate::arch_rules::Graph, h: usize) -> BTreeSet<usize> {
+    let mut seen: BTreeSet<usize> = ga.deps.iter().enumerate().filter(|(_, d)| d.contains_key(&h)).map(|(i, _)| i).collect();
+    let mut q: VecDeque<usize> = seen.iter().copied().collect();
+    while let Some(x) = q.pop_front() {
+        for &y in gc.deps[x].keys() {
+            if seen.insert(y) {
+                q.push_back(y);
+            }
+        }
+    }
+    seen
+}
+
+/// A positive duration in seconds: text with a time unit.
+fn parse_duration(v: &Yaml) -> Result<f64, String> {
+    let Yaml::String(t) = v else { return Err("is not a duration with a unit, such as \"10 ms\"".into()) };
+    match crate::system::duration(t) {
+        Some(x) if x > 0.0 => Ok(x),
+        Some(_) => Err("must be positive".into()),
+        None => Err(format!("'{t}' is not a duration with a unit, such as \"10 ms\"")),
+    }
+}
+
+/// One schedulable task: a software part with a `period` and a `wcet` duration.
+pub struct Task {
+    pub element: String,
+    pub wcet: f64,
+    pub period: f64,
+}
+
+impl Task {
+    pub fn utilisation(&self) -> f64 {
+        self.wcet / self.period
+    }
+}
+
+/// CPU utilisation of what is allocated to a hardware part that opts in with `cpuMargin` or `scheduling`.
+pub struct CpuRow {
+    pub element: String,
+    pub file: String,
+    pub scheduling: &'static str,
+    pub margin: f64,
+    pub tasks: Vec<Task>,
+}
+
+impl CpuRow {
+    pub fn utilisation(&self) -> f64 {
+        self.tasks.iter().map(Task::utilisation).sum::<f64>() + 0.0
+    }
+    /// The schedulability bound as a fraction: 1 for EDF, Liu–Layland `n (2^(1/n) − 1)` for rate-monotonic.
+    pub fn bound(&self) -> f64 {
+        let n = self.tasks.len().max(1) as f64;
+        if self.scheduling == "rate-monotonic" { n * (2f64.powf(1.0 / n) - 1.0) } else { 1.0 }
+    }
+    pub fn limit(&self) -> f64 {
+        self.bound() * self.margin / 100.0
+    }
+}
+
+/// The timing rows and findings: `E691` (malformed timing/cpu fields), `E693` (a part's `wcet` above its `deadline`).
+pub fn compute_cpu(elements: &[RawElement], resolver: &Resolver, default_margin: f64) -> (Vec<CpuRow>, Vec<Finding>) {
+    let _ = default_margin;
+    let mut findings: Vec<Finding> = Vec::new();
+    let mut tasks: BTreeMap<String, Task> = BTreeMap::new();
+    let mut hws: Vec<(&RawElement, &'static str, f64)> = Vec::new();
+    for e in elements.iter().filter(|e| is_part(e)) {
+        let fm = &e.frontmatter;
+        let mut bad = |what: &str, why: String| findings.push((true, "E691", e.file_path.clone(), format!("'{}': {what} {why}", e.qualified_name)));
+        let period = fm.period.as_ref().and_then(|v| parse_duration(v).map_err(|w| bad("period", w)).ok());
+        let deadline = fm.deadline.as_ref().and_then(|v| parse_duration(v).map_err(|w| bad("deadline", w)).ok());
+        if let Some(p) = &fm.priority {
+            if p.as_i64().is_none() {
+                bad("priority", "is not an integer".into());
+            }
+        }
+        // `wcet` on a part is read when it is a duration; an opaque claim is left alone
+        let wcet = fm.wcet.as_deref().and_then(crate::system::duration);
+        if let (Some(w), Some(d)) = (wcet, deadline) {
+            if w > d + 1e-12 {
+                findings.push((true, "E693", e.file_path.clone(), format!("{}: wcet {} exceeds its deadline {}", e.qualified_name, human_time(w), human_time(d))));
+            }
+        }
+        if let (Some(w), Some(p)) = (wcet, period) {
+            tasks.insert(e.qualified_name.clone(), Task { element: e.qualified_name.clone(), wcet: w, period: p });
+        }
+        let margin = match fm.cpu_margin.as_ref().map(parse_margin) {
+            Some(Ok(m)) => Some(m),
+            Some(Err(why)) => {
+                findings.push((true, "E691", e.file_path.clone(), format!("'{}': cpuMargin {why}", e.qualified_name)));
+                Some(100.0)
+            }
+            None => None,
+        };
+        let sched = match fm.scheduling.as_deref() {
+            None => None,
+            Some("edf") => Some("edf"),
+            Some("rate-monotonic") => Some("rate-monotonic"),
+            Some(other) => {
+                findings.push((true, "E691", e.file_path.clone(), format!("'{}': scheduling '{other}' is not edf or rate-monotonic", e.qualified_name)));
+                Some("edf")
+            }
+        };
+        if margin.is_some() || sched.is_some() {
+            hws.push((e, sched.unwrap_or("edf"), margin.unwrap_or(100.0)));
+        }
+    }
+    if hws.is_empty() {
+        return (Vec::new(), findings);
+    }
+    let alloc: BTreeSet<Via> = [Via::Allocations].into();
+    let contain: BTreeSet<Via> = [Via::TypedBy].into();
+    let (ga, index) = build_graph(elements, resolver, &alloc);
+    let (gc, _) = build_graph(elements, resolver, &contain);
+    let mut rows = Vec::new();
+    for (hw, scheduling, margin) in hws {
+        let Some(&h) = index.get(&hw.qualified_name) else { continue };
+        let mut ts: Vec<Task> = reach(&ga, &gc, h)
+            .iter()
+            .filter_map(|&i| tasks.get(&ga.names[i]))
+            .map(|t| Task { element: t.element.clone(), wcet: t.wcet, period: t.period })
+            .collect();
+        ts.sort_by(|a, b| b.utilisation().partial_cmp(&a.utilisation()).unwrap().then_with(|| a.element.cmp(&b.element)));
+        rows.push(CpuRow { element: hw.qualified_name.clone(), file: hw.file_path.clone(), scheduling, margin, tasks: ts });
+    }
+    (rows, findings)
+}
+
+fn human_time(s: f64) -> String {
+    for (unit, scale) in [("s", 1.0), ("ms", 1e-3), ("us", 1e-6)] {
+        if s >= scale {
+            return format!("{} {unit}", crate::expr::format_number((s / scale * 1e6).round() / 1e6));
+        }
+    }
+    format!("{} s", crate::expr::format_number(s))
+}
+
 pub fn check(elements: &[RawElement], resolver: &Resolver, default_margin: f64) -> Vec<Finding> {
     let (rows, mut findings) = compute(elements, resolver, default_margin);
+    let (cpu, more) = compute_cpu(elements, resolver, default_margin);
+    findings.extend(more);
+    for r in cpu.iter().filter(|r| r.utilisation() > r.limit() + 1e-9) {
+        let who = r.tasks.iter().map(|t| format!("{} {:.1}%", t.element, t.utilisation() * 100.0)).collect::<Vec<_>>().join(", ");
+        findings.push((
+            true,
+            "E692",
+            r.file.clone(),
+            format!(
+                "{}: CPU utilisation {:.1}% exceeds the limit {:.1}% ({} bound {:.1}% x {}% margin); tasks: {who}",
+                r.element,
+                r.utilisation() * 100.0,
+                r.limit() * 100.0,
+                r.scheduling,
+                r.bound() * 100.0,
+                crate::expr::format_number(r.margin)
+            ),
+        ));
+    }
     for r in rows.iter().filter(|r| r.used > r.limit() + 1e-9) {
         let who = r.contributors.iter().map(|(n, b)| format!("{n} {}", human(*b))).collect::<Vec<_>>().join(", ");
         findings.push((

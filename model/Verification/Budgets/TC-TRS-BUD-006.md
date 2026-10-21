@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-006
 name: "CPU utilisation of what is allocated to a processor is checked against a bound"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/budgets_cpu.rs
 verifies:

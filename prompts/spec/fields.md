@@ -49,6 +49,10 @@ computed by the tool and never authored.
 | `default` | AttributeDef | any | absent | Value taken when none is given; must satisfy `range`/`pattern` (GH #366) |
 | `ram`, `flash`, `nvm`, `stack` | PartDef/Part | size | absent | Static memory a software part uses; `stack` counts toward RAM (GH #368) |
 | `ramCapacity`, `flashCapacity`, `nvmCapacity` | PartDef/Part | size | absent | Memory a hardware part offers (GH #368) |
+| `period`, `deadline` | PartDef/Part | duration | absent | Timing of a software part, e.g. `10 ms`; with `wcet` it is a task (GH #368) |
+| `priority` | PartDef/Part | integer | absent | Scheduling priority of a software part (GH #368) |
+| `cpuMargin` | PartDef/Part | percent | absent | Percentage of the schedulability bound a hardware part's tasks may use; opts in to the CPU check (GH #368) |
+| `scheduling` | PartDef/Part | `edf`\|`rate-monotonic` | `edf` | Schedulability bound of a hardware part (GH #368) |
 | `margin` | PartDef/Part | percent | `[budgets] margin`, else 100 | Percentage of capacity that may be used (GH #368) |
 | `kind` | ArchitectureRule | string | **required** | `forbid-dependency` or `independence` (GH #369) |
 | `from` | ArchitectureRule | map | **required** | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |

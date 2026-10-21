@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-005
 name: "A task's worst-case time must fit its deadline"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/budgets_cpu.rs
 verifies:

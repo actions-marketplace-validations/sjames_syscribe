@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BUD-004
 name: "A software part declares its timing"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/budgets_cpu.rs
 verifies:

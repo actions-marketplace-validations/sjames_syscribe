@@ -720,22 +720,6 @@ pub struct RawFrontmatter {
     /// On a `MetadataDef`: checks run on every element that carries it, each a string expression or
     /// `{expr, message, severity}` (REQ-TRS-META-050).
     pub checks: Option<Vec<serde_yaml::Value>>,
-    /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
-    pub range: Option<serde_yaml::Value>,
-    /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
-    pub pattern: Option<serde_yaml::Value>,
-    /// On an `AttributeDef`: the value taken when none is given (REQ-TRS-DATA-001).
-    pub default: Option<serde_yaml::Value>,
-    /// On a `PartDef`/`Part`: static memory the part uses (REQ-TRS-BUD-001); `ram` and `stack` count toward RAM.
-    pub ram: Option<serde_yaml::Value>,
-    pub flash: Option<serde_yaml::Value>,
-    pub nvm: Option<serde_yaml::Value>,
-    pub stack: Option<serde_yaml::Value>,
-    /// On a hardware `PartDef`/`Part`: the memory it offers, and the percentage of it that may be used.
-    pub ram_capacity: Option<serde_yaml::Value>,
-    pub flash_capacity: Option<serde_yaml::Value>,
-    pub nvm_capacity: Option<serde_yaml::Value>,
-    pub margin: Option<serde_yaml::Value>,
     /// On an `ArchitectureRule`: `forbid-dependency` or `independence` (REQ-TRS-ARCH-001).
     pub kind: Option<String>,
     /// On an `ArchitectureRule`: the selector of the components the rule starts from (REQ-TRS-ARCH-002).
@@ -1462,6 +1446,29 @@ pub struct ColdFrontmatter2 {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdFrontmatter3 {
+    /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
+    pub range: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
+    pub pattern: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: the value taken when none is given (REQ-TRS-DATA-001).
+    pub default: Option<serde_yaml::Value>,
+    /// On a `PartDef`/`Part`: static memory the part uses (REQ-TRS-BUD-001); `ram` and `stack` count toward RAM.
+    pub ram: Option<serde_yaml::Value>,
+    pub flash: Option<serde_yaml::Value>,
+    pub nvm: Option<serde_yaml::Value>,
+    pub stack: Option<serde_yaml::Value>,
+    /// On a hardware `PartDef`/`Part`: the memory it offers, and the percentage of it that may be used.
+    pub ram_capacity: Option<serde_yaml::Value>,
+    pub flash_capacity: Option<serde_yaml::Value>,
+    pub nvm_capacity: Option<serde_yaml::Value>,
+    pub margin: Option<serde_yaml::Value>,
+    /// On a software `PartDef`/`Part`: its timing (REQ-TRS-BUD-004); `wcet` is the existing field, read as a duration when it is one.
+    pub period: Option<serde_yaml::Value>,
+    pub deadline: Option<serde_yaml::Value>,
+    pub priority: Option<serde_yaml::Value>,
+    /// On a hardware `PartDef`/`Part`: the CPU budget of what is allocated to it (REQ-TRS-BUD-006).
+    pub cpu_margin: Option<serde_yaml::Value>,
+    pub scheduling: Option<String>,
     pub is_reference: Option<bool>,
     pub is_derived: Option<bool>,
     pub is_constant: Option<bool>,
@@ -1708,6 +1715,29 @@ pub struct ViewInclude {
 #[derive(Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ColdWire {
+    /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
+    pub range: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
+    pub pattern: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: the value taken when none is given (REQ-TRS-DATA-001).
+    pub default: Option<serde_yaml::Value>,
+    /// On a `PartDef`/`Part`: static memory the part uses (REQ-TRS-BUD-001); `ram` and `stack` count toward RAM.
+    pub ram: Option<serde_yaml::Value>,
+    pub flash: Option<serde_yaml::Value>,
+    pub nvm: Option<serde_yaml::Value>,
+    pub stack: Option<serde_yaml::Value>,
+    /// On a hardware `PartDef`/`Part`: the memory it offers, and the percentage of it that may be used.
+    pub ram_capacity: Option<serde_yaml::Value>,
+    pub flash_capacity: Option<serde_yaml::Value>,
+    pub nvm_capacity: Option<serde_yaml::Value>,
+    pub margin: Option<serde_yaml::Value>,
+    /// On a software `PartDef`/`Part`: its timing (REQ-TRS-BUD-004); `wcet` is the existing field, read as a duration when it is one.
+    pub period: Option<serde_yaml::Value>,
+    pub deadline: Option<serde_yaml::Value>,
+    pub priority: Option<serde_yaml::Value>,
+    /// On a hardware `PartDef`/`Part`: the CPU budget of what is allocated to it (REQ-TRS-BUD-006).
+    pub cpu_margin: Option<serde_yaml::Value>,
+    pub scheduling: Option<String>,
     pub is_variation: Option<bool>,
     pub expression: Option<String>,
     pub metadata: Option<Vec<serde_yaml::Value>>,
@@ -2545,6 +2575,22 @@ impl ColdWire {
                 derived_from_cybersecurity_goal: w.derived_from_cybersecurity_goal,
                 cybersecurity_properties: w.cybersecurity_properties,
                 tier3: Boxed::of(ColdFrontmatter3 {
+                    range: w.range,
+                    pattern: w.pattern,
+                    default: w.default,
+                    ram: w.ram,
+                    flash: w.flash,
+                    nvm: w.nvm,
+                    stack: w.stack,
+                    ram_capacity: w.ram_capacity,
+                    flash_capacity: w.flash_capacity,
+                    nvm_capacity: w.nvm_capacity,
+                    margin: w.margin,
+                    period: w.period,
+                    deadline: w.deadline,
+                    priority: w.priority,
+                    cpu_margin: w.cpu_margin,
+                    scheduling: w.scheduling,
                     is_reference: w.is_reference,
                     is_derived: w.is_derived,
                     is_constant: w.is_constant,
