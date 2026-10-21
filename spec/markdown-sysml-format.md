@@ -1473,6 +1473,8 @@ The `operations:` field declares callable operations (synchronous) or receptions
 | `isAsync` | bool | optional | `false` | If `true`, this is a reception — caller does not block waiting for a result; `returnType` must be absent |
 | `parameters` | list | optional | `[]` | Typed, directional parameters (see table below) |
 | `returnType` | string | optional | absent | Qualified name of the element typing the return value; mutually exclusive with `isAsync: true` |
+| `errors` | string or list | optional | absent | Error types the operation can raise: an `ItemDef`, `AttributeDef` or enumeration each (`E670`); not on an asynchronous operation |
+| `realizedBy` | string | optional | absent | The `ActionDef` that implements the operation (`E671`); its parameters must match the operation's (`E672`): the same names, directions, types and units, and its one `direction: return` parameter is the `returnType` |
 
 **Parameter entry schema** (each entry in `parameters:`):**
 
@@ -1739,6 +1741,28 @@ features:
     value: SI::K
 ---
 A thermodynamic temperature value defaulting to Kelvin.
+```
+
+**Value constraints** (`REQ-TRS-DATA-001`..`-003`, GH #366). An `AttributeDef` may constrain the values of the type it defines:
+
+| Field | YAML type | Description |
+|---|---|---|
+| `range` | string | A numeric interval: `lo..hi` (closed), or `[lo, hi]`, `(lo, hi)`, `[lo, hi)`, `(lo, hi]` with a round bracket for an open end; `lo <= hi` (`E680`) |
+| `pattern` | string | A regular expression a string value must match in full (`E680` if invalid) |
+| `default` | any | The value taken when none is given; it must satisfy the constraints (`E681`) |
+| `unit` | string | The unit `range` is stated in; a bound value written with a unit is converted to it |
+
+A specialising `AttributeDef` (a *typedef*) inherits `range` and `pattern` and may narrow the range, never widen it (`E683`); an `ItemDef` whose features are attributes is a *struct*. A `value:` bound to an inline feature or an `Attribute` typed by a constrained type must satisfy the effective constraints (`E682`). A type that declares none of the fields adds no check, and the three fields on any other element type are `W047`.
+
+```yaml
+---
+type: AttributeDef
+name: Speed
+unit: SI::m_per_s
+range: "0..70"
+default: 0
+---
+Vehicle speed in metres per second.
 ```
 
 #### 8.5.2 `EnumerationDef`
@@ -4011,7 +4035,7 @@ edges:
 
 **Completeness rule:** the parser must warn if any `SendAction` or `AcceptAction` in the subject `ActionDef`'s sub-actions (reachable via `subActions:` or `steps:`) is absent from `edges:`. The rule applies to a manifest diagram only: a derived Sequence diagram (below) generates one edge per message itself, so `W080` is never raised on it.
 
-**Derived content** (a `subject:` and no `shapes:`, §8.16.2; `REQ-TRS-VIS-021`): for a subject that is an `ActionDef` or `Action` (or a `UseCaseDef`/`UseCase` with `actors:`), the generator produces:
+**Derived content** (a `subject:` and no `shapes:`, §8.16.2; `REQ-TRS-VIS-021`): for a subject that is an `ActionDef` or `Action` (or a `UseCaseDef`/`UseCase` with `actors:`), or a `PartDef`/`Part` (`REQ-TRS-SEQ-001`: its behaviour is the actions its `performs:` entries name, in declaration order, a `Part` usage with none using its definition's; a part that performs no action is `W418`), the generator produces:
 
 - one `lifeline` per participant, in first-appearance order: the subject itself first, then every element a `SendAction`'s `to:` chain or an `AcceptAction`'s/`SendAction`'s `via:` chain resolves to (a port chain resolves to the part that owns the port — an inline feature of the subject, a port element's owner, or the part in the model that owns a port of that name, a part that `performs:` the subject first; an unresolved chain becomes a lifeline labelled by the chain text, drawn dashed), then each entry of the subject's `actors:` as an `actor`;
 - one `message` edge per `SendAction` (from the subject's lifeline to the `to:`/`via:` participant, labelled `name(Payload)` from the payload's last segment and the action name) and one per `AcceptAction` (from the `via:` participant to the subject's lifeline, labelled by the payload, else the trigger), in execution order: `successionConnections:` topological order when declared (ties and unmentioned steps in declaration order), else declaration order, descending into an `IfAction`'s `then`/`else` and a `LoopAction`'s `body`;
@@ -6494,6 +6518,13 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
+| `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
+| `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
+| `E680` | An `AttributeDef`'s `range:` is not an interval (`lo..hi`, `[lo, hi]`, `(lo, hi)`, `[lo, hi)` or `(lo, hi]`, with `lo <= hi`) or not text, or its `pattern:` is not a valid regular expression (REQ-TRS-DATA-001). |
+| `E681` | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
+| `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
+| `E683` | A specialising `AttributeDef` widens its supertype: a `range:` not contained in the supertype's (an open end of the supertype is not covered by a closed end), or a different `pattern:` (REQ-TRS-DATA-002). |
 | `E690` | The static memory of the components allocated to a hardware part (and of everything they contain, each counted once) exceeds `capacity × margin / 100` for a resource it declares a capacity for (`ramCapacity`, `flashCapacity`, `nvmCapacity`); RAM includes `stack`. Names the part, the resource, the use, the limit and the contributors, largest first (REQ-TRS-BUD-002). |
 | `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). |
 
@@ -9185,6 +9216,7 @@ since `status: in_progress` alone already signals active work.
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
 | `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
+| `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
 | Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |

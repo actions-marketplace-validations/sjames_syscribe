@@ -720,6 +720,12 @@ pub struct RawFrontmatter {
     /// On a `MetadataDef`: checks run on every element that carries it, each a string expression or
     /// `{expr, message, severity}` (REQ-TRS-META-050).
     pub checks: Option<Vec<serde_yaml::Value>>,
+    /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
+    pub range: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
+    pub pattern: Option<serde_yaml::Value>,
+    /// On an `AttributeDef`: the value taken when none is given (REQ-TRS-DATA-001).
+    pub default: Option<serde_yaml::Value>,
     /// On a `PartDef`/`Part`: static memory the part uses (REQ-TRS-BUD-001); `ram` and `stack` count toward RAM.
     pub ram: Option<serde_yaml::Value>,
     pub flash: Option<serde_yaml::Value>,
