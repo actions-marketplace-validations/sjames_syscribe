@@ -1509,7 +1509,7 @@ Read-only. For every package declaring `sysmlSubmodel: true` ([Native SysMLv2 Su
 $ syscribe -m model/ meta [--def <Def>] [--group-by <key>] [--json]
 ```
 
-Without `--def`, counts the applications of every stereotype. With `--def <Def>` it lists the elements that apply `Def` or a specialisation of it; `--group-by <key>` groups them by that tagged value (written or defaulted), largest group first, an element without the value in `(unset)`. `syscribe -m model/ meta --def Regulatory --group-by status` is the compliance worklist (REQ-TRS-META-052). Gate the same data in CI with `validate --deny-meta Regulatory.status=unverified` or a standing `[gates] deny_meta` list in `.syscribe.toml`, which `baseline create` also honours (REQ-TRS-META-051, -054).
+Without `--def`, counts the applications of every stereotype. With `--def <Def>` it lists the elements that apply `Def` or a specialisation of it; `--group-by <key>` groups them by that tagged value (written or defaulted), largest group first, an element without the value in `(unset)`. `syscribe -m model/ meta --def Regulatory --group-by status` is the compliance worklist (REQ-TRS-META-052). Gate the same data in CI with `validate --deny-meta Regulatory.status=unverified` or a standing `[gates] deny_meta` list in `.syscribe.toml`, which `baseline create` also honours (REQ-TRS-META-051, -054). A coverage threshold per stereotype is `[[gates.coverage]]` with `select = "Safety where integrity >= 2"` and `min_complete` (a percentage, default 100): `validate` lists the selected requirements — drafts and not-applicable ones excluded — that are not `complete` in the `matrix --rollup` sense and exits 2 when fewer than that percentage are (REQ-TRS-META-053).
 
 ### List the project's link types (`link-types`)
 

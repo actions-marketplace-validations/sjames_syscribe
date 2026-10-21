@@ -282,3 +282,22 @@ fn two_independent_causes_are_two_findings() {
     assert!(names.iter().any(|m| m.contains("Sw::Sup is shared")) && names.iter().any(|m| m.contains("Hw::Mcu is shared")), "{e:?}");
     assert_eq!(e.len(), 2, "{e:?}");
 }
+
+// ── a stereotype selector chooses only the components that apply it (REQ-TRS-ARCH-002, REQ-TRS-META-053) ──
+
+#[test]
+fn a_stereotype_selector_chooses_only_the_components_that_apply_it() {
+    // `Gate` applies Marker and takes input from the supervisor; the unmarked actuator does too.
+    let els = model_with(
+        &format!("{SENSE}  - {{from: sup.o, to: gate.i}}\n  - {{from: sup.o, to: actuator.cmd}}\n"),
+        "kind: forbid-dependency\nfrom: {stereotype: Marker}\nto: {domain: software}\n",
+        &[
+            ("Hw/Marker.md", "---\ntype: MetadataDef\nname: Marker\n---\n"),
+            ("Hw/Gate.md", "---\ntype: PartDef\nname: Gate\ndomain: hardware\nmetadata:\n  - Hw::Marker\nfeatures:\n  - {name: i, type: Port, direction: in}\n---\n\nGate.\n"),
+        ],
+        "  - {name: gate, typedBy: Hw::Gate}\n",
+    );
+    let e = codes(&els, "E660");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(in_order(&e[0].1, &["Hw::Gate", "Sw::Sup"]) && !e[0].1.contains("Hw::Actuator"), "{e:?}");
+}

@@ -19,6 +19,9 @@ gating flags promote chosen warnings to build failures.
     --deny-meta <COND>      A stereotype condition that must not hold (`Regulatory.status=unverified`; any `meta.` predicate of `list`
                             without the prefix). Every element satisfying it is listed and the run exits 2.
                             Repeatable; `[gates] deny_meta = [...]` in .syscribe.toml adds standing conditions.
+                            `[[gates.coverage]]` there (`select = "Safety where integrity >= 2"`, `min_complete = 100`)
+                            requires that percentage of the selected, non-draft requirements to be `complete` in the
+                            matrix roll-up sense; a shortfall is listed and exits 2, a malformed entry exits 1.
     --max-warnings <N>      Fail when the warning count exceeds N.
     --warnings-as-errors    Treat every warning as a gate failure.
     --summary               Print finding counts per code and severity instead of each
