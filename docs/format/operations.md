@@ -23,6 +23,8 @@ The `operations:` field declares callable operations (synchronous) or receptions
 | `isAsync` | bool | optional | `false` | Reception — caller does not block; `returnType` must be absent |
 | `parameters` | list | optional | `[]` | Typed, directional parameters |
 | `returnType` | string | optional | absent | Qualified name of the return type; mutually exclusive with `isAsync: true` |
+| `errors` | string or list | optional | absent | Error types the operation can raise (`ItemDef`, `AttributeDef` or an enumeration); not on an async operation |
+| `realizedBy` | string | optional | absent | The `ActionDef` that implements the operation |
 
 ## Parameter entry schema
 
@@ -94,8 +96,30 @@ operations:
 Interface definition for command dispatch between a commander and an executor.
 ```
 
+## Realisation by an action
+
+`realizedBy: <ActionDef>` ties the contract to the behaviour. The action's parameters must match the operation's:
+
+- every operation parameter has an action parameter of the same `name` and `direction` (default `in`), with the same `typedBy` and the same `unit` when both give one;
+- the action has no parameter the operation lacks, apart from its one `direction: return` parameter, which is the operation's `returnType` (both or neither, the same type when both give one); an `isAsync` operation has no return.
+
+Each difference is one `E672` on the element that declares the operation. Operations that declare neither `errors` nor `realizedBy` are not looked at.
+
+```yaml
+operations:
+  - name: compute
+    parameters:
+      - {name: x, typedBy: ScalarValues::Integer, direction: in}
+    returnType: ScalarValues::Boolean
+    errors: [Items::Fault]
+    realizedBy: Behaviour::Compute     # an ActionDef with parameters x (in) and one return
+```
+
 ## Validation
 
 | Code | Severity | Condition |
 |---|---|---|
 | W404 | Warning | Operation `typedBy` (parameter) or `returnType` does not resolve to a known element |
+| E670 | Error | `errors:` entry does not resolve or is not a value type; `errors:` on an async operation |
+| E671 | Error | `realizedBy:` does not resolve to an `ActionDef` |
+| E672 | Error | The realising action's signature differs from the operation's (one per difference) |

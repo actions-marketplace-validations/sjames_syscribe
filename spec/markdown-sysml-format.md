@@ -1473,6 +1473,8 @@ The `operations:` field declares callable operations (synchronous) or receptions
 | `isAsync` | bool | optional | `false` | If `true`, this is a reception — caller does not block waiting for a result; `returnType` must be absent |
 | `parameters` | list | optional | `[]` | Typed, directional parameters (see table below) |
 | `returnType` | string | optional | absent | Qualified name of the element typing the return value; mutually exclusive with `isAsync: true` |
+| `errors` | string or list | optional | absent | Error types the operation can raise: an `ItemDef`, `AttributeDef` or enumeration each (`E670`); not on an asynchronous operation |
+| `realizedBy` | string | optional | absent | The `ActionDef` that implements the operation (`E671`); its parameters must match the operation's (`E672`): the same names, directions, types and units, and its one `direction: return` parameter is the `returnType` |
 
 **Parameter entry schema** (each entry in `parameters:`):**
 
@@ -4033,7 +4035,7 @@ edges:
 
 **Completeness rule:** the parser must warn if any `SendAction` or `AcceptAction` in the subject `ActionDef`'s sub-actions (reachable via `subActions:` or `steps:`) is absent from `edges:`. The rule applies to a manifest diagram only: a derived Sequence diagram (below) generates one edge per message itself, so `W080` is never raised on it.
 
-**Derived content** (a `subject:` and no `shapes:`, §8.16.2; `REQ-TRS-VIS-021`): for a subject that is an `ActionDef` or `Action` (or a `UseCaseDef`/`UseCase` with `actors:`), the generator produces:
+**Derived content** (a `subject:` and no `shapes:`, §8.16.2; `REQ-TRS-VIS-021`): for a subject that is an `ActionDef` or `Action` (or a `UseCaseDef`/`UseCase` with `actors:`), or a `PartDef`/`Part` (`REQ-TRS-SEQ-001`: its behaviour is the actions its `performs:` entries name, in declaration order, a `Part` usage with none using its definition's; a part that performs no action is `W418`), the generator produces:
 
 - one `lifeline` per participant, in first-appearance order: the subject itself first, then every element a `SendAction`'s `to:` chain or an `AcceptAction`'s/`SendAction`'s `via:` chain resolves to (a port chain resolves to the part that owns the port — an inline feature of the subject, a port element's owner, or the part in the model that owns a port of that name, a part that `performs:` the subject first; an unresolved chain becomes a lifeline labelled by the chain text, drawn dashed), then each entry of the subject's `actors:` as an `actor`;
 - one `message` edge per `SendAction` (from the subject's lifeline to the `to:`/`via:` participant, labelled `name(Payload)` from the payload's last segment and the action name) and one per `AcceptAction` (from the `via:` participant to the subject's lifeline, labelled by the payload, else the trigger), in execution order: `successionConnections:` topological order when declared (ties and unmentioned steps in declaration order), else declaration order, descending into an `IfAction`'s `then`/`else` and a `LoopAction`'s `body`;
@@ -6489,6 +6491,9 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
+| `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
+| `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
 | `E680` | An `AttributeDef`'s `range:` is not an interval (`lo..hi`, `[lo, hi]`, `(lo, hi)`, `[lo, hi)` or `(lo, hi]`, with `lo <= hi`) or not text, or its `pattern:` is not a valid regular expression (REQ-TRS-DATA-001). |
 | `E681` | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
 | `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |

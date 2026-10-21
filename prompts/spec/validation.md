@@ -846,6 +846,9 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E661` | error | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `W661` | warning | The same violation under `severity: warning`. |
 | `E662` | error | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E670` | error | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
+| `E671` | error | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
+| `E672` | error | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
 | `E680` | error | An `AttributeDef`'s `range:` is not an interval (`lo..hi`, `[lo, hi]`, `(lo, hi)`, `[lo, hi)` or `(lo, hi]`, with `lo <= hi`) or not text, or its `pattern:` is not a valid regular expression (REQ-TRS-DATA-001). |
 | `E681` | error | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
 | `E682` | error | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
