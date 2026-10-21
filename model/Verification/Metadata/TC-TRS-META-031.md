@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-031
 name: "Stereotypes ship as profiles enabled in configuration"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/metadata_profile_enable.rs
 verifies:

@@ -710,6 +710,16 @@ pub struct RawFrontmatter {
     pub redefines: Option<serde_yaml::Value>,
     pub multiplicity: Option<String>,
     pub is_abstract: Option<bool>,
+    /// On a package: `true` marks it a stereotype profile (REQ-TRS-META-031).
+    pub profile: Option<bool>,
+    /// On a package: the version of a stereotype profile (REQ-TRS-META-031).
+    pub version: Option<String>,
+    /// Set by the walker on a profile package named in `[metadata] profiles` (REQ-TRS-META-031).
+    /// Never authored, never serialised.
+    #[serde(skip)]
+    pub profile_enabled: bool,
+    /// On a profile package: rules that apply a stereotype to matching elements (REQ-TRS-META-033).
+    pub auto_apply: Option<Vec<serde_yaml::Value>>,
     pub direction: Option<String>,
     /// `unit:` on an `Attribute` — qualified/simple name of the unit of a quantity-valued `value:`
     /// (the spec's inline-feature `unit` shorthand, §3.6.1, on a standalone element;

@@ -1262,6 +1262,18 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("rateStatus");
             }
         }
+        // `profile:`, `version:` and `autoApply:` belong to a stereotype profile package (REQ-TRS-META-031).
+        if !matches!(fm.element_type, Some(ElementType::Package | ElementType::LibraryPackage | ElementType::Namespace)) {
+            if fm.profile.is_some() {
+                unknown_keys.push("profile");
+            }
+            if fm.version.is_some() {
+                unknown_keys.push("version");
+            }
+            if fm.auto_apply.is_some() {
+                unknown_keys.push("autoApply");
+            }
+        }
         unknown_keys.sort_unstable();
         for key in unknown_keys {
             findings.push(warning(
@@ -1535,7 +1547,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             for why in tv::narrowing_problems(elements, &resolver, elem) {
                 findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
             }
-            for c in fm.constraints.iter().flatten() {
+            for c in fm.constraints.iter().flatten().filter(|_| tv::constraints_active(elements, elem)) {
                 if let Some(src) = c.as_str() {
                     match tv::parse_constraint(src) {
                         Err(e) => findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' does not parse: {e}"))),
@@ -1662,7 +1674,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         }
                         // E327: constraints of the definition, evaluated for this application.
                         // The definition's own constraints and every ancestor's (REQ-TRS-META-030).
-                        for owner in &chain {
+                        for owner in chain.iter().filter(|o| tv::constraints_active(elements, o)) {
                             let owner_label = owner.frontmatter.name.clone().unwrap_or_else(|| def_label.clone());
                             for c in owner.frontmatter.constraints.iter().flatten() {
                                 let Some(src) = c.as_str() else { continue };
@@ -9477,6 +9489,24 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // Dormant unless some Configuration declares `subConfigurations:`, same as
     // the checks above.
     findings.extend(open_parameter_findings(elements, config, &resolver));
+
+    // W316: `[metadata] profiles` names something that is not a `profile: true` package
+    // (REQ-TRS-META-031).
+    if let Some(root) = &config.model_root {
+        for name in crate::tagged_values::load_config(root).profiles {
+            let ok = elements.iter().any(|e| e.qualified_name == name && e.frontmatter.profile == Some(true));
+            if !ok {
+                findings.push(warning(
+                    "W316",
+                    &root.join(".syscribe.toml").to_string_lossy(),
+                    &format!("[metadata] profiles names '{name}', which is not a package with `profile: true`"),
+                ));
+            }
+        }
+    }
+
+    // The built-in library is the tool's, not the model's: nothing is reported against it.
+    findings.retain(|f| !f.file.starts_with(crate::tagged_values::BUILTIN_PREFIX));
 
     ValidationResult {
         findings,

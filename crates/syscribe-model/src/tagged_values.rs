@@ -382,6 +382,8 @@ pub struct EffectiveApp {
     /// The definition and its ancestors, nearest first (qualified names; just `def` when it does
     /// not resolve). An application counts as an application of every one of them.
     pub lineage: Vec<String>,
+    /// Applied by a profile's `autoApply:` rule, not written on the element (REQ-TRS-META-033).
+    pub derived: bool,
 }
 
 fn metadata_def<'a>(
@@ -394,36 +396,53 @@ fn metadata_def<'a>(
         .filter(|d| matches!(d.frontmatter.element_type, Some(crate::element::ElementType::MetadataDef)))
 }
 
-/// The element's stereotype applications with defaults applied. Never written to the file.
+/// One application with its definition resolved, defaults filled in and lineage computed.
+fn build_app(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    a: crate::element::MetaApply,
+    derived: bool,
+) -> EffectiveApp {
+    let def = metadata_def(elements, resolver, &a.def);
+    let mut values = a.values.clone();
+    let mut defaulted = Vec::new();
+    let mut names = vec![];
+    if let Some(d) = def {
+        let chain = lineage(elements, resolver, d);
+        names = chain.iter().map(|x| x.qualified_name.clone()).collect();
+        for spec in merged_specs(&chain) {
+            if let (Some(dv), false) = (&spec.default, values.iter().any(|(k, _)| k == &spec.name)) {
+                values.push((spec.name.clone(), dv.clone()));
+                defaulted.push(spec.name);
+            }
+        }
+    }
+    let def_name = def.map(|d| d.qualified_name.clone()).unwrap_or(a.def);
+    if names.is_empty() {
+        names.push(def_name.clone());
+    }
+    EffectiveApp { def: def_name, values, defaulted, lineage: names, derived }
+}
+
+/// The element's stereotype applications with defaults applied, followed by the applications the
+/// enabled profiles derive for it (`REQ-TRS-META-033`). Never written to the file.
 pub fn effective_applications(
     elements: &[crate::element::RawElement],
     resolver: &crate::resolver::Resolver,
     e: &crate::element::RawElement,
 ) -> Vec<EffectiveApp> {
-    crate::element::metadata_applications(&e.frontmatter.metadata)
+    let mut out: Vec<EffectiveApp> = crate::element::metadata_applications(&e.frontmatter.metadata)
         .into_iter()
-        .map(|a| {
-            let def = metadata_def(elements, resolver, &a.def);
-            let mut values = a.values.clone();
-            let mut defaulted = Vec::new();
-            let mut names = vec![];
-            if let Some(d) = def {
-                let chain = lineage(elements, resolver, d);
-                names = chain.iter().map(|x| x.qualified_name.clone()).collect();
-                for spec in merged_specs(&chain) {
-                    if let (Some(dv), false) = (&spec.default, values.iter().any(|(k, _)| k == &spec.name)) {
-                        values.push((spec.name.clone(), dv.clone()));
-                        defaulted.push(spec.name);
-                    }
-                }
-            }
-            let def_name = def.map(|d| d.qualified_name.clone()).unwrap_or(a.def);
-            if names.is_empty() {
-                names.push(def_name.clone());
-            }
-            EffectiveApp { def: def_name, values, defaulted, lineage: names }
-        })
-        .collect()
+        .map(|a| build_app(elements, resolver, a, false))
+        .collect();
+    for a in derived_applications(elements, e) {
+        let d = build_app(elements, resolver, a, true);
+        // An explicit application of the same definition wins.
+        if !out.iter().any(|x| !x.derived && x.lineage.contains(&d.def)) {
+            out.push(d);
+        }
+    }
+    out
 }
 
 /// Reference-typed tagged values an element holds: `(Stereotype.key, target as written)`.
@@ -588,6 +607,166 @@ pub fn narrowing_problems(
             if !extra.is_empty() {
                 out.push(format!("annotates {} which its supertype does not", extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
             }
+        }
+    }
+    out
+}
+
+// ── `[metadata]` configuration, profiles and the built-in library ───────────
+
+/// The `[metadata]` table of `.syscribe.toml`.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct MetaConfig {
+    /// Qualified names of the `profile: true` packages to enable.
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    /// Make the built-in `StdMetadata` library part of the model even if nothing refers to it.
+    #[serde(default)]
+    pub stdlib: bool,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MetaToml {
+    #[serde(default)]
+    metadata: MetaConfig,
+}
+
+/// Read `[metadata]` from `<model_root>/.syscribe.toml`; absent or unreadable means defaults.
+pub fn load_config(model_root: &std::path::Path) -> MetaConfig {
+    std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<MetaToml>(&t).ok())
+        .map(|c| c.metadata)
+        .unwrap_or_default()
+}
+
+const STD_FILES: &[(&str, &str)] = &[
+    ("_index", include_str!("../stdlib/StdMetadata/_index.md")),
+    ("Safety", include_str!("../stdlib/StdMetadata/Safety.md")),
+    ("Optional", include_str!("../stdlib/StdMetadata/Optional.md")),
+    ("Regulatory", include_str!("../stdlib/StdMetadata/Regulatory.md")),
+    ("External", include_str!("../stdlib/StdMetadata/External.md")),
+    ("Environment", include_str!("../stdlib/StdMetadata/Environment.md")),
+    ("Deployment", include_str!("../stdlib/StdMetadata/Deployment.md")),
+    ("Budget", include_str!("../stdlib/StdMetadata/Budget.md")),
+];
+
+/// The marker every built-in element's `file_path` starts with.
+pub const BUILTIN_PREFIX: &str = "builtin:";
+
+fn refers_to_std(elements: &[crate::element::RawElement]) -> bool {
+    let std = |s: &str| s.starts_with("StdMetadata::");
+    elements.iter().any(|e| {
+        crate::element::metadata_applications(&e.frontmatter.metadata).iter().any(|a| std(&a.def))
+            || match &e.frontmatter.supertype {
+                Some(Yaml::String(t)) => std(t),
+                Some(Yaml::Sequence(q)) => q.iter().filter_map(Yaml::as_str).any(std),
+                _ => false,
+            }
+    })
+}
+
+/// Final step of a model walk: mark the enabled profiles and, when it is used or asked for, add
+/// the built-in `StdMetadata` library (`REQ-TRS-META-031`, `-032`).
+pub fn finish_walk(elements: &mut Vec<crate::element::RawElement>, model_root: &std::path::Path) {
+    let cfg = load_config(model_root);
+    for e in elements.iter_mut() {
+        if e.frontmatter.profile == Some(true) && cfg.profiles.iter().any(|p| p == &e.qualified_name) {
+            e.frontmatter.profile_enabled = true;
+        }
+    }
+    if elements.iter().any(|e| e.qualified_name == "StdMetadata") || !(cfg.stdlib || refers_to_std(elements)) {
+        return;
+    }
+    for (stem, text) in STD_FILES {
+        let (fm_str, body) = crate::frontmatter::split_frontmatter(text);
+        let Some(Ok(frontmatter)) = fm_str.map(crate::frontmatter::parse_frontmatter) else { continue };
+        let qname = if *stem == "_index" { "StdMetadata".to_string() } else { format!("StdMetadata::{stem}") };
+        elements.push(crate::element::RawElement {
+            qualified_name: qname,
+            file_path: format!("{BUILTIN_PREFIX}StdMetadata/{stem}.md"),
+            frontmatter,
+            doc: body.to_string(),
+            parse_issue: None,
+            derived: Default::default(),
+            derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
+        });
+    }
+}
+
+/// Whether `owner`'s `constraints:` are in force: always, unless it lives in a `profile: true`
+/// package that is not enabled.
+pub fn constraints_active(elements: &[crate::element::RawElement], owner: &crate::element::RawElement) -> bool {
+    let mut parts: Vec<&str> = owner.qualified_name.split("::").collect();
+    while parts.len() > 1 {
+        parts.pop();
+        let q = parts.join("::");
+        if let Some(p) = elements.iter().find(|e| e.qualified_name == q) {
+            if p.frontmatter.profile == Some(true) {
+                return p.frontmatter.profile_enabled;
+            }
+        }
+    }
+    true
+}
+
+struct AutoRule {
+    type_name: Option<String>,
+    wheres: Vec<(String, serde_json::Value)>,
+    apply: Yaml,
+}
+
+fn auto_rules(elements: &[crate::element::RawElement]) -> Vec<AutoRule> {
+    let mut out = Vec::new();
+    for p in elements.iter().filter(|e| e.frontmatter.profile_enabled) {
+        for rule in p.frontmatter.auto_apply.iter().flatten() {
+            let Some(apply) = rule.get("apply").cloned() else { continue };
+            let select = rule.get("select");
+            let type_name = select.and_then(|s| s.get("type")).and_then(Yaml::as_str).map(str::to_string);
+            let wheres = select
+                .and_then(|s| s.get("where"))
+                .and_then(Yaml::as_mapping)
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, v)| Some((k.as_str()?.to_string(), serde_json::to_value(v).ok()?)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            out.push(AutoRule { type_name, wheres, apply });
+        }
+    }
+    out
+}
+
+thread_local! {
+    static AUTO_RULES: std::cell::RefCell<Option<(usize, usize, std::rc::Rc<Vec<AutoRule>>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The applications the enabled profiles' `autoApply:` rules give `e`.
+fn derived_applications(elements: &[crate::element::RawElement], e: &crate::element::RawElement) -> Vec<crate::element::MetaApply> {
+    let key = (elements.as_ptr() as usize, elements.len());
+    let rules = AUTO_RULES.with(|c| {
+        let mut c = c.borrow_mut();
+        if !matches!(&*c, Some((p, n, _)) if (*p, *n) == key) {
+            *c = Some((key.0, key.1, std::rc::Rc::new(auto_rules(elements))));
+        }
+        c.as_ref().unwrap().2.clone()
+    });
+    if rules.is_empty() {
+        return Vec::new();
+    }
+    let ty = e.frontmatter.element_type.as_ref().map(|t| format!("{t:?}"));
+    let mut json: Option<serde_json::Value> = None;
+    let mut out = Vec::new();
+    for r in rules.iter() {
+        if r.type_name.as_ref().is_some_and(|t| Some(t) != ty.as_ref()) {
+            continue;
+        }
+        let j = json.get_or_insert_with(|| serde_json::to_value(&e.frontmatter).unwrap_or_default());
+        if r.wheres.iter().all(|(k, v)| j.get(k) == Some(v)) {
+            out.extend(crate::element::metadata_applications(&Some(vec![r.apply.clone()])));
         }
     }
     out

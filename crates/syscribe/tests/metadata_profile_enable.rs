@@ -3,7 +3,7 @@
 //!
 //! Written before the implementation; every test fails until it lands.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 

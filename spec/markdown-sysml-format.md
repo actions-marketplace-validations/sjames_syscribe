@@ -3319,6 +3319,16 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   defaults are inherited. A sub-definition may narrow a `range` or `enumValues` and `annotates:`,
   never widen them (**`E329`**, which also covers an unresolved, non-`MetadataDef` or cyclic
   `supertype:`); an `isAbstract` definition cannot be applied (**`E328`**);
+- a package with **`profile: true`** (optionally `version:`) is a *stereotype profile* (REQ-TRS-META-031):
+  the `constraints:` of the definitions it contains, and its **`autoApply:`** rules, are in force only
+  when `[metadata] profiles = ["Pkg"]` in `.syscribe.toml` enables it (**`W316`** if that names
+  something else). A definition outside any profile package is always checked. An `autoApply:` rule
+  is `{select: {type, where: {field: value, …}}, apply: {type: Def, key: value, …}}`: matching elements
+  carry the application without it being written (shown `(derived)`; `derived: true` in `list --json`);
+  an explicit application of the same definition wins (REQ-TRS-META-033);
+- the built-in **`StdMetadata`** package (`Safety`, `Optional`, `Regulatory`, `External`,
+  `Environment`, `Deployment`, `Budget`) is part of the model whenever an element refers to
+  `StdMetadata::…` or `[metadata] stdlib = true`; it is read-only (REQ-TRS-META-032);
 - a `MetadataDef` may carry `constraints:` — boolean expressions over its own tagged values
   (`integrity >= 2 implies goal != ""`) — and a false one is **`E327`** on the applying element
   (REQ-TRS-META-014). An absent String is `""` and an absent Boolean `false`; a constraint over
@@ -6397,6 +6407,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W313` | An `accepted` `ADR` supersedes an ADR whose status is not `superseded` |
 | `W314` | A non-draft element's `breakdownAdr:` resolves to a `superseded` ADR (cite its successor) |
 | `W315` | A `done` `PlanningItem` achieves a non-Requirement work product (`SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan`, `Baseline`) whose status is still `draft`/`review`/`proposed` |
+| `W316` | `[metadata] profiles` names an element that is not a package with `profile: true` (or does not exist) |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9056,6 +9067,7 @@ since `status: in_progress` alone already signals active work.
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
+| Stereotype profiles | `profile`, `version`, `autoApply` (on a package; see §8.15.2) | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |
 | Executable models and plants | `plant`, `fmu`, `plants`, `plantStep`, `plantConnections` (parts and TestCases); on a `PlantDef`: `parameters`, `inputs`, `outputs`, `states`, `equations`, `method`, `maxStep` | 8.8.6; `docs/model-guide/plant-models.md`, `fmi-plants.md` |

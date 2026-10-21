@@ -1393,7 +1393,7 @@ TestCase    = ["QT"]
 | W057 | An `ISQ::` quantity type or `SI::` unit is not known to this tool's tables (a subset of the SysML v2 library); SI prefixes (`k`, `M`, `m`, `µ`/`u`, `n`, … and `kilo`, `milli`, …) are parsed, so `kN`, `mm`, `MHz` are known — usually a typo; no dimensional check is possible for it |
 | W056 | A `connections:` endpoint's later segment (the port after the part) is not found on the part it follows — advisory; models often wire a sibling port loosely |
 
-## Stereotypes — metadata applications (E317, E318, E322–E329, W045)
+## Stereotypes — metadata applications (E317, E318, E322–E329, W045, W316)
 
 SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an element via its `metadata:` field (bare reference, or a map whose `apply`/`def` names the def and whose other keys are tagged values).
 
@@ -1410,6 +1410,7 @@ SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an el
 | E327 | A `constraints:` entry of a `MetadataDef` evaluates false for an application (`A implies B` is accepted), or does not parse (reported on the definition). |
 | E328 | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
 | E329 | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
+| W316 | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 
 ## Audit policy configuration (W934)
 

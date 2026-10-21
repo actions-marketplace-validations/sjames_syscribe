@@ -593,6 +593,10 @@ pub fn cmd_set(
             std::process::exit(1);
         }
     };
+    if elem.file_path.starts_with(syscribe_model::tagged_values::BUILTIN_PREFIX) {
+        eprintln!("{} is built into the tool and read-only; specialise it in your own package instead.", elem.qualified_name);
+        std::process::exit(1);
+    }
 
     let Some(&op) = op_args.first() else {
         eprintln!("Usage: syscribe set <qname|id> status=<value> | evidence.add ref=<id>|path=<path> | achieves.add <req-id>");

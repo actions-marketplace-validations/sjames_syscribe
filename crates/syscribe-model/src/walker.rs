@@ -198,6 +198,8 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
     crate::plugins::apply_foreign_plugins(&mut elements, model_root);
     // Annotated-source ingestion: in-process comment-marker scan (ADR-SYS-ANNOTATE-001).
     crate::annotations::apply_annotation_scans(&mut elements, model_root);
+    // Stereotype profiles enabled in `[metadata]`, and the built-in `StdMetadata` library.
+    crate::tagged_values::finish_walk(&mut elements, model_root);
     // §3.10 `about:` comments (REQ-TRS-PARSE-011): after every synthesis pass
     // so a comment can annotate a synthesized element too.
     attach_about_comments(&mut elements);

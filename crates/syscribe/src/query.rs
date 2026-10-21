@@ -761,8 +761,9 @@ pub fn cmd_show(
                 .iter()
                 .map(|a| {
                     let nm = a.def.rsplit("::").next().unwrap_or(&a.def);
+                    let derived = if a.derived { " (derived)" } else { "" };
                     if a.values.is_empty() {
-                        format!("«{}»", nm)
+                        format!("«{}»{}", nm, derived)
                     } else {
                         let vs: Vec<String> = a
                             .values
@@ -772,7 +773,7 @@ pub fn cmd_show(
                                 format!("{}={}{}", k, custom_field_display(v), mark)
                             })
                             .collect();
-                        format!("«{}» {}", nm, vs.join(", "))
+                        format!("«{}» {}{}", nm, vs.join(", "), derived)
                     }
                 })
                 .collect();
@@ -1563,9 +1564,6 @@ fn names_stereotype(qname: &str, name: &str) -> bool {
 /// Whether `e` applies stereotype `name` — or a specialisation of it (REQ-TRS-META-030) — by full
 /// reference or last `::` segment.
 fn applies_stereotype(elements: &[RawElement], e: &RawElement, name: &str) -> bool {
-    if e.frontmatter.metadata.is_none() {
-        return false;
-    }
     with_resolver(elements, |resolver| {
         syscribe_model::tagged_values::effective_applications(elements, resolver, e)
             .iter()
@@ -1704,7 +1702,11 @@ pub fn cmd_list(
                                 .iter()
                                 .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(serde_json::Value::Null)))
                                 .collect();
-                            serde_json::json!({"def": a.def, "values": values, "defaulted": a.defaulted})
+                            let mut app = serde_json::json!({"def": a.def, "values": values, "defaulted": a.defaulted});
+                            if a.derived {
+                                app["derived"] = serde_json::json!(true);
+                            }
+                            app
                         })
                         .collect();
                     obj.as_object_mut().unwrap().insert("metadata".into(), serde_json::json!(apps));

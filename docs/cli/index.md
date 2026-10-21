@@ -812,6 +812,16 @@ $ syscribe -m model/ list PartDef --metadata Safety --metadata '!Optional'      
 
 An element without the stereotype or the value never matches, `!=` included. `--metadata` names that are no `MetadataDef` of the model and that no element applies are a usage error. `ls`, `find`, `digest` and `stats` take the same `--where`, and `list --json` carries each element's applications as `metadata: [{def, values, defaulted}]`.
 
+Stereotype **profiles** and the standard library are configured in `.syscribe.toml` (REQ-TRS-META-031, -032):
+
+```toml
+[metadata]
+profiles = ["Profiles::Regulatory"]   # packages with `profile: true`: their constraints and autoApply rules apply
+stdlib   = true                       # add the built-in StdMetadata package (Safety, Optional, Regulatory, …) even if unused
+```
+
+`StdMetadata::…` is also added automatically whenever an element refers to it. This is separate from `[profiles.<name>]`, the *severity* profiles chosen with `validate --profile`.
+
 For `custom.` predicates, `=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
 
 ---

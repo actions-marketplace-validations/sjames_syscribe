@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-033
 name: "A profile may apply stereotypes automatically"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/metadata_profile_enable.rs
 verifies:
