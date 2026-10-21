@@ -1743,6 +1743,28 @@ features:
 A thermodynamic temperature value defaulting to Kelvin.
 ```
 
+**Value constraints** (`REQ-TRS-DATA-001`..`-003`, GH #366). An `AttributeDef` may constrain the values of the type it defines:
+
+| Field | YAML type | Description |
+|---|---|---|
+| `range` | string | A numeric interval: `lo..hi` (closed), or `[lo, hi]`, `(lo, hi)`, `[lo, hi)`, `(lo, hi]` with a round bracket for an open end; `lo <= hi` (`E680`) |
+| `pattern` | string | A regular expression a string value must match in full (`E680` if invalid) |
+| `default` | any | The value taken when none is given; it must satisfy the constraints (`E681`) |
+| `unit` | string | The unit `range` is stated in; a bound value written with a unit is converted to it |
+
+A specialising `AttributeDef` (a *typedef*) inherits `range` and `pattern` and may narrow the range, never widen it (`E683`); an `ItemDef` whose features are attributes is a *struct*. A `value:` bound to an inline feature or an `Attribute` typed by a constrained type must satisfy the effective constraints (`E682`). A type that declares none of the fields adds no check, and the three fields on any other element type are `W047`.
+
+```yaml
+---
+type: AttributeDef
+name: Speed
+unit: SI::m_per_s
+range: "0..70"
+default: 0
+---
+Vehicle speed in metres per second.
+```
+
 #### 8.5.2 `EnumerationDef`
 
 Defines a discrete-valued attribute. The enumerated values are listed in `values:`.
@@ -6472,6 +6494,10 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
 | `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
 | `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
+| `E680` | An `AttributeDef`'s `range:` is not an interval (`lo..hi`, `[lo, hi]`, `(lo, hi)`, `[lo, hi)` or `(lo, hi]`, with `lo <= hi`) or not text, or its `pattern:` is not a valid regular expression (REQ-TRS-DATA-001). |
+| `E681` | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
+| `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
+| `E683` | A specialising `AttributeDef` widens its supertype: a `range:` not contained in the supertype's (an open end of the supertype is not covered by a closed end), or a different `pattern:` (REQ-TRS-DATA-002). |
 
 #### Warnings
 
@@ -9161,6 +9187,7 @@ since `status: in_progress` alone already signals active work.
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
 | `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
+| `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |

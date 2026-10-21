@@ -1274,6 +1274,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("autoApply");
             }
         }
+        // `range:`, `pattern:` and `default:` belong to an AttributeDef (REQ-TRS-DATA-001).
+        if !matches!(fm.element_type, Some(ElementType::AttributeDef)) {
+            for (set, name) in [(fm.range.is_some(), "range"), (fm.pattern.is_some(), "pattern"), (fm.default.is_some(), "default")] {
+                if set {
+                    unknown_keys.push(name);
+                }
+            }
+        }
         // `kind:`, `from:`, `to:` and `via:` belong to an ArchitectureRule (REQ-TRS-ARCH-001).
         if !matches!(fm.element_type, Some(ElementType::ArchitectureRule)) {
             for (set, name) in [(fm.kind.is_some(), "kind"), (fm.from.is_some(), "from"), (fm.to.is_some(), "to"), (fm.via.is_some(), "via")] {
@@ -9550,6 +9558,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
     // Operations bound to behaviour (REQ-TRS-OPS-001..003, GH #364).
     for (is_error, code, file, msg) in crate::operations::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
+
+    // Data types with value constraints (REQ-TRS-DATA-001..003, GH #366).
+    for (is_error, code, file, msg) in crate::data_types::check(elements, &resolver) {
         findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 

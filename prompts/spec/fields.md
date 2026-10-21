@@ -44,6 +44,9 @@ computed by the tool and never authored.
 | `isNegated` | Constraint | bool | `false` |
 | `isSemantic` | MetadataDef | bool | `false` |
 | `isDeploymentPackage` | PartDef/Part | bool | `false` |
+| `range` | AttributeDef | string | absent | Numeric interval of the type's values: `lo..hi`, `[lo, hi)`, … (GH #366) |
+| `pattern` | AttributeDef | string | absent | Regular expression a string value must match in full (GH #366) |
+| `default` | AttributeDef | any | absent | Value taken when none is given; must satisfy `range`/`pattern` (GH #366) |
 | `kind` | ArchitectureRule | string | **required** | `forbid-dependency` or `independence` (GH #369) |
 | `from` | ArchitectureRule | map | **required** | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
 | `to` | ArchitectureRule | map | **required** | Selector of the components the rule is about (same keys as `from`) |
