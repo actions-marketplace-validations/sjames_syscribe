@@ -15,4 +15,5 @@ The expression language shall read stereotype applications on the element in sco
 
 - `has(Def)` is true when the element applies `Def` or a specialisation of it. `meta(Def).key` yields the tagged value, or its default.
 - On an element that does not apply `Def`, `has(Def)` is false and `meta(Def).key` is an absent value, not an error; comparisons against an absent value are false and `is_absent` style checks can test for it.
-- Available wherever expressions are (constraints, view guards, scenario checks, `eval`).
+- Evaluated against the element in scope, so they are available in `MetadataDef` `constraints:` (REQ-TRS-META-014), where a second stereotype may read the first. `eval` reads no model and does not offer them.
+- A call that is malformed, or names a definition that does not resolve, is reported on the definition carrying the constraint.

@@ -4,7 +4,7 @@ id: TC-TRS-META-023
 name: "Expressions read stereotypes with meta() and has()"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_query.rs
+sourceFile: repo:crates/syscribe-model/tests/metadata_expr.rs
 verifies:
   - REQ-TRS-META-023
 tags:

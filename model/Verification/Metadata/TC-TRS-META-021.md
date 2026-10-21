@@ -4,7 +4,7 @@ id: TC-TRS-META-021
 name: "--metadata accepts several definitions and negation"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_query.rs
+sourceFile: repo:crates/syscribe/tests/metadata_query.rs
 verifies:
   - REQ-TRS-META-021
 tags:

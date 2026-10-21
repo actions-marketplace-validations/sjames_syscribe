@@ -4,7 +4,7 @@ id: TC-TRS-META-020
 name: "Filter by tagged value with --where meta"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_query.rs
+sourceFile: repo:crates/syscribe/tests/metadata_query.rs
 verifies:
   - REQ-TRS-META-020
 tags:

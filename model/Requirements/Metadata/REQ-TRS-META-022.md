@@ -13,5 +13,5 @@ Stereotype applications shall be available as structured data in JSON and MCP ou
 
 ## Behavior
 
-- `show --json`, `export` and the MCP read tools list applications as `{def, values}`, with defaulted values marked and the resolved definition's qualified name.
+- `list --json` lists applications under `metadata` as `{def, values, defaulted}`, with the resolved definition's qualified name. (`show` has no JSON mode; the MCP read tools return the same structure.)
 - Output for an element with no applications is unchanged (no empty key is added).
