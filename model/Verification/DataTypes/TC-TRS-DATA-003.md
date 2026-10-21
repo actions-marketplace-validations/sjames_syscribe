@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DATA-003
 name: "A bound value is checked against its type's constraints"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/data_types.rs
 verifies:

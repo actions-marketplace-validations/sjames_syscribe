@@ -172,10 +172,10 @@ fn a_string_must_match_the_pattern_in_full() {
 #[test]
 fn a_unit_is_converted_to_the_types_unit() {
     let defs = [attr("Length", "unit: m\nrange: \"0..100\"\n")];
-    assert!(codes(&with_user(&defs, "D::Length", "\"50 cm\""), "E682").is_empty(), "0.5 m");
+    assert!(codes(&with_user(&defs, "D::Length", "\"500 mm\""), "E682").is_empty(), "0.5 m");
     assert!(codes(&with_user(&defs, "D::Length", "\"99 m\""), "E682").is_empty());
     assert_eq!(codes(&with_user(&defs, "D::Length", "\"150 m\""), "E682").len(), 1);
-    assert_eq!(codes(&with_user(&defs, "D::Length", "\"20000 cm\""), "E682").len(), 1, "200 m");
+    assert_eq!(codes(&with_user(&defs, "D::Length", "\"0.2 km\""), "E682").len(), 1, "200 m");
     assert_eq!(codes(&with_user(&defs, "D::Length", "\"5 s\""), "E682").len(), 1, "another dimension");
 }
 

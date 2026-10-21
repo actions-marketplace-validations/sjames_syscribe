@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DATA-002
 name: "A default and a subtype stay within the constraints"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/data_types.rs
 verifies:

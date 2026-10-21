@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DATA-001
 name: "An AttributeDef constrains its values"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/data_types.rs
 verifies:
