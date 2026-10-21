@@ -396,6 +396,15 @@ fn metadata_def<'a>(
         .filter(|d| matches!(d.frontmatter.element_type, Some(crate::element::ElementType::MetadataDef)))
 }
 
+/// The written applications of a `metadata:` list (an element's, or a connection entry's), with defaults.
+pub fn applications_from(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    metadata: &Option<Vec<Yaml>>,
+) -> Vec<EffectiveApp> {
+    crate::element::metadata_applications(metadata).into_iter().map(|a| build_app(elements, resolver, a, false)).collect()
+}
+
 /// One application with its definition resolved, defaults filled in and lineage computed.
 fn build_app(
     elements: &[crate::element::RawElement],
@@ -431,10 +440,7 @@ pub fn effective_applications(
     resolver: &crate::resolver::Resolver,
     e: &crate::element::RawElement,
 ) -> Vec<EffectiveApp> {
-    let mut out: Vec<EffectiveApp> = crate::element::metadata_applications(&e.frontmatter.metadata)
-        .into_iter()
-        .map(|a| build_app(elements, resolver, a, false))
-        .collect();
+    let mut out = applications_from(elements, resolver, &e.frontmatter.metadata);
     for a in derived_applications(elements, e) {
         let d = build_app(elements, resolver, a, true);
         // An explicit application of the same definition wins.

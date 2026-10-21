@@ -76,6 +76,8 @@ pub struct StereotypeStyle {
     pub width: Option<f64>,
     /// `banner = false` hides the stereotype's `«Name»` banner.
     pub banner: Option<bool>,
+    /// `frame = true` makes the stereotype a swimlane criterion of an IBD with `groupBy: stereotype`.
+    pub frame: Option<bool>,
     /// A tagged-value condition over the application (`integrity >= 2`).
     pub when: Option<String>,
     /// Higher wins a property two styles both set; ties go to the later definition name.
@@ -175,6 +177,8 @@ impl DiagramConfig {
                     ("width", toml::Value::Integer(w)) if *w > 0 => st.width = Some(*w as f64),
                     ("width", toml::Value::Float(w)) if *w > 0.0 => st.width = Some(*w),
                     ("width", _) => self.problems.push(format!("{at} width must be a positive number — ignored")),
+                    ("frame", toml::Value::Boolean(b)) => st.frame = Some(*b),
+                    ("frame", _) => self.problems.push(format!("{at} frame must be true or false — ignored")),
                     ("banner", toml::Value::Boolean(b)) => st.banner = Some(*b),
                     ("banner", _) => self.problems.push(format!("{at} banner must be true or false — ignored")),
                     ("when", toml::Value::String(w)) => match crate::tagged_values::parse_constraint(w) {
@@ -184,7 +188,7 @@ impl DiagramConfig {
                     ("when", _) => self.problems.push(format!("{at} when must be an expression string — ignored")),
                     ("priority", toml::Value::Integer(p)) => st.priority = *p,
                     ("priority", _) => self.problems.push(format!("{at} priority must be an integer — ignored")),
-                    _ => self.problems.push(format!("{at} has an unknown key '{key}' (known: fill, stroke, dash, width, banner, when, priority) — ignored")),
+                    _ => self.problems.push(format!("{at} has an unknown key '{key}' (known: fill, stroke, dash, width, banner, frame, when, priority) — ignored")),
                 }
             }
             self.stereotypes.insert(def.clone(), st);

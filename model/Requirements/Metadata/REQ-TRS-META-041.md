@@ -13,5 +13,5 @@ A style shall be able to declare a stereotype as a frame criterion (GH #378).
 
 ## Behavior
 
-- A frame style groups elements applying the stereotype (or sharing a tagged value) into a swimlane, as `domain` does.
+- `frame = true` on a `[diagram.stereotypes.<Def>]` makes it a frame criterion; an IBD with `groupBy: stereotype` gathers the parts that apply it (the part's, or its definition's) into one swimlane labelled with the stereotype's name, strongest first. A part with none stays in the boundary.
 - Grouping honours specialisation.

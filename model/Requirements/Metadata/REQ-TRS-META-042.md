@@ -13,4 +13,4 @@ Stereotypes on connections shall colour and dash the edge (GH #378, #335).
 
 ## Behavior
 
-- The same style mapping applies to `Connection`, `Flow` and `Interface` edges.
+- The same style mapping applies to an edge of a derived IBD whose `connections:` entry applies the stereotype (`metadata:`) or whose `typedBy` `ConnectionDef` does; `stroke`, `width` and `dash` apply (`fill` has no meaning for an edge).

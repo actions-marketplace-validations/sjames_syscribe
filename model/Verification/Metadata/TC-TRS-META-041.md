@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-041
 name: "A stereotype can be a diagram grouping criterion"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype_frames.rs
 verifies:
   - REQ-TRS-META-041
 tags:

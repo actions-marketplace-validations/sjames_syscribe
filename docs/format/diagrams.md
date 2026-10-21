@@ -391,7 +391,7 @@ banner   = false            # hide the «Optional» banner
 priority = 5                # higher wins a property two styles set; ties go to the later definition name
 ```
 
-Several stereotypes on one element compose property by property. The graph carries a legend of the stereotypes that actually styled a node (strongest first), which the SVG writer draws under the diagram. With no table a diagram draws exactly as before. A malformed entry is `W419` and is ignored. Not yet: `icon`, `badge`, grouping a frame by stereotype, and styling edges.
+Several stereotypes on one element compose property by property. The graph carries a legend of the stereotypes that actually styled a node (strongest first), which the SVG writer draws under the diagram. With no table a diagram draws exactly as before. A malformed entry is `W419` and is ignored. `frame = true` makes a stereotype a swimlane for an IBD with `groupBy: stereotype` (the part's, or its definition's, stereotype; strongest first). A stereotype applied on a `connections:` entry (`metadata:`), or on its `typedBy` `ConnectionDef`, restyles that edge (`stroke`, `width`, `dash`) in every writer. Not yet: `icon` and `badge`.
 
 `syscribe diagram export <qname> --config A --config B` draws two products in one diagram: what only `A` has is marked `only A`, what only `B` has `only B`. Parameter values that change no element are not shown; `syscribe diff --config A --config B` reports them.
 

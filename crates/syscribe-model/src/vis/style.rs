@@ -312,6 +312,18 @@ pub fn edge_style_in(edge: &Edge, graph: &DiagramGraph) -> EdgeStyle {
             layer(&mut style, over);
         }
     }
+    // A stereotype on the connection (REQ-TRS-META-042) restyles it last.
+    if let Some(st) = graph.edge_stereo.get(&edge.id) {
+        if let Some(s) = &st.stroke {
+            style.stroke = s.clone();
+        }
+        if let Some(w) = st.width {
+            style.width = w;
+        }
+        if let Some(d) = st.dashed {
+            style.dash = d.then(|| "6,3".to_string());
+        }
+    }
     style
 }
 
@@ -319,7 +331,9 @@ pub fn edge_style_in(edge: &Edge, graph: &DiagramGraph) -> EdgeStyle {
 /// leaves an edge to its theme (Mermaid, PlantUML) must spell out. `None` for an edge with no flow kind, or one whose
 /// kind adds nothing (`signal`), so those edges draw exactly as before.
 pub fn flow_override(edge: &Edge, graph: &DiagramGraph) -> Option<EdgeStyle> {
-    edge.flow?;
+    if edge.flow.is_none() && !graph.edge_stereo.contains_key(&edge.id) {
+        return None;
+    }
     let base = edge_style(edge.kind);
     let st = edge_style_in(edge, graph);
     (st.stroke != base.stroke || st.width != base.width || st.dash != base.dash).then_some(st)

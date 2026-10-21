@@ -199,6 +199,9 @@ impl Ctx<'_, '_> {
         }.to_string());
         let def_banners = u.definition.map(|d| super::super::banners_of(d, elements, resolver)).unwrap_or_default();
         node.mark = usage_mark(u, &node.banners.iter().chain(def_banners.iter()).cloned().collect::<Vec<_>>());
+        if let Some(d) = u.definition {
+            graph.node_defs.insert(id.clone(), d.qualified_name.clone());
+        }
         graph.nodes.push(node);
         self.drawn.push(Drawn {
             id: id.clone(),
@@ -249,7 +252,7 @@ impl Ctx<'_, '_> {
                 self.path.pop();
             }
             for owner in u.definition.into_iter().chain(u.element) {
-                connect(graph, owner, &qn);
+                connect(graph, owner, &qn, elements, resolver);
             }
         }
     }
@@ -266,8 +269,12 @@ pub fn generate(
     let group_by_domain = match filters.group_by.as_deref() {
         None => false,
         Some("domain") => true,
+        Some("stereotype") => {
+            graph.group_by_stereotype = true;
+            false
+        }
         Some(other) => {
-            issues.push(w420(format!("`groupBy` '{other}' is not a grouping (the only one is: domain) — ignored")));
+            issues.push(w420(format!("`groupBy` '{other}' is not a grouping (the groupings are: domain, stereotype) — ignored")));
             false
         }
     };
@@ -319,7 +326,7 @@ pub fn generate(
     }
 
     // ── edges from the subject's connection lists ───────────────────────
-    connect(graph, subject, sq);
+    connect(graph, subject, sq, elements, resolver);
 
     // ── deployment containment (GH #336) ────────────────────────────────
     let deployed = deploy(graph, &ctx.drawn, elements, resolver);
@@ -334,7 +341,7 @@ pub fn generate(
 /// Edges from `owner`'s connection lists, its chains read relative to the usage `prefix` (the subject
 /// itself at the top). A chain `a.b` names port `b` of usage `a`; a single segment names a usage or a
 /// boundary port. Resolution is by the deterministic ids; a chain to a node not drawn makes no edge.
-fn connect(graph: &mut DiagramGraph, owner: &RawElement, prefix: &str) {
+fn connect(graph: &mut DiagramGraph, owner: &RawElement, prefix: &str, elements: &[RawElement], resolver: &Resolver) {
     let chain_to_id = |graph: &DiagramGraph, chain: &str| -> Option<String> {
         let qn = format!("{prefix}::{}", chain.trim().replace('.', "::"));
         let id = derived_shape_id(&qn);
@@ -391,6 +398,23 @@ fn connect(graph: &mut DiagramGraph, owner: &RawElement, prefix: &str) {
                         .or_else(|| graph.node(&tgt).and_then(|n| n.flow))
                 })
                 .flatten();
+            // The stereotypes of the connection: its own `metadata:` and its `ConnectionDef`'s (REQ-TRS-META-042).
+            let mut meta: Vec<serde_yaml::Value> = entry
+                .as_mapping()
+                .and_then(|m| m.get("metadata"))
+                .and_then(|v| v.as_sequence())
+                .cloned()
+                .unwrap_or_default();
+            if let Some(def) = entry
+                .as_mapping()
+                .and_then(|m| map_str(m, "typedBy"))
+                .and_then(|t| resolver.resolve_ref(elements, t))
+            {
+                meta.extend(def.frontmatter.metadata.iter().flatten().cloned());
+            }
+            if !meta.is_empty() {
+                graph.edge_meta.insert(id.clone(), meta);
+            }
             edges.push(Edge {
                 id,
                 element_ref: Some(owner.qualified_name.clone()),

@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-042
 name: "Edge stereotypes style connections"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype_frames.rs
 verifies:
   - REQ-TRS-META-042
 tags:

@@ -986,6 +986,21 @@ pub struct DiagramGraph {
     /// `[diagram.stereotypes]` table, so an unstyled graph serialises exactly as before.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub legend: Vec<LegendItem>,
+    /// `groupBy: stereotype` of a derived IBD: the stereotypes the project marks `frame = true` frame the parts
+    /// (`REQ-TRS-META-041`, applied by `vis::stereo`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub group_by_stereotype: bool,
+    /// The `metadata:` applications written on a connection entry or its `ConnectionDef`, keyed by edge id: the
+    /// input of `vis::stereo` for `REQ-TRS-META-042`. Derivation scratch; never serialised.
+    #[serde(skip)]
+    pub edge_meta: std::collections::BTreeMap<String, Vec<serde_yaml::Value>>,
+    /// The definition of a part usage, keyed by node id: a usage has no stereotypes of its own, its
+    /// definition's style it (`vis::stereo`). Derivation scratch; never serialised.
+    #[serde(skip)]
+    pub node_defs: std::collections::BTreeMap<String, String>,
+    /// Presentation the project's `[diagram.stereotypes]` gives an edge, keyed by edge id (`REQ-TRS-META-042`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub edge_stereo: std::collections::BTreeMap<String, StereoStyle>,
 }
 
 impl DiagramGraph {
@@ -1003,6 +1018,10 @@ impl DiagramGraph {
             style: None,
             flow_set: false,
             legend: Vec::new(),
+            group_by_stereotype: false,
+            node_defs: Default::default(),
+            edge_meta: Default::default(),
+            edge_stereo: Default::default(),
         }
     }
 

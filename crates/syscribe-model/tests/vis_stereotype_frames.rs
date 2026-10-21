@@ -80,7 +80,7 @@ fn lane<'a>(g: &'a DiagramGraph, label: &str) -> Option<&'a syscribe_model::vis:
 }
 
 fn part<'a>(g: &'a DiagramGraph, name: &str) -> &'a syscribe_model::vis::Node {
-    g.nodes.iter().find(|n| n.kind != NodeKind::Port && n.kind != NodeKind::Swimlane && n.label == name).unwrap_or_else(|| panic!("part {name}: {:?}", g.nodes.iter().map(|n| (&n.id, &n.label)).collect::<Vec<_>>()))
+    g.nodes.iter().find(|n| n.kind != NodeKind::Port && n.kind != NodeKind::Swimlane && n.label.starts_with(&format!("{name} "))).unwrap_or_else(|| panic!("part {name}: {:?}", g.nodes.iter().map(|n| (&n.id, &n.label)).collect::<Vec<_>>()))
 }
 
 #[test]
