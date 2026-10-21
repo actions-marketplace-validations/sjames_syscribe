@@ -821,7 +821,7 @@ gives no coverage credit. The built-in fields themselves are never relaxed.
 | `W057` | warning | An `ISQ::` quantity type or `SI::` unit is not known to this tool's tables (a subset of the SysML v2 library; SI-prefixed units such as `kN`, `mm`, `MHz` are parsed and known) — usually a typo; no dimensional check is possible for it |
 | `W056` | A `connections:` endpoint's later segment (the port after the part) is not found on the part it follows — advisory; models often wire a sibling port loosely |
 
-## Stereotypes — metadata applications (E317, E318, E322–E329, E650, W045, W316, W650)
+## Stereotypes — metadata applications (E317, E318, E322–E329, E650, E651, W045, W316, W650)
 
 A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysMLv2 metadata, not UML).
 
@@ -840,6 +840,7 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E329` | error | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
 | `E650` | error | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | `W650` | warning | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
+| `E651` | error | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
 | `W316` | warning | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 
 ## Stable-ID prefixes, unknown fields, locale variants and about comments (W046, W047, W049, W051, W052)

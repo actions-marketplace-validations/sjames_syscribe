@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-025
 name: "A stereotype application may be variant-dependent"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_query.rs
+sourceFile: repo:crates/syscribe/tests/metadata_select_cli.rs
 verifies:
   - REQ-TRS-META-025
 tags:

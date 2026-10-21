@@ -216,7 +216,29 @@ pub fn project_raw(elements: &[RawElement], sel: &Selection) -> Vec<RawElement> 
     let resolver = Resolver::new(elements);
     let gate = |e: &RawElement| is_active_canon(e, &sel, &pkg, &alias);
     let plan_bound_here = |e: &RawElement| plan_bound_here(e, elements, &resolver, &pkg, &alias, &sel);
-    elements.iter().filter(|e| gate(e) && plan_bound_here(e) && !allocation_gated_off(e, elements, &resolver, &gate)).cloned().collect()
+    let mut out: Vec<RawElement> =
+        elements.iter().filter(|e| gate(e) && plan_bound_here(e) && !allocation_gated_off(e, elements, &resolver, &gate)).cloned().collect();
+    // A stereotype application with its own `appliesWhen:` is part of this product only where it holds
+    // (REQ-TRS-META-025); the element stays either way.
+    for e in out.iter_mut().filter(|e| e.frontmatter.metadata.is_some()) {
+        drop_inactive_applications(e, &sel, &alias);
+    }
+    out
+}
+
+/// Remove from `e.metadata` the map applications whose `appliesWhen:` is false under `sel`.
+fn drop_inactive_applications(e: &mut RawElement, sel: &Selection, alias: &std::collections::HashMap<String, String>) {
+    let Some(list) = e.frontmatter.metadata.as_mut() else { return };
+    list.retain(|entry| {
+        let Some(aw) = entry.get("appliesWhen") else { return true };
+        match variability::applies_when_expr(aw) {
+            Ok(Some(expr)) => {
+                let expr = expr.canonicalize(&|q: &str| variability::canon_feature_ref(q, alias));
+                expr.eval(&|q: &str| sel.get(q).copied().unwrap_or(false))
+            }
+            _ => true,
+        }
+    });
 }
 
 // ── reference taxonomy ──────────────────────────────────────────────────────

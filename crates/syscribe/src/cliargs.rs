@@ -63,6 +63,7 @@ fn spec_for(cmd: &str) -> Option<Spec> {
             ("--linked-only", Switch),
             ("--tag", Value),
             ("--status", Value),
+            ("--select", Value),
             ("--plan", Value),
             LENS,
             ("--rollup", Switch),

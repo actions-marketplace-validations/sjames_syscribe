@@ -613,7 +613,7 @@ pub fn metadata_applications(metadata: &Option<Vec<serde_yaml::Value>>) -> Vec<M
                     let values = m
                         .iter()
                         .filter_map(|(k, v)| k.as_str().map(|k| (k.to_string(), v.clone())))
-                        .filter(|(k, _)| !matches!(k.as_str(), "type" | "apply" | "def" | "name" | "about"))
+                        .filter(|(k, _)| !matches!(k.as_str(), "type" | "apply" | "def" | "name" | "about" | "appliesWhen"))
                         .collect();
                     out.push(MetaApply { def: def.to_string(), values });
                 }
@@ -637,12 +637,15 @@ pub struct TestPlanSelection {
     pub domains: Option<Vec<String>>,
     /// Matched against TestCase `tags`.
     pub tags: Option<Vec<String>>,
+    /// Stereotype selectors (REQ-TRS-META-024), any of which may match: a TestCase is selected when it,
+    /// or a requirement it `verifies:`, satisfies one.
+    pub stereotypes: Option<Vec<serde_yaml::Value>>,
 }
 
 impl TestPlanSelection {
     /// True when the block carries no sub-field constraints at all (matches nothing).
     pub fn is_empty(&self) -> bool {
-        self.test_levels.is_none() && self.domains.is_none() && self.tags.is_none()
+        self.test_levels.is_none() && self.domains.is_none() && self.tags.is_none() && self.stereotypes.is_none()
     }
 }
 

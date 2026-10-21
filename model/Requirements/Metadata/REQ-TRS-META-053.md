@@ -9,7 +9,7 @@ tags:
   - metadata
 ---
 
-Stereotype selectors shall be accepted by architecture rules, views and coverage filters, with thresholds per stereotype (GH #379, #369).
+Stereotype selectors shall be accepted by architecture rules, views and coverage filters, with thresholds per stereotype (GH #379, #369). The selector grammar, the TestPlan `selection.stereotypes:` and `matrix --select` are done (REQ-TRS-META-024); architecture rules, diagram `include:` and per-stereotype coverage thresholds are not.
 
 ## Behavior
 

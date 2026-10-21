@@ -3325,6 +3325,15 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   only when the profile is enabled. `validate --deny-meta <Def.key=value>` and `[gates] deny_meta` fail the
   run (exit 2) while a matching element exists, and `baseline create` refuses to seal one
   (REQ-TRS-META-050, -051, -054);
+- a **stereotype selector** is `{stereotype: Def, where: <expr>}` or the string `Def where <expr>`: it
+  matches an element that applies `Def` (or a specialisation) and, with `where`, whose application
+  satisfies the expression over its tagged values (`meta`/`has` available). A TestPlan's
+  `selection.stereotypes:` lists selectors (any of them): a TestCase is selected when it, or a requirement it
+  `verifies:`, matches one — malformed or unknown is **`E651`**; `matrix --select` keeps the requirement
+  rows a selector matches (REQ-TRS-META-024);
+- a map application may carry **`appliesWhen:`** (a feature expression, as on an element): under `--config`
+  the application is dropped from the projection where it is false, and `diff` reports applications that
+  differ between two products (REQ-TRS-META-025);
 - a package with **`profile: true`** (optionally `version:`) is a *stereotype profile* (REQ-TRS-META-031):
   the `constraints:` of the definitions it contains, and its **`autoApply:`** rules, are in force only
   when `[metadata] profiles = ["Pkg"]` in `.syscribe.toml` enables it (**`W316`** if that names
@@ -6407,6 +6416,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E328` | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
 | `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
 | `E650` | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
+| `E651` | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
 
 #### Warnings
 

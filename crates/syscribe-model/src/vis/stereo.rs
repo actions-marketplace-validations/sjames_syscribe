@@ -12,10 +12,6 @@ use crate::element::RawElement;
 use crate::resolver::Resolver;
 use crate::tagged_values as tv;
 
-fn names(def: &str, lineage: &[String]) -> bool {
-    lineage.iter().any(|q| q == def || (!def.contains("::") && q.rsplit("::").next() == Some(def)))
-}
-
 /// The configured styles that apply to `elem` through one of its applications, with that
 /// application's definition: `(style key, style, application definition)`.
 fn matching<'a>(
@@ -27,16 +23,11 @@ fn matching<'a>(
     let mut out: Vec<(&String, &StereotypeStyle, String)> = Vec::new();
     for app in tv::effective_applications(elements, resolver, elem) {
         for (key, style) in &cfg.stereotypes {
-            if !names(key, &app.lineage) || out.iter().any(|(k, _, d)| *k == key && *d == app.def) {
+            if !tv::names_in_lineage(key, &app.lineage) || out.iter().any(|(k, _, d)| *k == key && *d == app.def) {
                 continue;
             }
             if let Some(w) = &style.when {
-                let Ok(expr) = tv::parse_constraint(w) else { continue };
-                let specs = tv::find_metadata_def(elements, resolver, &app.def)
-                    .map(|d| tv::merged_specs(&tv::lineage(elements, resolver, d)))
-                    .unwrap_or_default();
-                let scope = tv::Scope { elements, resolver, carrier: elem };
-                if tv::evaluate(&expr, &specs, &app.values, Some(&scope)) != tv::Verdict::Holds {
+                if !tv::application_holds(elements, resolver, elem, &app, w) {
                     continue;
                 }
             }

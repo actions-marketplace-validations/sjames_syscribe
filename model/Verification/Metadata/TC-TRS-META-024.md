@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-024
 name: "A common selector grammar names elements by stereotype"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_query.rs
+sourceFile: repo:crates/syscribe-model/tests/metadata_selector.rs
 verifies:
   - REQ-TRS-META-024
 tags:

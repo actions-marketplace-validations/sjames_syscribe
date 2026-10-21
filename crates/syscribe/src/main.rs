@@ -1606,6 +1606,19 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--status")
                     .map(|w| w[1].as_str());
+                // `--select 'Def where <expr>'` (repeatable, ANDed): keep the requirements a stereotype selector matches
+                // (REQ-TRS-META-024).
+                let mut selectors = Vec::new();
+                for w in rest.windows(2).filter(|w| w[0] == "--select") {
+                    match syscribe_model::tagged_values::parse_selector(&serde_yaml::Value::String(w[1].clone())) {
+                        Ok(sel) => selectors.push(sel),
+                        Err(m) => {
+                            eprintln!("Error: --select '{}': {m}", w[1]);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                matrix::set_select(selectors);
                 let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 // --plan lens (REQ-TRS-PLAN-006), composing with --config.

@@ -841,3 +841,79 @@ pub fn load_gate_conditions(model_root: &std::path::Path) -> Vec<String> {
         .map(|r| r.gates.deny_meta)
         .unwrap_or_default()
 }
+
+// ── the common stereotype selector (`REQ-TRS-META-024`) ─────────────────────
+
+/// `{stereotype: Def, where: <expr>}` — the elements that apply `Def` (or a specialisation) and, when
+/// `where` is given, whose application satisfies it. Written as a mapping or as `Def where <expr>`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Selector {
+    pub def: String,
+    pub when: Option<String>,
+}
+
+fn check_when(w: &str) -> Result<(), String> {
+    parse_constraint(w).map(|_| ()).map_err(|e| format!("where '{w}' does not parse: {e}"))
+}
+
+pub fn parse_selector(v: &Yaml) -> Result<Selector, String> {
+    match v {
+        Yaml::String(s) => {
+            let (def, when) = match s.split_once(" where ") {
+                Some((d, w)) => (d.trim(), Some(w.trim().to_string())),
+                None => (s.trim(), None),
+            };
+            if def.is_empty() {
+                return Err("a selector needs a stereotype name".into());
+            }
+            if let Some(w) = &when {
+                check_when(w)?;
+            }
+            Ok(Selector { def: def.to_string(), when })
+        }
+        Yaml::Mapping(m) => {
+            if let Some(k) = m.keys().filter_map(Yaml::as_str).find(|k| !matches!(*k, "stereotype" | "where")) {
+                return Err(format!("a selector has an unknown key '{k}' (known: stereotype, where)"));
+            }
+            let def = m.get("stereotype").and_then(Yaml::as_str).ok_or("a selector needs `stereotype:`")?;
+            let when = m.get("where").map(|w| w.as_str().map(str::to_string).ok_or("`where:` must be an expression string")).transpose()?;
+            if let Some(w) = &when {
+                check_when(w)?;
+            }
+            Ok(Selector { def: def.to_string(), when })
+        }
+        _ => Err("a selector is a mapping `{stereotype, where}` or a string `Def where <expr>`".into()),
+    }
+}
+
+/// Whether `elem`'s application `app` satisfies the expression `when` over its own tagged values.
+pub fn application_holds(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    elem: &crate::element::RawElement,
+    app: &EffectiveApp,
+    when: &str,
+) -> bool {
+    let Ok(expr) = parse_constraint(when) else { return false };
+    let specs = find_metadata_def(elements, resolver, &app.def)
+        .map(|d| merged_specs(&lineage(elements, resolver, d)))
+        .unwrap_or_default();
+    let scope = Scope { elements, resolver, carrier: elem };
+    evaluate(&expr, &specs, &app.values, Some(&scope)) == Verdict::Holds
+}
+
+/// Whether `def` (as written) names `qname` or one of the ancestors in `lineage`.
+pub fn names_in_lineage(def: &str, lineage: &[String]) -> bool {
+    lineage.iter().any(|q| q == def || (!def.contains("::") && q.rsplit("::").next() == Some(def)))
+}
+
+pub fn selector_matches(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    elem: &crate::element::RawElement,
+    sel: &Selector,
+) -> bool {
+    effective_applications(elements, resolver, elem).iter().any(|a| {
+        names_in_lineage(&sel.def, &a.lineage) && sel.when.as_deref().is_none_or(|w| application_holds(elements, resolver, elem, a, w))
+    })
+}

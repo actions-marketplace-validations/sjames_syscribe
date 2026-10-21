@@ -14,4 +14,4 @@ tags:
   - metadata
 ---
 
-Done: `checks:` on a `MetadataDef` with `E650`/`W650` (050), `validate --deny-meta` and `[gates] deny_meta` (051), the `meta` report (052), and the baseline refusal (054). Still to do: selectors and per-stereotype coverage thresholds in architecture rules, views and `matrix`/`coverage` (053), and coverage-based gates.
+Done: `checks:` on a `MetadataDef` with `E650`/`W650` (050), `validate --deny-meta` and `[gates] deny_meta` (051), the `meta` report (052), and the baseline refusal (054). Selectors now work in a TestPlan and `matrix` (see PI-META-376). Still to do: architecture rules, diagram `include:`, per-stereotype coverage thresholds (053), and coverage-based gates.

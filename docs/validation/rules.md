@@ -1393,7 +1393,7 @@ TestCase    = ["QT"]
 | W057 | An `ISQ::` quantity type or `SI::` unit is not known to this tool's tables (a subset of the SysML v2 library); SI prefixes (`k`, `M`, `m`, `µ`/`u`, `n`, … and `kilo`, `milli`, …) are parsed, so `kN`, `mm`, `MHz` are known — usually a typo; no dimensional check is possible for it |
 | W056 | A `connections:` endpoint's later segment (the port after the part) is not found on the part it follows — advisory; models often wire a sibling port loosely |
 
-## Stereotypes — metadata applications (E317, E318, E322–E329, E650, W045, W316, W650)
+## Stereotypes — metadata applications (E317, E318, E322–E329, E650, E651, W045, W316, W650)
 
 SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an element via its `metadata:` field (bare reference, or a map whose `apply`/`def` names the def and whose other keys are tagged values).
 
@@ -1413,6 +1413,7 @@ SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an el
 | W316 | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 | E650 | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | W650 | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
+| E651 | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
 
 ## Audit policy configuration (W934)
 

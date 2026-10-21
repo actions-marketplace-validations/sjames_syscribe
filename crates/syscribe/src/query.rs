@@ -3418,23 +3418,45 @@ pub fn cmd_diff(elements: &[RawElement], a: &str, b: &str, json: bool) {
     };
     let id_or_qn =
         |e: &RawElement| e.frontmatter.id.clone().unwrap_or_else(|| e.qualified_name.clone());
-    let set = |arg: &str| -> BTreeSet<String> {
-        project(elements, &sel_of(arg)).iter().map(&id_or_qn).collect()
-    };
-    let sa = set(a);
-    let sb = set(b);
+    let (view_a, view_b) = (project(elements, &sel_of(a)), project(elements, &sel_of(b)));
+    let sa: BTreeSet<String> = view_a.iter().map(&id_or_qn).collect();
+    let sb: BTreeSet<String> = view_b.iter().map(&id_or_qn).collect();
     let only_a: Vec<&String> = sa.difference(&sb).collect();
     let only_b: Vec<&String> = sb.difference(&sa).collect();
 
+    // Elements in both products whose stereotype applications differ (REQ-TRS-META-025): an application
+    // with its own `appliesWhen:` is in one product and not the other.
+    let apps_of = |e: &RawElement| -> Vec<String> {
+        let mut v: Vec<String> = syscribe_model::element::metadata_applications(&e.frontmatter.metadata).into_iter().map(|m| m.def).collect();
+        v.sort();
+        v
+    };
+    let mut meta_diff: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+    for ea in &view_a {
+        let Some(eb) = view_b.iter().find(|x| x.qualified_name == ea.qualified_name) else { continue };
+        let (da, db) = (apps_of(ea), apps_of(eb));
+        if da == db {
+            continue;
+        }
+        let minus = |x: &Vec<String>, y: &Vec<String>| -> Vec<String> {
+            let mut rest = y.clone();
+            x.iter().filter(|d| !rest.iter().position(|r| r == *d).map(|i| rest.remove(i)).is_some()).cloned().collect()
+        };
+        meta_diff.push((ea.qualified_name.clone(), minus(&da, &db), minus(&db, &da)));
+    }
+
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "onlyInA": only_a,
-                "onlyInB": only_b,
-            }))
-            .unwrap()
-        );
+        let mut out = serde_json::json!({
+            "onlyInA": only_a,
+            "onlyInB": only_b,
+        });
+        if !meta_diff.is_empty() {
+            out["metadata"] = serde_json::json!(meta_diff
+                .iter()
+                .map(|(e, a, b)| serde_json::json!({"element": e, "onlyInA": a, "onlyInB": b}))
+                .collect::<Vec<_>>());
+        }
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
     } else {
         println!("# Variant diff: {} vs {}", a, b);
         println!();
@@ -3446,6 +3468,13 @@ pub fn cmd_diff(elements: &[RawElement], a: &str, b: &str, json: bool) {
         println!("Only in {} ({}):", b, only_b.len());
         for x in &only_b {
             println!("  - {}", x);
+        }
+        if !meta_diff.is_empty() {
+            println!();
+            println!("Stereotype applications that differ ({}):", meta_diff.len());
+            for (e, da, db) in &meta_diff {
+                println!("  ~ {e}: only in {a}: [{}]; only in {b}: [{}]", da.join(", "), db.join(", "));
+            }
         }
     }
 }

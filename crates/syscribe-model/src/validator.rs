@@ -1946,6 +1946,18 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 }
             }
 
+            // E651: each `selection.stereotypes` selector must be well formed and name a MetadataDef
+            // (REQ-TRS-META-024).
+            for v in fm.selection.iter().filter_map(|s| s.stereotypes.as_ref()).flatten() {
+                match crate::tagged_values::parse_selector(v) {
+                    Err(why) => findings.push(error("E651", &file, &format!("selection.stereotypes: {why}"))),
+                    Ok(sel) if crate::tagged_values::find_metadata_def(elements, &resolver, &sel.def).is_none() => {
+                        findings.push(error("E651", &file, &format!("selection.stereotypes names '{}', which is not a MetadataDef", sel.def)));
+                    }
+                    Ok(_) => {}
+                }
+            }
+
             // E601: each testCases entry must resolve to a TestCase.
             // W613: an explicitly named TestCase whose status is draft/retired.
             if let Some(refs) = &fm.test_cases {

@@ -57,6 +57,17 @@ fn keys(e: &RawElement) -> Vec<String> {
     k
 }
 
+thread_local! {
+    /// The `--select` stereotype selectors of this `matrix` run (REQ-TRS-META-024). A run is one process,
+    /// and the row filter sits several calls below the command, so the selectors are set once here.
+    static SELECT: std::cell::RefCell<Vec<syscribe_model::tagged_values::Selector>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Keep only the requirement rows that satisfy every selector.
+pub fn set_select(sels: Vec<syscribe_model::tagged_values::Selector>) {
+    SELECT.with(|s| *s.borrow_mut() = sels);
+}
+
 fn has_tag(e: &RawElement, tag: &str) -> bool {
     e.frontmatter
         .tags
@@ -308,6 +319,11 @@ fn active_grid(
         .filter(|e| tag.is_none_or(|t| has_tag(e, t)))
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         .collect();
+    let selectors = SELECT.with(|s| s.borrow().clone());
+    if !selectors.is_empty() {
+        let resolver = syscribe_model::resolver::Resolver::new(elements);
+        reqs.retain(|e| selectors.iter().all(|sel| syscribe_model::tagged_values::selector_matches(elements, &resolver, e, sel)));
+    }
     sort_reqs_by_display_order(&mut reqs);
 
     // Effective conditions honour transitive package appliesWhen (REQ-TRS-VAR-006).
