@@ -4971,7 +4971,7 @@ of the firmware" is checked rather than prose.
 type: ArchitectureRule
 id: AR-GTI-001
 name: The hardware trip path does not depend on software
-kind: forbid-dependency        # forbid-dependency | independence
+kind: forbid-dependency        # forbid-dependency | independence | allow-only | layering | max-depth
 from: {tag: protection-hw}     # selector of the components the rule starts from
 to:   {domain: software}       # selector of the components it is about
 via: [connections, typedBy, allocations]   # optional; default all three
@@ -4984,8 +4984,11 @@ Rationale: the claim this protects and where it comes from.
 |---|---|---|---|
 | `id` | string | yes | `^AR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`; additional prefixes through `[ids.prefixes]` |
 | `name` | string | yes | The rule in a sentence |
-| `kind` | string | yes | `forbid-dependency` or `independence` |
-| `from`, `to` | mapping | yes | Selectors: `package` (qualified-name prefix), `tag`, `domain` (`system`, `hardware`, `software`), `stereotype` (a stereotype selector, §8.15); keys are ANDed, `tag` and `domain` take a list (any of) |
+| `kind` | string | yes | `forbid-dependency`, `independence`, `allow-only`, `layering` or `max-depth` |
+| `layers` | list | `layering` | The layers, top first |
+| `maxDepth` | integer | `max-depth` | The longest allowed dependency chain |
+| `waivers` | list | no | `{element, rationale, expires}` entries |
+| `from`, `to` | mapping | yes | Selectors: `package` (qualified-name prefix), `tag`, `domain` (`system`, `hardware`, `software`), `stereotype` (a stereotype selector, §8.15), `layer`; keys are ANDed, `tag` and `domain` take a list (any of) |
 | `via` | list | no | The edge sources that count |
 | `severity` | string | no | `error` (default) or `warning` |
 | `status` | string | no | `draft` is not evaluated |
@@ -5001,6 +5004,23 @@ Each violation is `E660` (`W660` under `severity: warning`) on the rule, naming 
 
 **`independence`.** The transitive closures of the two chosen sets must be disjoint. Each component in both is `E661`
 (`W661`), with a path from each set to it; wiring one set to a member of the other makes that member shared.
+
+**`allow-only`.** A component chosen by `from` may depend *directly* only on components chosen by `from` or `to`; any other direct dependency is `E660`, naming both.
+
+**`layering`.** A `PartDef`/`Part` names its layer with `layer:`. A rule with `layers: [ui, domain, platform]` (top first, no `from`/`to`) forbids a direct dependency on a layer above: a layer may use itself and any layer below, skipping included. A component with no layer, or one that is not listed, is unconstrained. Violations are `E660`, naming both components and layers.
+
+**`max-depth`.** With `maxDepth: N` and an optional `from` (default every component), the longest chain of dependency edges from a chosen component may not exceed N; longer is `E663` (`W663`), with the chain. A chain inside a longer reported one is not reported again, and a component is visited once per chain, so a cycle does not hang.
+
+**Waivers.** `waivers:` lists `{element, rationale, expires}` (`expires` is `YYYY-MM-DD`). While current, a waiver suppresses the findings whose subject is `element`: the dependent component for `forbid-dependency`, `allow-only`, `layering` and `max-depth`, the shared component for `independence`. On or after `expires` it stops suppressing and is `W664` (expired); a waiver that suppresses nothing is also `W664`. A missing `element`, `rationale` or a bad date is `E662`.
+
+```yaml
+kind: layering
+layers: [ui, domain, platform]
+waivers:
+  - {element: App::Legacy, rationale: "calls the platform directly until ADR-APP-004 lands", expires: "2027-03-31"}
+```
+
+`performs:` and operation calls are not yet dependency sources.
 
 A malformed rule is `E662` and is not evaluated; a selector that chooses no component is `W662`.
 
@@ -6515,9 +6535,10 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
 | `E650` | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | `E651` | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
-| `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
+| `E660` | An `ArchitectureRule` of kind `forbid-dependency`, `allow-only` or `layering` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
-| `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing (where the kind needs them), `layers` or `maxDepth` missing or malformed, a malformed waiver or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E663` | An `ArchitectureRule` of kind `max-depth` (`severity: error`) is violated: a dependency chain starting at a chosen component is longer than `maxDepth`. The message names the rule, the start, the depth and the chain; a chain contained in a longer reported one is not reported again (REQ-TRS-ARCH-007). |
 | `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
 | `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
 | `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
@@ -6556,6 +6577,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W660` | The same violation under `severity: warning`. |
 | `W661` | The same violation under `severity: warning`. |
 | `W662` | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
+| `W663` | The same violation under `severity: warning`. |
+| `W664` | An `ArchitectureRule` waiver is expired (`expires` is today or earlier, so it no longer suppresses anything) or suppresses nothing (REQ-TRS-ARCH-008). |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9215,7 +9238,8 @@ since `status: in_progress` alone already signals active work.
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
-| `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
+| `ArchitectureRule` | `kind`, `from`, `to`, `via`, `layers`, `maxDepth`, `waivers` (plus `severity`, `rationale`); see §8.20 | 8.20 |
+| Architecture layers | `layer` on a `PartDef`/`Part` (see §8.20) | 8.20 |
 | `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
 | Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |

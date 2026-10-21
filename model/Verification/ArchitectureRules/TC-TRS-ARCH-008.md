@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-ARCH-008
 name: "rule waivers"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/arch_rules_2.rs
 verifies:

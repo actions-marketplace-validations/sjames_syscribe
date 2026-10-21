@@ -50,9 +50,13 @@ computed by the tool and never authored.
 | `ram`, `flash`, `nvm`, `stack` | PartDef/Part | size | absent | Static memory a software part uses; `stack` counts toward RAM (GH #368) |
 | `ramCapacity`, `flashCapacity`, `nvmCapacity` | PartDef/Part | size | absent | Memory a hardware part offers (GH #368) |
 | `margin` | PartDef/Part | percent | `[budgets] margin`, else 100 | Percentage of capacity that may be used (GH #368) |
-| `kind` | ArchitectureRule | string | **required** | `forbid-dependency` or `independence` (GH #369) |
-| `from` | ArchitectureRule | map | **required** | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
-| `to` | ArchitectureRule | map | **required** | Selector of the components the rule is about (same keys as `from`) |
+| `kind` | ArchitectureRule | string | **required** | `forbid-dependency`, `independence`, `allow-only`, `layering` or `max-depth` (GH #369) |
+| `layers` | ArchitectureRule | list | required for `layering` | The layers, top first |
+| `maxDepth` | ArchitectureRule | integer | required for `max-depth` | Longest allowed dependency chain |
+| `waivers` | ArchitectureRule | list | none | `{element, rationale, expires}`; suppresses findings on `element` until `expires` (YYYY-MM-DD) |
+| `layer` | PartDef/Part | string | absent | The architecture layer of the part; also a selector key (GH #369) |
+| `from` | ArchitectureRule | map | required except for `layering`, `max-depth` | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
+| `to` | ArchitectureRule | map | required for `forbid-dependency`, `independence`, `allow-only` | Selector of the components the rule is about (same keys as `from`) |
 | `via` | ArchitectureRule | list | all three | Edge sources that count: `connections`, `typedBy`, `allocations` |
 | `profile` | Package | bool | `false` | `true` marks a stereotype profile; enabled by `[metadata] profiles` (`W316`) |
 | `version` | Package | string | absent | The version of a stereotype profile |

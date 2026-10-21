@@ -1462,6 +1462,14 @@ pub struct ColdFrontmatter2 {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdFrontmatter3 {
+    /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
+    pub layer: Option<String>,
+    /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
+    pub layers: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule` of kind `max-depth`: the longest allowed dependency chain (REQ-TRS-ARCH-007).
+    pub max_depth: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: `{element, rationale, expires}` waivers (REQ-TRS-ARCH-008).
+    pub waivers: Option<serde_yaml::Value>,
     pub is_reference: Option<bool>,
     pub is_derived: Option<bool>,
     pub is_constant: Option<bool>,
@@ -1708,6 +1716,14 @@ pub struct ViewInclude {
 #[derive(Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ColdWire {
+    /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
+    pub layer: Option<String>,
+    /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
+    pub layers: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule` of kind `max-depth`: the longest allowed dependency chain (REQ-TRS-ARCH-007).
+    pub max_depth: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: `{element, rationale, expires}` waivers (REQ-TRS-ARCH-008).
+    pub waivers: Option<serde_yaml::Value>,
     pub is_variation: Option<bool>,
     pub expression: Option<String>,
     pub metadata: Option<Vec<serde_yaml::Value>>,
@@ -2545,6 +2561,10 @@ impl ColdWire {
                 derived_from_cybersecurity_goal: w.derived_from_cybersecurity_goal,
                 cybersecurity_properties: w.cybersecurity_properties,
                 tier3: Boxed::of(ColdFrontmatter3 {
+                    layer: w.layer,
+                    layers: w.layers,
+                    max_depth: w.max_depth,
+                    waivers: w.waivers,
                     is_reference: w.is_reference,
                     is_derived: w.is_derived,
                     is_constant: w.is_constant,
