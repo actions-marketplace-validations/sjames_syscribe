@@ -846,14 +846,21 @@ fn legend_rows(kind: DiagramKind) -> Option<(&'static [(Tone, &'static str)], &'
 /// tone the graph actually uses, then the notation note. Returns the markup
 /// and its `(width, height)`.
 fn legend(graph: &DiagramGraph, x: f64, y: f64) -> Option<(String, f64, f64)> {
-    let (rows, note) = legend_rows(graph.kind)?;
-    let used: Vec<(Tone, &str)> = rows
-        .iter()
-        .filter(|(t, _)| graph.nodes.iter().any(|n| n.mark.as_ref().is_some_and(|m| !m.is_detail_only() && m.tone == *t)))
-        .copied()
-        .collect();
+    let tones = legend_rows(graph.kind);
+    // A diagram with neither tone rows nor styled stereotypes has nothing to explain.
+    if tones.is_none() && graph.legend.is_empty() {
+        return None;
+    }
+    let used: Vec<(Tone, &str)> = tones
+        .map(|(rows, _)| {
+            rows.iter()
+                .filter(|(t, _)| graph.nodes.iter().any(|n| n.mark.as_ref().is_some_and(|m| !m.is_detail_only() && m.tone == *t)))
+                .copied()
+                .collect()
+        })
+        .unwrap_or_default();
     // An IBD carries a legend only when it marks a part (GH #336).
-    if used.is_empty() && graph.kind == DiagramKind::Ibd {
+    if used.is_empty() && graph.kind == DiagramKind::Ibd && graph.legend.is_empty() {
         return None;
     }
     let metrics = super::metrics::diagram_metrics();
@@ -867,10 +874,25 @@ fn legend(graph: &DiagramGraph, x: f64, y: f64) -> Option<(String, f64, f64)> {
         width = width.max(24.0 + metrics.advance_width(text, 10.0, false));
         cy += 16.0;
     }
-    out.push_str(&text_el(x, cy + 9.0, "start", 10.0, " fill=\"#555\" font-style=\"italic\"", note));
-    width = width.max(metrics.advance_width(note, 10.0, false));
+    // One swatch per stereotype that styled a node (REQ-TRS-META-043), strongest first.
+    for item in &graph.legend {
+        let fill = item.fill.as_deref().unwrap_or("#ffffff");
+        let stroke = item.stroke.as_deref().unwrap_or("#444444");
+        let dash = if item.dashed { " stroke-dasharray=\"6,3\"" } else { "" };
+        let w = item.width.unwrap_or(1.4);
+        let text = format!("«{}»", item.name);
+        out.push_str(&format!("    <rect x=\"{}\" y=\"{}\" width=\"16\" height=\"10\" rx=\"2\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"{dash}/>\n", num(x), num(cy), escape(fill), escape(stroke), num(w)));
+        out.push_str(&text_el(x + 24.0, cy + 9.0, "start", 10.0, " fill=\"#333\"", &text));
+        width = width.max(24.0 + metrics.advance_width(&text, 10.0, false));
+        cy += 16.0;
+    }
+    if let Some((_, note)) = tones {
+        out.push_str(&text_el(x, cy + 9.0, "start", 10.0, " fill=\"#555\" font-style=\"italic\"", note));
+        width = width.max(metrics.advance_width(note, 10.0, false));
+        cy += 16.0;
+    }
     out.push_str("  </g>\n");
-    Some((out, width, cy + 14.0 - y))
+    Some((out, width, cy - y - 2.0))
 }
 
 /// Draw `graph` as standalone SVG with the process-wide diagram metrics.

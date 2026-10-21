@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-044
 name: "All renderers agree on stereotype style"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_style.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
 verifies:
   - REQ-TRS-META-044
 tags:

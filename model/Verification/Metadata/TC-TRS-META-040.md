@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-040
 name: "Diagram style is driven by stereotypes"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_style.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
 verifies:
   - REQ-TRS-META-040
 tags:

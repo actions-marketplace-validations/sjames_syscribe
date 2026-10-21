@@ -4,7 +4,7 @@ id: TC-TRS-META-042
 name: "Edge stereotypes style connections"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_style.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
 verifies:
   - REQ-TRS-META-042
 tags:

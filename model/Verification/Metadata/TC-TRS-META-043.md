@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-043
 name: "The diagram legend lists the styles used"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_style.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
 verifies:
   - REQ-TRS-META-043
 tags:

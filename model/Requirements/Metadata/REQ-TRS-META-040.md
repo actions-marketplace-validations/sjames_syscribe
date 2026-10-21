@@ -13,6 +13,6 @@ A `DiagramStyle` element or `[diagram.styles]` shall map a stereotype to present
 
 ## Behavior
 
-- A style names a definition and optionally a tagged-value condition, and sets fill, stroke, dash, line width, icon, badge text and banner on/off.
-- Several stereotypes on one element compose by a documented precedence: explicit order of declaration in the style set, later wins per property.
+- `[diagram.stereotypes.<Def>]` in `.syscribe.toml` names a definition (matching its specialisations too) and sets fill, stroke, dash, outline width and banner on/off, optionally under a tagged-value condition (`when`). Icon and badge text are not yet supported.
+- Several stereotypes on one element compose per property by `priority` (higher wins), ties going to the later definition name.
 - With no style configured, output is byte-for-byte what it is today.

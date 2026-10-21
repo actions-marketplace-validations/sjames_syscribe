@@ -4565,6 +4565,23 @@ context = "hide"
 
 A diagram draws with the project's `[diagram.styles]`, then `[diagram.style.default]` when it is defined, then the chain of its `style:` from the root to the named style, the nearest winning key by key. Pins in `layout:` are applied on top of whatever the style gives. Under `context = "hide"` the faded nodes (with what is inside them) and edges are left out. A style is project configuration, not a model element: it changes how a diagram looks, never what the model says.
 
+**Style by stereotype** (REQ-TRS-META-040, -043, -044). `[diagram.stereotypes.<Def>]` gives the nodes of the elements that apply a stereotype — or a specialisation of it — their own presentation, in every writer (browser, SVG, DOT, PlantUML, Mermaid):
+
+```toml
+[diagram.stereotypes.Safety]
+stroke = "#d00000"          # fill, stroke: #rgb, #rrggbb or a colour name
+fill   = "#ffe5e5"
+width  = 3                  # outline width
+when   = "integrity >= 2"   # optional: only where the application's tagged values satisfy this
+
+[diagram.stereotypes.Optional]
+dash     = "6,3"            # a dashed outline ("" is solid)
+banner   = false            # hide the «Optional» banner
+priority = 5                # higher wins a property two styles set; ties go to the later definition name
+```
+
+Several stereotypes on one element compose property by property. The graph carries a legend of the stereotypes that actually styled a node (strongest first), which the SVG writer draws under the diagram. With no table a diagram draws exactly as before. A malformed entry is `W419` and is ignored. Not yet: `icon`, `badge`, grouping a frame by stereotype, and styling edges.
+
 **Layout hints.** Beside its pins, `layout:` takes two keys a shape id never has:
 
 | Key | Meaning |

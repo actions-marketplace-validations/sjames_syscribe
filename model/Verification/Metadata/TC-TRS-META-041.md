@@ -4,7 +4,7 @@ id: TC-TRS-META-041
 name: "A stereotype can be a diagram grouping criterion"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_style.rs
+sourceFile: repo:crates/syscribe-model/tests/vis_stereotype.rs
 verifies:
   - REQ-TRS-META-041
 tags:

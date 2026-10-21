@@ -13,5 +13,5 @@ The generator shall emit a legend from the styles actually drawn (GH #378).
 
 ## Behavior
 
-- The legend lists exactly the stereotypes that styled something in the diagram, no more and no fewer, in precedence order.
+- The legend lists exactly the stereotypes that styled something in the diagram, no more and no fewer, strongest first.
 - It is omitted when no style applied.

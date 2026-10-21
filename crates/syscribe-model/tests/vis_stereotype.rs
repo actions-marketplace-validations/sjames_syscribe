@@ -87,7 +87,7 @@ fn a_configured_stereotype_restyles_the_elements_that_apply_it() {
 #[test]
 fn removing_the_style_restores_the_output_byte_for_byte() {
     let baseline = graph(&model(""));
-    let unrelated = graph(&model("[diagram.styles.power]\nstroke = \"#b35900\"\n"));
+    let unrelated = graph(&model("[ids]\nmax_digits = 8\n"));
     assert_eq!(serde_json::to_string(&baseline).unwrap(), serde_json::to_string(&unrelated).unwrap());
     assert_eq!(render_svg(&baseline, &no_links).unwrap(), render_svg(&unrelated, &no_links).unwrap());
     let styled = graph(&model(RED));

@@ -192,15 +192,31 @@ pub fn node_style(node: &Node) -> NodeStyle {
             stroke_width = Some(EMPHASIS_WIDTH);
         }
     }
+    // The project's `[diagram.stereotypes]` (REQ-TRS-META-040): over the kind's colours and the mark's tone.
+    let (mut fill, mut stroke) = (fill.to_string(), stroke.to_string());
+    let mut dashed_by_stereo = false;
+    if let Some(st) = &node.stereo {
+        if let Some(f) = &st.fill {
+            fill = f.clone();
+        }
+        if let Some(s) = &st.stroke {
+            stroke = s.clone();
+        }
+        dashed_by_stereo = st.dashed == Some(true);
+        if st.width.is_some() {
+            stroke_width = st.width;
+        }
+    }
     NodeStyle {
-        fill: fill.to_string(),
-        stroke: stroke.to_string(),
-        header_fill: header.then(|| stroke.to_string()),
+        fill,
+        header_fill: header.then(|| stroke.clone()),
+        stroke,
         text: TEXT.to_string(),
         // unresolved, an `optional` (appliesWhen-gated) part (GH #336), or a part of the test set-up (`role: environment`, GH #337)
         dashed: !node.resolved
             || node.mark.as_ref().is_some_and(|m| m.badges.iter().any(|x| x == "optional"))
-            || node.stereotype.as_deref() == Some("environment"),
+            || node.stereotype.as_deref() == Some("environment")
+            || dashed_by_stereo,
         stroke_width,
     }
 }

@@ -26,6 +26,7 @@ pub mod shape;
 pub mod size;
 pub mod sprotty;
 pub mod flow;
+pub mod stereo;
 pub mod style;
 pub mod svg;
 
@@ -171,7 +172,9 @@ pub fn build_graph_with(
 /// `[diagram]` table (flow-kind styles and port sides, GH #335).
 pub fn build_graph_in(elem: &RawElement, elements: &[RawElement], resolver: &Resolver, model_root: &std::path::Path) -> Option<(DiagramGraph, Vec<Issue>)> {
     let (mut graph, issues) = build_graph_with(elem, elements, resolver, &crate::cyber_config::CyberConfig::load(model_root))?;
-    flow::apply(&mut graph, &flow::DiagramConfig::load(model_root));
+    let cfg = flow::DiagramConfig::load(model_root);
+    flow::apply(&mut graph, &cfg);
+    stereo::apply(&mut graph, elements, resolver, &cfg);
     Some((graph, issues))
 }
 
@@ -237,7 +240,9 @@ pub fn build_subject_graph_with(
 /// [`build_subject_graph`] under the project's `.syscribe.toml` at `model_root` (see [`build_graph_in`]).
 pub fn build_subject_graph_in(subject: &RawElement, kind: DiagramKind, elements: &[RawElement], resolver: &Resolver, model_root: &std::path::Path) -> (DiagramGraph, Vec<Issue>) {
     let (mut graph, issues) = build_subject_graph_with(subject, kind, elements, resolver, &crate::cyber_config::CyberConfig::load(model_root));
-    flow::apply(&mut graph, &flow::DiagramConfig::load(model_root));
+    let cfg = flow::DiagramConfig::load(model_root);
+    flow::apply(&mut graph, &cfg);
+    stereo::apply(&mut graph, elements, resolver, &cfg);
     (graph, issues)
 }
 
