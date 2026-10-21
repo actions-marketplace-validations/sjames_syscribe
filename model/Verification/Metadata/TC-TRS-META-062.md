@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-062
 name: "MCP meta tool reports stereotype applications"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/mcp_stereotypes.rs
 verifies:

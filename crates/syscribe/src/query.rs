@@ -1597,7 +1597,7 @@ fn applies_stereotype(elements: &[RawElement], e: &RawElement, name: &str) -> bo
 
 /// `--metadata` clauses (REQ-TRS-META-021): every clause must hold; a clause is a comma list of
 /// alternatives, any of which may hold; a leading `!` on an alternative negates it.
-fn metadata_clauses_hold(elements: &[RawElement], e: &RawElement, clauses: &[&str]) -> bool {
+pub(crate) fn metadata_clauses_hold(elements: &[RawElement], e: &RawElement, clauses: &[&str]) -> bool {
     clauses.iter().all(|clause| {
         clause.split(',').map(str::trim).filter(|a| !a.is_empty()).any(|alt| match alt.strip_prefix('!') {
             Some(name) => !applies_stereotype(elements, e, name),
@@ -1716,24 +1716,8 @@ pub fn cmd_list(
                 });
                 // Stereotype applications as `{def, values, defaulted}`, defaults filled in
                 // (REQ-TRS-META-012); the key is absent when the element applies none.
-                let apps = syscribe_model::tagged_values::effective_applications(elements, &list_resolver, e);
-                if !apps.is_empty() {
-                    let apps: Vec<_> = apps
-                        .iter()
-                        .map(|a| {
-                            let values: serde_json::Map<String, serde_json::Value> = a
-                                .values
-                                .iter()
-                                .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(serde_json::Value::Null)))
-                                .collect();
-                            let mut app = serde_json::json!({"def": a.def, "values": values, "defaulted": a.defaulted});
-                            if a.derived {
-                                app["derived"] = serde_json::json!(true);
-                            }
-                            app
-                        })
-                        .collect();
-                    obj.as_object_mut().unwrap().insert("metadata".into(), serde_json::json!(apps));
+                if let Some(apps) = syscribe_model::tagged_values::applications_json(elements, &list_resolver, e) {
+                    obj.as_object_mut().unwrap().insert("metadata".into(), apps);
                 }
                 if is_testcase {
                     let verifies: Vec<&str> = e.frontmatter.verifies

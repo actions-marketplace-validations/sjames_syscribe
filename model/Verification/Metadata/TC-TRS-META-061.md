@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-061
 name: "MCP search and list_by_type filter by stereotype"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/mcp_stereotypes.rs
 verifies:

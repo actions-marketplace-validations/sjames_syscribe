@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-060
 name: "MCP get_element returns the resolved stereotype applications"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/mcp_stereotypes.rs
 verifies:

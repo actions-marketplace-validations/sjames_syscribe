@@ -85,8 +85,11 @@ struct SearchArgs {
     r#type: Option<String>,
     status: Option<String>,
     domain: Option<String>,
-    /// Custom-field predicate, e.g. `custom.<key>=<value>` (see the CLI `--where`).
+    /// Custom-field or stereotype predicate, e.g. `custom.<key>=<value>` or `meta.<Def>.<key>>=2` (see the CLI `--where`).
     r#where: Option<String>,
+    /// Stereotype clauses (the CLI `--metadata`): every clause must hold; `A,B` is either; a leading `!` negates;
+    /// a specialisation counts.
+    metadata: Option<Vec<String>>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
@@ -94,9 +97,24 @@ struct SearchArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ListByTypeArgs {
     r#type: String,
+    /// Custom-field or stereotype predicate, as for `search`.
+    r#where: Option<String>,
+    /// Stereotype clauses, as for `search`.
+    metadata: Option<Vec<String>>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct MetaArgs {
+    /// The stereotype (a qualified name or last segment); omit for the applications of every stereotype.
+    def: Option<String>,
+    /// Group the elements by this tagged value.
+    group_by: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct GatesArgs {}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TreeArgs {
@@ -892,6 +910,33 @@ pub(crate) fn explain_code_in(text: &str, code: &str) -> Option<String> {
 /// `syscribe_model::mutate::apply_update_fields` (also used by
 /// `syscribe-server`'s `PUT /api/elements/{*qname}` handler) — this function
 /// is now just the file I/O wrapper around it.
+/// `out` with the element's resolved stereotype applications as `stereotypes` (REQ-TRS-META-060): the written
+/// values plus declared defaults, specialisations and derived applications; absent when it applies none.
+fn with_stereotypes(store: &McpStore, e: &syscribe_model::element::RawElement, mut out: Value) -> Value {
+    if let (Some(apps), Some(obj)) = (syscribe_model::tagged_values::applications_json(&store.elements, &store.resolver, e), out.as_object_mut()) {
+        obj.insert("stereotypes".into(), apps);
+    }
+    out
+}
+
+/// A stereotype name in a `metadata` clause that is no `MetadataDef` and that no element applies is an error,
+/// not a silently empty result (REQ-TRS-META-061).
+fn check_metadata_clauses(elements: &[syscribe_model::element::RawElement], clauses: &[&str]) -> Result<(), String> {
+    let unknown = crate::query::unknown_metadata_names(elements, clauses);
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("metadata names no MetadataDef of the model: {}", unknown.join(", ")))
+    }
+}
+
+/// The message for a write to an element built into the tool (REQ-TRS-META-064).
+fn builtin_refusal(e: &syscribe_model::element::RawElement) -> Option<String> {
+    e.file_path.starts_with(syscribe_model::tagged_values::BUILTIN_PREFIX).then(|| {
+        format!("'{}' is built into the tool and read-only; specialise it in a package of your own project instead", e.qualified_name)
+    })
+}
+
 fn apply_update(path: &Path, fields: Option<&Value>, doc: Option<&str>) -> Result<(), String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let new_content = syscribe_model::mutate::apply_update_fields(&content, fields, doc)
@@ -903,6 +948,9 @@ fn apply_update(path: &Path, fields: Option<&Value>, doc: Option<&str>) -> Resul
 /// The batch path must refuse what `update_element`/`delete_element` refuse: an entry synthesized
 /// from a shared sheet file has no file of its own, so writing "it" writes the whole sheet.
 fn refuse_synthesized(root: &Path, target: &syscribe_model::element::RawElement, r: &str, why: &str) -> Result<(), String> {
+    if let Some(m) = builtin_refusal(target) {
+        return Err(m);
+    }
     let rel = Path::new(&target.file_path).strip_prefix(root).unwrap_or(Path::new(&target.file_path)).to_path_buf();
     if syscribe_model::walker::is_synthesized(target, &rel) {
         return Err(format!("'{r}' is synthesized from a shared sheet file ({}) — {why}; edit the sheet directly instead", target.file_path));
@@ -1072,11 +1120,11 @@ impl SyscribeMcp {
                     if let Some(obj) = out.as_object_mut() {
                         obj.insert("frontmatter".into(), Value::Object(fm));
                     }
-                    ok(out)
+                    ok(with_stereotypes(&store, e, out))
                 } else if args.detail {
-                    ok(elem_detail(e))
+                    ok(with_stereotypes(&store, e, elem_detail(e)))
                 } else {
-                    ok(elem_summary(e))
+                    ok(with_stereotypes(&store, e, elem_summary(e)))
                 }
             }
             None => tool_error(format!("unresolved reference: {}", args.r#ref)),
@@ -1108,6 +1156,11 @@ impl SyscribeMcp {
             },
             None => None,
         };
+
+        let clauses: Vec<&str> = args.metadata.iter().flatten().map(String::as_str).collect();
+        if let Err(m) = check_metadata_clauses(&store.elements, &clauses) {
+            return tool_error(m);
+        }
 
         let mut scored: Vec<(u32, &RawElement)> = Vec::new();
         for e in &store.elements {
@@ -1149,6 +1202,9 @@ impl SyscribeMcp {
                     continue;
                 }
             }
+            if !clauses.is_empty() && !crate::query::metadata_clauses_hold(&store.elements, e, &clauses) {
+                continue;
+            }
             scored.push((score, e));
         }
         scored.sort_by(|a, b| b.0.cmp(&a.0));
@@ -1181,10 +1237,23 @@ impl SyscribeMcp {
         let store = self.store.read().await;
         let limit = args.limit.unwrap_or(100) as usize;
         let offset = args.offset.unwrap_or(0) as usize;
+        let where_pred = match args.r#where.as_deref() {
+            Some(w) => match crate::query::parse_custom_where(w) {
+                Ok(p) => Some(p),
+                Err(e) => return tool_error(e),
+            },
+            None => None,
+        };
+        let clauses: Vec<&str> = args.metadata.iter().flatten().map(String::as_str).collect();
+        if let Err(m) = check_metadata_clauses(&store.elements, &clauses) {
+            return tool_error(m);
+        }
         let matching: Vec<&RawElement> = store
             .elements
             .iter()
             .filter(|e| e.frontmatter.element_type.as_ref().map(type_label) == Some(args.r#type.as_str()))
+            .filter(|e| where_pred.as_ref().is_none_or(|p| crate::query::where_matches(&store.elements, e, p, true)))
+            .filter(|e| clauses.is_empty() || crate::query::metadata_clauses_hold(&store.elements, e, &clauses))
             .collect();
         let total = matching.len();
         let items: Vec<Value> = matching
@@ -2499,6 +2568,9 @@ impl SyscribeMcp {
             Some(e) => e.clone(),
             None => return tool_error(format!("unresolved reference: {}", args.r#ref)),
         };
+        if let Some(m) = builtin_refusal(&target) {
+            return tool_error(m);
+        }
         let rel = rel_file(&target.file_path, &store.model_root);
         if syscribe_model::walker::is_synthesized(&target, Path::new(&rel)) {
             return tool_error(format!(
@@ -2592,6 +2664,9 @@ impl SyscribeMcp {
             Some(e) => e.clone(),
             None => return tool_error(format!("unresolved reference: {}", args.r#ref)),
         };
+        if let Some(m) = builtin_refusal(&target) {
+            return tool_error(m);
+        }
         let target_qname = target.qualified_name.clone();
         let rel = rel_file(&target.file_path, &store.model_root);
         if syscribe_model::walker::is_synthesized(&target, Path::new(&rel)) {
@@ -2668,6 +2743,45 @@ impl SyscribeMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let store = self.store.read().await;
         ok(syscribe_model::link_types::link_types_json(&store.elements, &store.config.link_types))
+    }
+
+    #[tool(
+        description = "The stereotype report (REQ-TRS-META-052): with no `def`, the applications of every \
+        stereotype; with `def`, the elements that apply it (or a specialisation); with `group_by` too, \
+        grouped by that tagged value (defaults included), largest group first. Same data as \
+        `meta --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn meta(&self, Parameters(args): Parameters<MetaArgs>) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        match crate::metacmd::report(&store.elements, args.def.as_deref(), args.group_by.as_deref()) {
+            Ok(r) => ok(r.json()),
+            Err(m) => tool_error(m),
+        }
+    }
+
+    #[tool(
+        description = "Evaluate the project's stereotype gates (REQ-TRS-META-051, -053): `[gates] deny_meta` \
+        conditions and `[[gates.coverage]]` thresholds, the same ones `validate` gates on. Returns \
+        {tripped, denyMeta: [{condition, element}], coverage: [line]}. Read-only.",
+        annotations(read_only_hint = true)
+    )]
+    async fn gates(&self, Parameters(_args): Parameters<GatesArgs>) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let conds = syscribe_model::tagged_values::load_gate_conditions(&store.model_root);
+        let deny = match crate::query::meta_gate_hits(&store.elements, store.elements.iter(), &conds) {
+            Ok(h) => h,
+            Err(m) => return tool_error(m),
+        };
+        let coverage = match crate::covtree::coverage_gates(&store.elements, &store.config, &store.model_root) {
+            Ok(l) => l,
+            Err(m) => return tool_error(m),
+        };
+        ok(json!({
+            "tripped": !deny.is_empty() || !coverage.is_empty(),
+            "denyMeta": deny.iter().map(|(c, q)| json!({"condition": c, "element": q})).collect::<Vec<_>>(),
+            "coverage": coverage,
+        }))
     }
 
     #[tool(

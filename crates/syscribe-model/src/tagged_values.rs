@@ -451,6 +451,33 @@ pub fn effective_applications(
     out
 }
 
+/// The element's resolved stereotype applications as JSON, `[{def, values, defaulted, derived?}]` (defaults
+/// filled in, specialisations and derived applications included); `None` when it applies none. The one
+/// shape `list --json` and the MCP `get_element` share.
+pub fn applications_json(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    e: &crate::element::RawElement,
+) -> Option<serde_json::Value> {
+    let apps = effective_applications(elements, resolver, e);
+    if apps.is_empty() {
+        return None;
+    }
+    Some(serde_json::Value::Array(
+        apps.iter()
+            .map(|a| {
+                let values: serde_json::Map<String, serde_json::Value> =
+                    a.values.iter().map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(serde_json::Value::Null))).collect();
+                let mut app = serde_json::json!({"def": a.def, "values": values, "defaulted": a.defaulted});
+                if a.derived {
+                    app["derived"] = serde_json::json!(true);
+                }
+                app
+            })
+            .collect(),
+    ))
+}
+
 /// Reference-typed tagged values an element holds: `(Stereotype.key, target as written)`.
 /// Feeds `refs`, `impact` and the delete-referrer guard (`REQ-TRS-META-013`).
 pub fn reference_values(

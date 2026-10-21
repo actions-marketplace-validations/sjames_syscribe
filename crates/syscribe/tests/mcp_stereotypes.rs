@@ -20,6 +20,11 @@ fn write(root: &Path, rel: &str, content: &str) {
 /// profile gives it Optional), and requirements `REQ-STZ-001` Safety(3) with an active test, `REQ-STZ-002` Safety(3) without.
 /// `toml` is appended to the fixture's `.syscribe.toml`.
 fn model(toml: &str) -> PathBuf {
+    model_with(toml, false)
+}
+
+/// [`model`], optionally with the built-in `StdMetadata` library enabled (`[metadata] stdlib = true`).
+fn model_with(toml: &str, stdlib: bool) -> PathBuf {
     let root = fixture_copy();
     write(&root, "Stz/_index.md", "---\ntype: Package\nname: Stz\n---\n");
     write(&root, "Stz/Safety.md", "---\ntype: MetadataDef\nname: Safety\nfeatures:\n  - name: integrity\n    typedBy: ScalarValues::Integer\n  - name: level\n    typedBy: ScalarValues::Integer\n    default: 2\n---\n");
@@ -38,7 +43,8 @@ fn model(toml: &str) -> PathBuf {
     write(&root, "Stz/TC-STZ-001.md", "---\ntype: TestCase\nid: TC-STZ-001\nname: t\nstatus: active\ntestLevel: L2\nverifies: [REQ-STZ-001]\n---\n\n```gherkin\nFeature: f\n\n  Scenario: s\n    Given a\n    Then b\n```\n");
     let cfg = root.join(".syscribe.toml");
     let existing = std::fs::read_to_string(&cfg).unwrap_or_default();
-    std::fs::write(cfg, format!("{existing}\n[metadata]\nprofiles = [\"Stz::Prof\"]\n{toml}\n")).unwrap();
+    let std = if stdlib { "stdlib = true\n" } else { "" };
+    std::fs::write(cfg, format!("{existing}\n[metadata]\nprofiles = [\"Stz::Prof\"]\n{std}{toml}\n")).unwrap();
     root
 }
 
@@ -160,7 +166,7 @@ fn the_meta_tool_returns_the_cli_report() {
         .unwrap();
     let cli: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stdout)));
     assert_eq!(got, cli);
-    assert!(got["groups"].as_array().is_some_and(|g| g.iter().any(|x| x["value"] == 3)), "{got}");
+    assert!(got["groups"].as_array().is_some_and(|g| g.iter().any(|x| x["value"] == "3")), "{got}");
 }
 
 #[test]
@@ -207,7 +213,9 @@ fn a_malformed_gate_is_a_tool_error() {
 
 #[test]
 fn every_write_tool_refuses_the_built_in_library_by_name() {
-    let (mut mcp, root) = started("[metadata]\nstdlib = true\n");
+    let root = model_with("", true);
+    let mut mcp = Mcp::start(&root);
+    mcp.initialize();
     let calls: Vec<(&str, Value)> = vec![
         ("update_element", json!({"ref": "StdMetadata::Safety", "fields": {"status": "approved"}, "dry_run": false})),
         ("delete_element", json!({"ref": "StdMetadata::Safety", "force": true, "dry_run": false})),

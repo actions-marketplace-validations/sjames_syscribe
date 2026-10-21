@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-063
 name: "MCP gates tool evaluates the project's stereotype gates"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/mcp_stereotypes.rs
 verifies:

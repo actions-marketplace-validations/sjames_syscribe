@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-064
 name: "MCP write tools refuse the built-in stereotype library"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/mcp_stereotypes.rs
 verifies:
