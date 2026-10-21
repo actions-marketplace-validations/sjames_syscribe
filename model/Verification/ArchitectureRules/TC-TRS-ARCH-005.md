@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-ARCH-005
 name: "independence reports the shared element"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/arch_rules.rs
 verifies:

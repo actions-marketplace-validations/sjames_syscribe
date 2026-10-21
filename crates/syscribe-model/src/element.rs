@@ -259,6 +259,7 @@ pub enum ElementType {
     Baseline,         // BL-* — frozen release snapshot (ADR-SYS-BASELINE-001)
     PlanningItem,     // PI-* — native planning/tracking work item (ADR-SYS-PLANITEM-001)
     ReviewRecord,     // RR-* — formal review event + traceability (§19, GH #71)
+    ArchitectureRule, // AR-* — a structural rule over the architecture, enforced by validate (GH #369)
     TradeStudy,       // TRD-* — weighted-criteria evaluation of alternatives (§15, GH #63)
     Zone,             // ZN-* — IEC 62443 security zone (§13, GH #61)
     Conduit,          // CD-* — IEC 62443 conduit between zones (§13, GH #61)
@@ -382,6 +383,7 @@ impl ElementType {
         ElementType::Baseline,
         ElementType::PlanningItem,
         ElementType::ReviewRecord,
+        ElementType::ArchitectureRule,
         ElementType::TradeStudy,
         ElementType::Zone,
         ElementType::Conduit,
@@ -486,6 +488,7 @@ impl ElementType {
             ElementType::Baseline => "Baseline",
             ElementType::PlanningItem => "PlanningItem",
             ElementType::ReviewRecord => "ReviewRecord",
+            ElementType::ArchitectureRule => "ArchitectureRule",
             ElementType::TradeStudy => "TradeStudy",
             ElementType::Zone => "Zone",
             ElementType::Conduit => "Conduit",
@@ -548,6 +551,7 @@ impl ElementType {
                 | ElementType::Baseline
                 | ElementType::PlanningItem
                 | ElementType::ReviewRecord
+                | ElementType::ArchitectureRule
                 | ElementType::TradeStudy
                 | ElementType::Zone
                 | ElementType::Conduit
@@ -716,6 +720,14 @@ pub struct RawFrontmatter {
     /// On a `MetadataDef`: checks run on every element that carries it, each a string expression or
     /// `{expr, message, severity}` (REQ-TRS-META-050).
     pub checks: Option<Vec<serde_yaml::Value>>,
+    /// On an `ArchitectureRule`: `forbid-dependency` or `independence` (REQ-TRS-ARCH-001).
+    pub kind: Option<String>,
+    /// On an `ArchitectureRule`: the selector of the components the rule starts from (REQ-TRS-ARCH-002).
+    pub from: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: the selector of the components it is about (REQ-TRS-ARCH-002).
+    pub to: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: the edge sources that count, from `connections`, `typedBy`, `allocations`.
+    pub via: Option<Vec<String>>,
     /// On a package: `true` marks it a stereotype profile (REQ-TRS-META-031).
     pub profile: Option<bool>,
     /// On a package: the version of a stereotype profile (REQ-TRS-META-031).

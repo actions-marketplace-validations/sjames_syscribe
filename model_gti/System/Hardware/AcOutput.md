@@ -2,6 +2,7 @@
 type: PartDef
 name: AC Output
 domain: hardware
+tags: [protection-hw]
 silLevel: 2
 satisfies:
   - REQ-GTI-SYS-038

@@ -90,6 +90,7 @@ const TOLERATED: &[(&str, &str)] = &[
     ("E311", "unresolved breakdownAdr"),
     ("E316", "unresolved refines target"),
     ("E317", "metadata: application names a MetadataDef not in the snippet"),
+    ("W662", "an ArchitectureRule selector that chooses no component of the snippet"),
     ("E502", "unresolved allocatedFrom"),
     ("E503", "unresolved allocatedTo"),
     ("E516", "unresolved subConfigurations entry"),

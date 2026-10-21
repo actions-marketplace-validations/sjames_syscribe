@@ -3753,6 +3753,20 @@ reviews:                # ≥1 element qnames / stable IDs covered by this revie
 
 Summary of the review and its outcome (discussion lives in the linked `recordedAt` review).
 "#,
+        "architecturerule" => r#"---
+type: ArchitectureRule
+id: AR-PREFIX-001
+name: "The hardware trip path does not depend on software"
+kind: forbid-dependency    # forbid-dependency | independence
+from: {tag: protection-hw}     # package (qname prefix) | tag | domain | stereotype — ANDed
+to: {domain: software}
+# via: [connections, typedBy, allocations]   # which edge sources count (default: all three)
+# severity: error          # error | warning
+# status: draft            # a draft rule is not evaluated
+---
+
+Why the architecture must hold this: the claim it protects and where it comes from.
+"#,
         "tradestudy" => r#"---
 type: TradeStudy
 id: TRD-PREFIX-001
@@ -5310,7 +5324,7 @@ mod every_template_tests {
     /// Coverage warnings whose satisfying element is deliberately outside the
     /// skeleton set (a Requirement deriving from each goal, a cybersecurity
     /// assessment, an active TestCase, a mitigated vulnerability).
-    const ALLOWED: &[&str] = &["W005", "W007", "W039", "W058", "W613", "W803", "W804", "W805"];
+    const ALLOWED: &[&str] = &["W005", "W007", "W039", "W058", "W613", "W662", "W803", "W804", "W805"];
 
     fn field(out: &str, key: &str) -> Option<String> {
         let fm = out.split("---").nth(1)?;
@@ -5347,7 +5361,7 @@ mod every_template_tests {
             .collect();
         assert!(missing.is_empty(), "no template for: {missing:?}");
         assert_eq!(template_type_names().len(), ElementType::ALL.len() - 1);
-        for t in ["ReviewRecord", "TradeStudy", "Zone", "Conduit", "Baseline"] {
+        for t in ["ReviewRecord", "ArchitectureRule", "TradeStudy", "Zone", "Conduit", "Baseline"] {
             assert!(template_type_names().contains(&t), "known types omit {t}");
         }
     }

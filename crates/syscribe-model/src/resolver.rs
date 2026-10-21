@@ -8,6 +8,7 @@ static TP_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CONF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ADR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static RR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static AR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TRD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ZN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -75,6 +76,10 @@ fn conf_re() -> &'static regex::Regex {
 fn adr_re() -> &'static regex::Regex {
     // Same relaxation as `req_re` — see its comment.
     ADR_RE.get_or_init(|| regex::Regex::new(r"^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
+}
+
+fn ar_re() -> &'static regex::Regex {
+    AR_RE.get_or_init(|| regex::Regex::new(r"^AR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$").unwrap())
 }
 
 fn rr_re() -> &'static regex::Regex {
@@ -189,6 +194,7 @@ pub const STABLE_ID_KINDS: &[(&str, &str, bool)] = &[
     ("Configuration", "CONF", false),
     ("ADR", "ADR", true),
     ("ReviewRecord", "RR", true),
+    ("ArchitectureRule", "AR", true),
     ("TradeStudy", "TRD", true),
     ("Zone", "ZN", true),
     ("Conduit", "CD", true),
@@ -390,6 +396,7 @@ pub fn is_stable_id(s: &str) -> bool {
         || conf_re().is_match(s)
         || adr_re().is_match(s)
         || rr_re().is_match(s)
+        || ar_re().is_match(s)
         || trd_re().is_match(s)
         || zn_re().is_match(s)
         || cd_re().is_match(s)
@@ -527,6 +534,11 @@ pub fn is_ats_id(s: &str) -> bool { ats_re().is_match(s) || extra_matches("ATS",
 /// Returns true for ADR-* IDs.
 pub fn is_adr_id(s: &str) -> bool {
     adr_re().is_match(s) || extra_matches("ADR", s)
+}
+
+/// Returns true for AR-* IDs (ArchitectureRule).
+pub fn is_ar_id(s: &str) -> bool {
+    ar_re().is_match(s) || extra_matches("AR", s)
 }
 
 /// Returns true for RR-* IDs (ReviewRecord).

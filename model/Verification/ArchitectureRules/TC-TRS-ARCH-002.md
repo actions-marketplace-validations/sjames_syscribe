@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-ARCH-002
 name: "Rule selectors choose components"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/arch_rules.rs
 verifies:

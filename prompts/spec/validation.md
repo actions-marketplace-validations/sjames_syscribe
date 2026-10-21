@@ -841,6 +841,12 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E650` | error | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | `W650` | warning | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
 | `E651` | error | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
+| `E660` | error | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
+| `W660` | warning | The same violation under `severity: warning`. |
+| `E661` | error | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
+| `W661` | warning | The same violation under `severity: warning`. |
+| `E662` | error | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `W662` | warning | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | `W316` | warning | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 
 ## Stable-ID prefixes, unknown fields, locale variants and about comments (W046, W047, W049, W051, W052)

@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-ARCH-003
 name: "Dependencies are derived from the architecture"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/arch_rules.rs
 verifies:

@@ -30,7 +30,15 @@ fn port(name: &str, dir: &str) -> String {
 /// A trip path (`Hw::Sensor` → `Hw::Actuator`, tag `trip`), an MCU with firmware allocated to it, and a supervisor.
 /// `connections` is the YAML list body of `Sys::Top`'s `connections:`; `rule` the front matter body of the rule.
 fn model(connections: &str, rule: &str) -> Vec<RawElement> {
+    model_with(connections, rule, &[], "")
+}
+
+/// [`model`] with extra files and extra `features:` lines (YAML) on `Sys::Top`.
+fn model_with(connections: &str, rule: &str, extra: &[(&str, &str)], top_features: &str) -> Vec<RawElement> {
     let r = tempdir();
+    for (p, c) in extra {
+        write(&r, p, c);
+    }
     write(&r, "_index.md", "---\ntype: Package\nname: Root\n---\n");
     for p in ["Hw", "Sw", "Sys", "Rules"] {
         write(&r, &format!("{p}/_index.md"), &format!("---\ntype: Package\nname: {p}\n---\n"));
@@ -47,7 +55,7 @@ fn model(connections: &str, rule: &str) -> Vec<RawElement> {
         &r,
         "Sys/Top.md",
         &format!(
-            "---\ntype: PartDef\nname: Top\ndomain: system\nfeatures:\n  - {{name: sensor, typedBy: Hw::Sensor}}\n  - {{name: actuator, typedBy: Hw::Actuator}}\n  - {{name: mcu, typedBy: Hw::Mcu}}\n  - {{name: fw, typedBy: Sw::Fw}}\n  - {{name: sup, typedBy: Sw::Sup}}\nconnections:\n{connections}---\n\nTop.\n"
+            "---\ntype: PartDef\nname: Top\ndomain: system\nfeatures:\n  - {{name: sensor, typedBy: Hw::Sensor}}\n  - {{name: actuator, typedBy: Hw::Actuator}}\n  - {{name: mcu, typedBy: Hw::Mcu}}\n  - {{name: fw, typedBy: Sw::Fw}}\n  - {{name: sup, typedBy: Sw::Sup}}\n{top_features}connections:\n{connections}---\n\nTop.\n"
         ),
     );
     write(&r, "Rules/AR-ARC-001.md", &format!("---\ntype: ArchitectureRule\nid: AR-ARC-001\nname: the rule\n{rule}---\n\nWhy.\n"));
@@ -227,4 +235,50 @@ fn the_fields_are_unrecognised_on_other_elements() {
     for f in ["kind", "from", "to", "via"] {
         assert!(w.iter().any(|(_, m)| m.contains(&format!("'{f}'"))), "{f}: {w:?}");
     }
+}
+
+// ── one wiring mistake is one finding, not one per contained component ─────────────────────────
+
+/// `Sw::Bundle`: a software composite containing `Fw` and `Sup`, with an output port; `Top` gets a `bundle` usage.
+fn bundled(connections: &str, rule: &str) -> Vec<RawElement> {
+    model_with(
+        connections,
+        rule,
+        &[("Sw/Bundle.md", "---\ntype: PartDef\nname: Bundle\ndomain: software\nfeatures:\n  - {name: fw, typedBy: Sw::Fw}\n  - {name: sup, typedBy: Sw::Sup}\n  - {name: o, type: Port, direction: out}\n---\n\nBundle.\n")],
+        "  - {name: bundle, typedBy: Sw::Bundle}\n",
+    )
+}
+
+const FED_BY_BUNDLE: &str = "  - {from: sensor.o, to: actuator.i}\n  - {from: bundle.o, to: actuator.cmd}\n";
+
+#[test]
+fn forbid_dependency_stops_at_the_first_forbidden_component() {
+    let e = codes(&bundled(FED_BY_BUNDLE, FORBID_SW), "E660");
+    assert_eq!(e.len(), 1, "Bundle, not also everything inside it: {e:?}");
+    assert!(in_order(&e[0].1, &["Hw::Actuator", "Sw::Bundle"]) && !e[0].1.contains("Sw::Fw"), "{e:?}");
+}
+
+#[test]
+fn a_dependency_through_another_source_is_reported_once_at_that_source() {
+    // the actuator depends on the sensor, and the sensor on the supervisor: the finding is the sensor's
+    let e = codes(&model(&format!("{SENSE}  - {{from: sup.o, to: sensor.cfg}}\n"), FORBID_SW), "E660");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(in_order(&e[0].1, &["Hw::Sensor", "Sw::Sup"]) && !e[0].1.contains("Hw::Actuator"), "{e:?}");
+}
+
+#[test]
+fn independence_reports_the_shared_component_not_what_it_contains() {
+    // the bundle feeds the actuator: it is in both closures, and so are Fw, Sup and the Mcu Fw runs on
+    let e = codes(&bundled(FED_BY_BUNDLE, INDEP), "E661");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(e[0].1.contains("Sw::Bundle is shared"), "the root cause: {e:?}");
+}
+
+#[test]
+fn two_independent_causes_are_two_findings() {
+    // the supervisor feeds the actuator, and the MCU the sensor: Sup and Mcu are shared and neither reaches the other
+    let e = codes(&model(&format!("{SENSE}  - {{from: sup.o, to: actuator.cmd}}\n  - {{from: mcu.o, to: sensor.cfg}}\n"), INDEP), "E661");
+    let names: Vec<_> = e.iter().map(|(_, m)| m.as_str()).collect();
+    assert!(names.iter().any(|m| m.contains("Sw::Sup is shared")) && names.iter().any(|m| m.contains("Hw::Mcu is shared")), "{e:?}");
+    assert_eq!(e.len(), 2, "{e:?}");
 }
