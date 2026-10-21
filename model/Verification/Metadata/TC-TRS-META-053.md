@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-053
 name: "Selectors and thresholds work in rules, views and coverage"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe/tests/metadata_checks.rs
+sourceFile: repo:crates/syscribe/tests/coverage_gate.rs
 verifies:
   - REQ-TRS-META-053
 tags:
@@ -14,10 +14,19 @@ tags:
 ```gherkin
 Feature: Selectors and thresholds work in rules, views and coverage
 
-  Scenario: rule scope
-    Then an ArchitectureRule scoped by a stereotype selector applies only to its carriers
+  Scenario: an architecture rule is scoped by a stereotype selector
+    Then it chooses only the components that apply the stereotype
 
-  Scenario: threshold
-    Given a coverage threshold higher for Safety
-    Then a Safety element below it is reported and others are held to the default
+  Scenario: a coverage rule is chosen by a stereotype selector
+    Then [[coverage.rule]] stereotype picks the rule for the requirements that apply it
+
+  Scenario: a threshold below the percentage
+    Given [[gates.coverage]] selecting Safety where integrity >= 2
+    Then validate lists the incomplete requirements and exits 2
+
+  Scenario: the threshold is met
+    Then validate exits 0
+
+  Scenario: malformed or empty gates
+    Then they are usage errors, exit 1
 ```

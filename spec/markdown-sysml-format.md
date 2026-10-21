@@ -3324,7 +3324,9 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   `severity` `error` (default, **`E650`**) or `warning` (**`W650`**, draft-suppressed). A profile's checks run
   only when the profile is enabled. `validate --deny-meta <Def.key=value>` and `[gates] deny_meta` fail the
   run (exit 2) while a matching element exists, and `baseline create` refuses to seal one
-  (REQ-TRS-META-050, -051, -054);
+  (REQ-TRS-META-050, -051, -054); **`[[gates.coverage]]`** (`select`: a stereotype selector, `min_complete`: a
+  percentage, default 100) fails `validate` (exit 2) when fewer of the selected non-draft requirements are `complete` in
+  the `matrix --rollup` sense, and is a usage error (exit 1) when malformed or when it counts nothing (REQ-TRS-META-053);
 - a **stereotype selector** is `{stereotype: Def, where: <expr>}` or the string `Def where <expr>`: it
   matches an element that applies `Def` (or a specialisation) and, with `where`, whose application
   satisfies the expression over its tagged values (`meta`/`has` available). A TestPlan's

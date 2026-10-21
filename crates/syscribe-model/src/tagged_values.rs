@@ -829,6 +829,40 @@ pub fn parse_checks(def: &crate::element::RawElement) -> (Vec<Check>, Vec<String
     (ok, bad)
 }
 
+/// One `[[gates.coverage]]`: a threshold for the requirements a stereotype selector chooses (REQ-TRS-META-053).
+#[derive(Debug, Clone)]
+pub struct CoverageGate {
+    pub select: Selector,
+    /// The selector as written, for messages.
+    pub text: String,
+    /// Percentage of the counted requirements that must be complete.
+    pub min_complete: f64,
+}
+
+/// `[[gates.coverage]]` of `<model_root>/.syscribe.toml`; `Err` names the first malformed entry.
+pub fn load_coverage_gates(model_root: &std::path::Path) -> Result<Vec<CoverageGate>, String> {
+    let Ok(text) = std::fs::read_to_string(model_root.join(".syscribe.toml")) else { return Ok(Vec::new()) };
+    let Ok(root) = toml::from_str::<toml::Value>(&text) else { return Ok(Vec::new()) };
+    let Some(entries) = root.get("gates").and_then(|g| g.get("coverage")) else { return Ok(Vec::new()) };
+    let Some(entries) = entries.as_array() else { return Err("[gates] coverage must be an array of tables ([[gates.coverage]])".into()) };
+    let mut out = Vec::new();
+    for (i, e) in entries.iter().enumerate() {
+        let at = format!("[[gates.coverage]] #{}", i + 1);
+        let Some(t) = e.as_table() else { return Err(format!("{at} must be a table")) };
+        if let Some(k) = t.keys().find(|k| !matches!(k.as_str(), "select" | "min_complete")) {
+            return Err(format!("{at}: unknown key '{k}' (known: select, min_complete)"));
+        }
+        let text = t.get("select").and_then(toml::Value::as_str).ok_or_else(|| format!("{at}: `select` (a stereotype selector) is required"))?;
+        let select = parse_selector(&Yaml::String(text.to_string())).map_err(|m| format!("{at}: select '{text}': {m}"))?;
+        let min_complete = match t.get("min_complete") {
+            None => 100.0,
+            Some(v) => v.as_float().or_else(|| v.as_integer().map(|i| i as f64)).filter(|p| (0.0..=100.0).contains(p)).ok_or_else(|| format!("{at}: min_complete must be a percentage from 0 to 100"))?,
+        };
+        out.push(CoverageGate { select, text: text.to_string(), min_complete });
+    }
+    Ok(out)
+}
+
 /// `[gates] deny_meta` of `.syscribe.toml`: stereotype conditions (`Def.key=value`) that must not hold.
 pub fn load_gate_conditions(model_root: &std::path::Path) -> Vec<String> {
     #[derive(Default, serde::Deserialize)]

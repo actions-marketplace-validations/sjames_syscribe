@@ -398,6 +398,68 @@ pub fn cmd_rollup(
     0
 }
 
+/// The roll-up verdict (`complete`, `partial`, `none`, `na`) of every native requirement, as `matrix --rollup`
+/// computes it (REQ-TRS-META-053).
+pub fn verdicts<'a>(
+    elements: &'a [RawElement],
+    result: &ValidationResult,
+    results: Option<&ResultsData>,
+    policy: &CoveragePolicy,
+) -> Result<Vec<(&'a RawElement, &'static str)>, String> {
+    if !policy.problems.is_empty() {
+        return Err(policy.problems.join("; "));
+    }
+    let resolver = Resolver::new(elements);
+    let states = crate::matrix::requirement_rollup(elements, results);
+    let mut memo = std::collections::HashMap::new();
+    Ok(elements
+        .iter()
+        .filter(|e| Resolver::is_native_requirement(e))
+        .map(|e| {
+            let (n, _) = summarise(e, elements, &resolver, result, &states, &mut HashSet::new(), policy, &mut memo);
+            (e, n.verdict())
+        })
+        .collect())
+}
+
+/// The tripped `[[gates.coverage]]` of the project, one line each (REQ-TRS-META-053): the requirements a
+/// stereotype selector chooses — drafts and `na` ones not counted — must be at least `min_complete` percent
+/// `complete`. `Err` is a usage error: a malformed gate, an unknown stereotype, or a gate that counts nothing.
+pub fn coverage_gates(elements: &[RawElement], vcfg: &syscribe_model::config::ValidateConfig, model_root: &std::path::Path) -> Result<Vec<String>, String> {
+    let gates = syscribe_model::tagged_values::load_coverage_gates(model_root)?;
+    if gates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let resolver = Resolver::new(elements);
+    for g in &gates {
+        if syscribe_model::tagged_values::find_metadata_def(elements, &resolver, &g.select.def).is_none() {
+            return Err(format!("[[gates.coverage]] select '{}' names '{}', which is not a MetadataDef", g.text, g.select.def));
+        }
+    }
+    let result = syscribe_model::validator::validate_with_config(elements, vcfg);
+    let results = crate::runhist::load_results(model_root);
+    let policy = CoveragePolicy::load(model_root);
+    let verdicts = verdicts(elements, &result, results.as_ref(), &policy)?;
+    let mut lines = Vec::new();
+    for g in &gates {
+        let counted: Vec<&(&RawElement, &str)> = verdicts
+            .iter()
+            .filter(|(e, v)| *v != "na" && e.frontmatter.status.as_deref() != Some("draft") && syscribe_model::tagged_values::selector_matches(elements, &resolver, e, &g.select))
+            .collect();
+        if counted.is_empty() {
+            return Err(format!("coverage gate '{}' selects no requirement that counts (drafts and n/a are not counted)", g.text));
+        }
+        let complete = counted.iter().filter(|(_, v)| *v == "complete").count();
+        let pct = complete as f64 * 100.0 / counted.len() as f64;
+        if pct < g.min_complete {
+            let mut missing: Vec<String> = counted.iter().filter(|(_, v)| *v != "complete").map(|(e, _)| key(e)).collect();
+            missing.sort();
+            lines.push(format!("coverage gate '{}': {}/{} complete ({:.0}% < {}%) — incomplete: {}", g.text, complete, counted.len(), pct, g.min_complete, missing.join(", ")));
+        }
+    }
+    Ok(lines)
+}
+
 /// Per-`reqClass` roll-up counts for `audit` (GH #252, REQ-TRS-AUDITCLS-001): `Ok(class -> verdict
 /// -> count)` or `Err` with the policy problem. Same verdicts as `matrix --rollup`.
 pub fn class_summary(

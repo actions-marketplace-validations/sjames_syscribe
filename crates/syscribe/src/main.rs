@@ -1066,7 +1066,22 @@ fn main() {
                         println!("Metadata gate tripped ({} element(s)):\n{}\n", meta_hits.len(), lines.join("\n"));
                     }
                 }
-                let meta_tripped = !meta_hits.is_empty();
+                // `[[gates.coverage]]` (REQ-TRS-META-053): a threshold for the requirements a stereotype selector chooses.
+                let cov_lines = match covtree::coverage_gates(&elems, &vcfg_run, model_root) {
+                    Ok(l) => l,
+                    Err(m) => {
+                        eprintln!("Error: {m}");
+                        std::process::exit(1);
+                    }
+                };
+                if !cov_lines.is_empty() {
+                    if json {
+                        eprintln!("{}", cov_lines.join("\n"));
+                    } else {
+                        println!("Coverage gate tripped ({}):\n{}\n", cov_lines.len(), cov_lines.join("\n"));
+                    }
+                }
+                let meta_tripped = !meta_hits.is_empty() || !cov_lines.is_empty();
                 // Configuration lens: --all-configs gate, or --config <C> projection.
                 let all_configs = rest.iter().any(|a| a == "--all-configs");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
