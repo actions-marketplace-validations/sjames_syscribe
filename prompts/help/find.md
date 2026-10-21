@@ -1,7 +1,7 @@
 # find — fuzzy search by name, ID, or content
 
 ## SYNOPSIS
-    syscribe -m <root> find <pattern> [--where custom.<key>[<op><value>]]...
+    syscribe -m <root> find <pattern> [--where custom.<key>[<op><value>] | meta.<Def>.<key><op><value>]...
 
 ## DESCRIPTION
 Searches element names, stable IDs, and documentation bodies, ranking results by

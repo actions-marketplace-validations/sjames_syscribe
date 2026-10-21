@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-021
 name: "--metadata accepts several definitions and negation"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/metadata_query.rs
 verifies:

@@ -800,7 +800,19 @@ $ syscribe -m model/ list PartDef --where custom.partNumbers~=A-1001 # list memb
 $ syscribe -m model/ find . --where custom.supplier                  # presence
 ```
 
-`=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
+Filter by a stereotype's tagged values with `meta.<Def>.<key>` (REQ-TRS-META-020). `<Def>` is a qualified name or the last segment; a declared default counts as a value:
+
+```
+$ syscribe -m model/ list PartDef --where 'meta.SafetyCritical.integrity>=2'   # < <= > >= need a number
+$ syscribe -m model/ list PartDef --where meta.Regulatory.status=unverified    # = != =~ ~=
+$ syscribe -m model/ list PartDef --where meta.Safety.goal                      # a value is present
+$ syscribe -m model/ list PartDef --where meta.Safety                           # the stereotype is applied
+$ syscribe -m model/ list PartDef --metadata Safety --metadata '!Optional'      # repeat = and; A,B = or; ! = not
+```
+
+An element without the stereotype or the value never matches, `!=` included. `--metadata` names that are no `MetadataDef` of the model and that no element applies are a usage error. `ls`, `find`, `digest` and `stats` take the same `--where`, and `list --json` carries each element's applications as `metadata: [{def, values, defaulted}]`.
+
+For `custom.` predicates, `=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
 
 ---
 

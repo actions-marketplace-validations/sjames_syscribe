@@ -139,6 +139,74 @@ pub enum CustomWhere {
     /// `custom.<key>~=<val>` — list membership: the list contains val (also true
     /// when a scalar field equals val).
     Member { key: String, val: String },
+    /// `meta.<Def>[.<key>]…` — a stereotype application and its tagged values
+    /// (REQ-TRS-META-020). `key: None` asks whether the stereotype is applied.
+    Meta { def: String, key: Option<String>, op: MetaOp },
+}
+
+/// The test of a `meta.` predicate against a tagged value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetaOp {
+    /// No operator: the value (or, with no key, the stereotype) is present.
+    Present,
+    Eq(String),
+    Ne(String),
+    Regex(String),
+    Member(String),
+    /// `<`, `<=`, `>`, `>=` against a number (kept as written; validated at parse).
+    Cmp(&'static str, String),
+}
+
+/// The supported `meta.` forms, quoted in every error for one.
+pub const META_WHERE_FORMS: &str = "meta.<Def>.<key>=<value> (exact), meta.<Def>.<key>!=<value>, meta.<Def>.<key>=~<pattern> (regex), \
+meta.<Def>.<key>~=<value> (list membership), meta.<Def>.<key><|<=|>|>=<number>, meta.<Def>.<key> (a value is present), \
+meta.<Def> (the stereotype is applied)";
+
+fn parse_meta_where(arg: &str, body: &str) -> Result<CustomWhere, String> {
+    const OP_CHARS: &[char] = &['=', '~', '!', '<', '>'];
+    let (left, rest) = match body.find(OP_CHARS) {
+        Some(at) => body.split_at(at),
+        None => (body, ""),
+    };
+    let (def, key) = match left.rsplit_once('.') {
+        Some((d, k)) => (d, Some(k)),
+        None => (left, None),
+    };
+    if def.is_empty() || key == Some("") {
+        return Err(format!("--where predicate has an empty stereotype or key: '{arg}'; supported: {META_WHERE_FORMS}"));
+    }
+    let mk = |op: MetaOp| Ok(CustomWhere::Meta { def: def.to_string(), key: key.map(str::to_string), op });
+    if rest.is_empty() {
+        return mk(MetaOp::Present);
+    }
+    let op: String = rest.chars().take_while(|c| OP_CHARS.contains(c)).collect();
+    // `=` is the only operator that may be followed by an operator character (`=~` is its own).
+    let supported = [">=", "<=", "!=", "=~", "~=", ">", "<", "="];
+    if !supported.contains(&op.as_str()) {
+        return Err(format!("unsupported --where operator '{op}' in '{arg}'; supported: {META_WHERE_FORMS}"));
+    }
+    if key.is_none() {
+        return Err(format!("--where operator '{op}' needs a key (meta.<Def>.<key>): '{arg}'; supported: {META_WHERE_FORMS}"));
+    }
+    let val = rest[op.len()..].to_string();
+    match op.as_str() {
+        "=" => mk(MetaOp::Eq(val)),
+        "!=" => mk(MetaOp::Ne(val)),
+        "=~" => mk(MetaOp::Regex(val)),
+        "~=" => mk(MetaOp::Member(val)),
+        cmp => {
+            if val.trim().parse::<f64>().is_err() {
+                return Err(format!("--where operator '{cmp}' needs a number, found '{val}': '{arg}'"));
+            }
+            let cmp: &'static str = match cmp {
+                ">=" => ">=",
+                "<=" => "<=",
+                ">" => ">",
+                _ => "<",
+            };
+            mk(MetaOp::Cmp(cmp, val))
+        }
+    }
 }
 
 /// The supported `--where` forms, quoted verbatim in every operator error.
@@ -156,8 +224,11 @@ custom.<key>~=<value> (list membership), custom.<key> (presence)";
 /// `=~` uses the `regex` crate; an invalid regex pattern falls back to a plain
 /// substring test (so any literal pattern still works).
 pub fn parse_custom_where(arg: &str) -> Result<CustomWhere, String> {
+    if let Some(body) = arg.strip_prefix("meta.") {
+        return parse_meta_where(arg, body);
+    }
     let body = arg.strip_prefix("custom.").ok_or_else(|| {
-        format!("--where predicate must address the `custom.<key>` namespace: '{arg}'")
+        format!("--where predicate must address the `custom.<key>` or `meta.<Def>.<key>` namespace: '{arg}'")
     })?;
 
     let mk_key = |k: &str| -> Result<String, String> {
@@ -200,12 +271,15 @@ fn custom_where_key(pred: &CustomWhere) -> &str {
         | CustomWhere::Eq { key, .. }
         | CustomWhere::Regex { key, .. }
         | CustomWhere::Member { key, .. } => key,
+        // A `meta.` predicate addresses stereotypes, not custom fields; it never matches here.
+        CustomWhere::Meta { .. } => "",
     }
 }
 
 /// Evaluate a predicate against a concrete YAML value (the field is present).
 fn custom_where_value_matches(value: &serde_yaml::Value, pred: &CustomWhere) -> bool {
     match pred {
+        CustomWhere::Meta { .. } => false,
         CustomWhere::Present { .. } => true,
         CustomWhere::Eq { val, .. } => match value {
             serde_yaml::Value::Sequence(items) => {
@@ -228,6 +302,81 @@ fn custom_where_value_matches(value: &serde_yaml::Value, pred: &CustomWhere) -> 
             // A scalar field "contains" val iff it equals val.
             other => &yaml_scalar_string(other) == val,
         },
+    }
+}
+
+thread_local! {
+    /// The resolver last built for a model slice, keyed by its address and length, so a filter that
+    /// tests every element builds it once (a `meta.` predicate needs it to resolve definitions).
+    static META_RESOLVER: std::cell::RefCell<Option<(usize, usize, Resolver)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn with_resolver<T>(elements: &[RawElement], f: impl FnOnce(&Resolver) -> T) -> T {
+    META_RESOLVER.with(|c| {
+        let mut c = c.borrow_mut();
+        let key = (elements.as_ptr() as usize, elements.len());
+        if !matches!(&*c, Some((p, n, _)) if (*p, *n) == key) {
+            *c = Some((key.0, key.1, Resolver::new(elements)));
+        }
+        f(&c.as_ref().unwrap().2)
+    })
+}
+
+fn yaml_number(v: &serde_yaml::Value) -> Option<f64> {
+    match v {
+        serde_yaml::Value::Number(n) => n.as_f64(),
+        serde_yaml::Value::String(s) => s.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// Whether `elem` satisfies a `meta.` predicate: it applies the stereotype and (when a key is
+/// named) a tagged value — written or defaulted — passes the test. An element without the
+/// stereotype or the value never matches, `!=` included.
+fn meta_where_matches(elements: &[RawElement], elem: &RawElement, def: &str, key: &Option<String>, op: &MetaOp) -> bool {
+    with_resolver(elements, |resolver| {
+        let apps = syscribe_model::tagged_values::effective_applications(elements, resolver, elem);
+        let wanted: Vec<_> = apps
+            .iter()
+            .filter(|a| a.def == def || (!def.contains("::") && a.def.rsplit("::").next() == Some(def)))
+            .collect();
+        let Some(key) = key else { return !wanted.is_empty() };
+        let values: Vec<&serde_yaml::Value> = wanted
+            .iter()
+            .flat_map(|a| a.values.iter().filter(|(k, _)| k == key).flat_map(|(_, v)| syscribe_model::tagged_values::values_of(v)))
+            .collect();
+        let any = |f: &dyn Fn(&serde_yaml::Value) -> bool| values.iter().any(|v| f(v));
+        match op {
+            MetaOp::Present => !values.is_empty(),
+            MetaOp::Eq(x) | MetaOp::Member(x) => any(&|v| &yaml_scalar_string(v) == x),
+            MetaOp::Ne(x) => !values.is_empty() && !any(&|v| &yaml_scalar_string(v) == x),
+            MetaOp::Regex(pat) => any(&|v| {
+                let hay = yaml_scalar_string(v);
+                regex::Regex::new(pat).map(|re| re.is_match(&hay)).unwrap_or_else(|_| hay.contains(pat.as_str()))
+            }),
+            MetaOp::Cmp(c, rhs) => {
+                let rhs: f64 = rhs.trim().parse().unwrap_or(f64::NAN);
+                any(&|v| {
+                    yaml_number(v).is_some_and(|n| match *c {
+                        ">=" => n >= rhs,
+                        "<=" => n <= rhs,
+                        ">" => n > rhs,
+                        _ => n < rhs,
+                    })
+                })
+            }
+        }
+    })
+}
+
+/// A `--where` predicate against an element of `elements`: `custom.` predicates test its custom
+/// fields, `meta.` predicates its stereotype applications (REQ-TRS-META-020). With `extra`, a
+/// `custom.` predicate also consults unknown top-level keys (see [`custom_or_extra_matches`]).
+pub fn where_matches(elements: &[RawElement], elem: &RawElement, pred: &CustomWhere, extra: bool) -> bool {
+    match pred {
+        CustomWhere::Meta { def, key, op } => meta_where_matches(elements, elem, def, key, op),
+        _ if extra => custom_or_extra_matches(elem, pred),
+        _ => custom_field_matches(elem, pred),
     }
 }
 
@@ -1290,7 +1439,7 @@ pub fn cmd_ls(elements: &[RawElement], parent: &str, wheres: &[CustomWhere]) {
     };
     let mut children = ns_children(elements, parent);
     // `--where` custom-field predicates (GH #39) — ANDed with each other.
-    children.retain(|c| wheres.iter().all(|w| custom_field_matches(c, w)));
+    children.retain(|c| wheres.iter().all(|w| where_matches(elements, c, w, false)));
     if children.is_empty() {
         if parent.is_empty() {
             eprintln!("No top-level elements found.");
@@ -1406,6 +1555,40 @@ pub fn cmd_types(elements: &[RawElement]) {
     }
 }
 
+/// Whether `e` applies stereotype `name`, by full reference or last `::` segment.
+fn applies_stereotype(e: &RawElement, name: &str) -> bool {
+    syscribe_model::element::metadata_applications(&e.frontmatter.metadata)
+        .iter()
+        .any(|a| a.def == name || a.def.rsplit("::").next() == Some(name))
+}
+
+/// `--metadata` clauses (REQ-TRS-META-021): every clause must hold; a clause is a comma list of
+/// alternatives, any of which may hold; a leading `!` on an alternative negates it.
+fn metadata_clauses_hold(e: &RawElement, clauses: &[&str]) -> bool {
+    clauses.iter().all(|clause| {
+        clause.split(',').map(str::trim).filter(|a| !a.is_empty()).any(|alt| match alt.strip_prefix('!') {
+            Some(name) => !applies_stereotype(e, name),
+            None => applies_stereotype(e, alt),
+        })
+    })
+}
+
+/// The `--metadata` names that match no `MetadataDef` of the model and are applied by no element
+/// (a typo, rather than a stereotype nothing happens to carry).
+pub fn unknown_metadata_names(elements: &[RawElement], clauses: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for name in clauses.iter().flat_map(|c| c.split(',')).map(|a| a.trim().trim_start_matches('!')).filter(|a| !a.is_empty()) {
+        let is_def = elements.iter().any(|e| {
+            e.frontmatter.element_type == Some(ElementType::MetadataDef)
+                && (e.qualified_name == name || e.qualified_name.rsplit("::").next() == Some(name))
+        });
+        if !is_def && !elements.iter().any(|e| applies_stereotype(e, name)) && !out.iter().any(|o| o == name) {
+            out.push(name.to_string());
+        }
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn cmd_list(
     elements: &[RawElement],
@@ -1413,7 +1596,7 @@ pub fn cmd_list(
     scope: &str,
     tags: &[&str],
     feature: Option<&str>,
-    metadata: Option<&str>,
+    metadata: &[&str],
     status: Option<&str>,
     sil: Option<&str>,
     has_wcet: bool,
@@ -1457,13 +1640,7 @@ pub fn cmd_list(
         .filter(|e| feature.is_none_or(|feat| gates_feature(e, feat)))
         // `--metadata <Def>`: keep only elements that apply that stereotype (MetadataDef),
         // matched by full ref or last `::` segment (REQ-TRS-META-001).
-        .filter(|e| {
-            metadata.is_none_or(|md| {
-                syscribe_model::element::metadata_applications(&e.frontmatter.metadata)
-                    .iter()
-                    .any(|a| a.def == md || a.def.rsplit("::").next() == Some(md))
-            })
-        })
+        .filter(|e| metadata_clauses_hold(e, metadata))
         // `--status <s>`: keep only elements whose `status:` equals s exactly.
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         // `--sil <v>`: one flag covers SIL and ASIL — match when `silLevel`
@@ -1477,7 +1654,7 @@ pub fn cmd_list(
         // `--has-wcet`: keep only elements that declare a non-empty `wcet:`.
         .filter(|e| !has_wcet || e.frontmatter.wcet.as_deref().is_some_and(|w| !w.trim().is_empty()))
         // `--where custom.<key>…` (GH #39): custom-field predicates, ANDed.
-        .filter(|e| wheres.iter().all(|w| custom_field_matches(e, w)))
+        .filter(|e| wheres.iter().all(|w| where_matches(elements, e, w, false)))
         .collect();
 
     matches.sort_by_key(|e| e.qualified_name.as_str());
@@ -1640,7 +1817,7 @@ pub fn cmd_find(elements: &[RawElement], pattern: &str, wheres: &[CustomWhere]) 
         .map(|e| (fuzzy_score(e, pattern), e))
         .filter(|(s, _)| *s > 0)
         // `--where` custom-field predicates (GH #39) — ANDed with the fuzzy match.
-        .filter(|(_, e)| wheres.iter().all(|w| custom_field_matches(e, w)))
+        .filter(|(_, e)| wheres.iter().all(|w| where_matches(elements, e, w, false)))
         .collect();
 
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.qualified_name.cmp(&b.1.qualified_name)));

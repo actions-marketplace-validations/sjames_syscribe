@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-020
 name: "Filter by tagged value with --where meta"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/metadata_query.rs
 verifies:

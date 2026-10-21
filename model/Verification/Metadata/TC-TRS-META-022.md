@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-022
 name: "Applications are exported as structured data"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/metadata_query.rs
 verifies:

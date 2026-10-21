@@ -1478,10 +1478,17 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--feature")
                     .map(|w| w[1].as_str());
-                let metadata = rest
+                // Repeatable (all must hold); each value is a comma list (any) with `!` negation (GH #376).
+                let metadata: Vec<&str> = rest
                     .windows(2)
-                    .find(|w| w[0] == "--metadata")
-                    .map(|w| w[1].as_str());
+                    .filter(|w| w[0] == "--metadata")
+                    .map(|w| w[1].as_str())
+                    .collect();
+                let unknown = query::unknown_metadata_names(&elems, &metadata);
+                if !unknown.is_empty() {
+                    eprintln!("Error: --metadata names no MetadataDef in the model: {}", unknown.join(", "));
+                    std::process::exit(1);
+                }
                 let status = rest
                     .windows(2)
                     .find(|w| w[0] == "--status")
@@ -1532,14 +1539,14 @@ fn main() {
                     break;
                 }
                 match config {
-                    None => query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json),
+                    None => query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json),
                     Some(c) => match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
-                            query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json)
+                            query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json)
                         }
                         syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
                             let view = syscribe_model::projection::project(&elems, &sel);
-                            query::cmd_list(&view, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json);
+                            query::cmd_list(&view, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json);
                         }
                         syscribe_model::projection::SelectionOutcome::Error(m) => {
                             eprintln!("{m}");

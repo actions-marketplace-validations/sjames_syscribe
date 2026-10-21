@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-023
 name: "Expressions read stereotypes with meta() and has()"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/metadata_expr.rs
 verifies:

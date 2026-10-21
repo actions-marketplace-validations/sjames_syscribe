@@ -3319,7 +3319,12 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   an absent number is undecided, not violated.
 
 Applied stereotypes are shown by `show` as **«Name»** banners and are filterable with
-`list <Type> --metadata <MetadataDef>`.
+`list <Type> --metadata <MetadataDef>` (repeatable, `A,B` for either, `!A` to exclude) and by tagged
+value with `--where meta.<Def>.<key><op><value>` (REQ-TRS-META-020, -021).
+
+In a `MetadataDef`'s `constraints:`, `has(Def)` is true when the carrying element applies `Def`, and
+`meta(Def).key` is that application's tagged value (its default when unwritten). An absent stereotype or
+value is *absent*: any comparison with it is false, never an error (REQ-TRS-META-023).
 
 #### 8.15.3 Standard Library Metadata
 

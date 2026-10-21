@@ -1145,7 +1145,7 @@ impl SyscribeMcp {
                 }
             }
             if let Some(pred) = &where_pred {
-                if !crate::query::custom_or_extra_matches(e, pred) {
+                if !crate::query::where_matches(&store.elements, e, pred, true) {
                     continue;
                 }
             }

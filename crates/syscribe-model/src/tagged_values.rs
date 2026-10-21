@@ -258,9 +258,47 @@ fn rewrite_implies(src: &str) -> String {
     src.to_string()
 }
 
+fn meta_call_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\bmeta\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)").unwrap())
+}
+
+fn has_call_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\bhas\(\s*([A-Za-z_][A-Za-z0-9_:]*)\s*\)").unwrap())
+}
+
+/// The stereotype names a constraint reads through `has(Def)` / `meta(Def).key`.
+pub fn referenced_defs(src: &str) -> Vec<String> {
+    let mut out: Vec<String> = meta_call_re().captures_iter(src).map(|c| c[1].to_string()).collect();
+    out.extend(has_call_re().captures_iter(src).map(|c| c[1].to_string()));
+    out.dedup();
+    out
+}
+
+/// `has(Def)` / `meta(Def).key` become the names `has.Def` / `meta.Def.key`, which the evaluator
+/// resolves against the element in scope (`REQ-TRS-META-023`).
+fn rewrite_calls(src: &str) -> Result<String, String> {
+    let a = meta_call_re().replace_all(src, "meta.$1.$2");
+    let b = has_call_re().replace_all(&a, "has.$1").into_owned();
+    let stray = regex::Regex::new(r"\b(meta|has)\s*\(").unwrap();
+    if stray.is_match(&b) {
+        return Err("malformed call: expected `has(Def)` or `meta(Def).key`".to_string());
+    }
+    Ok(b)
+}
+
 /// Parse a `constraints:` entry; an error is the message to report on the definition.
 pub fn parse_constraint(src: &str) -> Result<expr::Expr, String> {
-    expr::parse(&rewrite_implies(src)).map_err(|e| e.to_string())
+    let rewritten = rewrite_calls(&rewrite_implies(src))?;
+    expr::parse(&rewritten).map_err(|e| e.to_string())
+}
+
+/// The element in scope for `has()` / `meta()`.
+pub struct Scope<'a> {
+    pub elements: &'a [crate::element::RawElement],
+    pub resolver: &'a crate::resolver::Resolver,
+    pub carrier: &'a crate::element::RawElement,
 }
 
 /// Outcome of evaluating a constraint over one application.
@@ -274,8 +312,24 @@ pub enum Verdict {
 
 /// Evaluate `e` over an application's values. An absent String is the empty string and an absent
 /// Boolean is false, so `goal != ""` is decidable; an absent number leaves the constraint undecided.
-pub fn evaluate(e: &expr::Expr, specs: &[FeatureSpec], values: &[(String, Yaml)]) -> Verdict {
+/// With a `scope`, `has(Def)` and `meta(Def).key` read the carrying element: an absent stereotype
+/// or value is *absent*, and any comparison with it is false (never an error).
+pub fn evaluate(e: &expr::Expr, specs: &[FeatureSpec], values: &[(String, Yaml)], scope: Option<&Scope>) -> Verdict {
+    let apps = scope.map(|sc| effective_applications(sc.elements, sc.resolver, sc.carrier)).unwrap_or_default();
+    let applies = |def: &str| -> Option<&EffectiveApp> {
+        let sc = scope?;
+        let want = find_metadata_def(sc.elements, sc.resolver, def)?.qualified_name.clone();
+        apps.iter().find(|a| a.def == want)
+    };
     let lookup = |n: &str| -> Option<Value> {
+        if let Some(def) = n.strip_prefix("has.") {
+            return Some(Value::Bool(applies(def).is_some()));
+        }
+        if let Some(rest) = n.strip_prefix("meta.") {
+            let (def, key) = rest.rsplit_once('.')?;
+            let app = applies(def)?;
+            return to_expr_value(&app.values.iter().find(|(k, _)| k == key)?.1);
+        }
         if let Some((_, v)) = values.iter().find(|(k, _)| k == n) {
             return to_expr_value(v);
         }
@@ -289,10 +343,30 @@ pub fn evaluate(e: &expr::Expr, specs: &[FeatureSpec], values: &[(String, Yaml)]
             _ => None,
         }
     };
-    match e.eval(&lookup) {
-        Ok(Value::Bool(true)) => Verdict::Holds,
-        Ok(Value::Bool(false)) => Verdict::Violated,
-        _ => Verdict::Undecided,
+    match eval_bool(e, &lookup) {
+        Ok(true) => Verdict::Holds,
+        Ok(false) => Verdict::Violated,
+        Err(_) => Verdict::Undecided,
+    }
+}
+
+/// Boolean evaluation in which a comparison over an absent `meta()` value is false.
+fn eval_bool(e: &expr::Expr, lookup: &dyn Fn(&str) -> Option<Value>) -> Result<bool, expr::ExprError> {
+    use expr::{Expr, ExprError};
+    match e {
+        Expr::Bin("and", l, r) => Ok(eval_bool(l, lookup)? && eval_bool(r, lookup)?),
+        Expr::Bin("or", l, r) => Ok(eval_bool(l, lookup)? || eval_bool(r, lookup)?),
+        Expr::Unary("not", x) => Ok(!eval_bool(x, lookup)?),
+        Expr::Bin("==" | "!=" | "<" | "<=" | ">" | ">=", ..) => match e.eval(lookup) {
+            Ok(Value::Bool(b)) => Ok(b),
+            Err(ExprError::Unbound(n)) if n.starts_with("meta.") => Ok(false),
+            Ok(other) => Err(ExprError::Type(format!("expected a boolean, found {}", other.kind()))),
+            Err(err) => Err(err),
+        },
+        other => match other.eval(lookup)? {
+            Value::Bool(b) => Ok(b),
+            v => Err(ExprError::Type(format!("expected a boolean, found {}", v.kind()))),
+        },
     }
 }
 
@@ -369,4 +443,20 @@ pub fn reference_values(
         }
     }
     out
+}
+
+/// A `MetadataDef` by reference, else by unique last `::` segment (`Safety` for `Pkg::Safety`).
+pub fn find_metadata_def<'a>(
+    elements: &'a [crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    name: &str,
+) -> Option<&'a crate::element::RawElement> {
+    if let Some(d) = metadata_def(elements, resolver, name) {
+        return Some(d);
+    }
+    let mut hits = elements.iter().filter(|e| {
+        matches!(e.frontmatter.element_type, Some(crate::element::ElementType::MetadataDef)) && e.qualified_name.rsplit("::").next() == Some(name)
+    });
+    let first = hits.next()?;
+    hits.next().is_none().then_some(first)
 }

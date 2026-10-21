@@ -22,6 +22,9 @@ unknown type prints the full list).
     --feature <F>    Keep only elements gated by FeatureDef F (via appliesWhen).
     --metadata <D>   Keep only elements that apply the stereotype MetadataDef D
                      (a `metadata:` application; matched by qname or last segment).
+                     Repeatable: every one must hold. `A,B` accepts either; a leading `!`
+                     negates (`--metadata '!Optional'`). A name that is no MetadataDef of the
+                     model and that no element applies is a usage error (exit 1).
     --config <C>     Project onto a configuration (only active elements).
     --status <s>     Keep only elements whose status: equals s.
     --sil <v>        Keep only elements whose silLevel stringifies to v OR asilLevel == v.
@@ -34,10 +37,19 @@ unknown type prints the full list).
                      list element), `=~` (regex, substring fallback) or `~=` (list
                      membership); a bare custom.<key> tests presence. Any other operator
                      (!=, ==, ~, >, <, >=, <=) is a usage error (exit 1). Repeatable, ANDed.
-    --json           Emit a JSON array (qualifiedName,type,name,id,status,silLevel,asilLevel,wcet).
+    --where meta.<Def>.<key><op><value>   Filter by a stereotype's tagged value, defaults and
+                     all. <op> is `=`, `!=`, `=~`, `~=`, or `<` `<=` `>` `>=` against a number;
+                     `meta.<Def>.<key>` tests that a value is present and `meta.<Def>` that the
+                     stereotype is applied. An element without the stereotype or value never
+                     matches (`!=` included). Also accepted by `ls`, `find`, `digest`, `stats`.
+    --json           Emit a JSON array (qualifiedName,type,name,id,status,silLevel,asilLevel,wcet);
+                     an element that applies stereotypes also carries `metadata`:
+                     [{def, values, defaulted}] with declared defaults filled in.
 
 ## EXAMPLES
     syscribe -m model/ list Requirement
+    syscribe -m model/ list PartDef --where 'meta.DALAnnotation.level<=2'
+    syscribe -m model/ list PartDef --metadata DALAnnotation --metadata '!ModelStatus'
     syscribe -m model/ list PartDef UAV::Avionics
     syscribe -m model_sil/ list Requirement --status approved --sil 4
     syscribe -m <root> list Requirement --has-wcet --json   # [] unless the model sets wcet: (no bundled model does)

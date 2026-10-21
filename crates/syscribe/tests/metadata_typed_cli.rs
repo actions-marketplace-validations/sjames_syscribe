@@ -66,7 +66,6 @@ fn a_default_is_shown_without_being_written_in_the_file() {
 }
 
 #[test]
-#[ignore = "needs `--where meta.…` (REQ-TRS-META-020, GH #376)"]
 fn a_default_is_matched_by_list_where() {
     let r = model(LEVEL, "  - B::Safety\n");
     let (o, c) = run(&r, &["list", "PartDef", "--where", "meta.Safety.level=2"]);

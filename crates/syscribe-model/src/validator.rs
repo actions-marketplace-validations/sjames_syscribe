@@ -1531,8 +1531,15 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
             for c in fm.constraints.iter().flatten() {
                 if let Some(src) = c.as_str() {
-                    if let Err(e) = tv::parse_constraint(src) {
-                        findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' does not parse: {e}")));
+                    match tv::parse_constraint(src) {
+                        Err(e) => findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' does not parse: {e}"))),
+                        Ok(_) => {
+                            for d in tv::referenced_defs(src) {
+                                if tv::find_metadata_def(elements, &resolver, &d).is_none() {
+                                    findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' names '{d}', which is not a MetadataDef")));
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1654,7 +1661,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         for c in def_el.frontmatter.constraints.iter().flatten() {
                             let Some(src) = c.as_str() else { continue };
                             let Ok(e) = tv::parse_constraint(src) else { continue };
-                            if tv::evaluate(&e, &specs, &app.values) == tv::Verdict::Violated {
+                            if tv::evaluate(&e, &specs, &app.values, Some(&tv::Scope { elements, resolver: &resolver, carrier: elem })) == tv::Verdict::Violated {
                                 findings.push(error(
                                     "E327",
                                     &file,
