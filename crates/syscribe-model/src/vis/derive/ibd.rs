@@ -541,6 +541,7 @@ fn frame_by_domain(graph: &mut DiagramGraph, drawn: &[Drawn], deployed: &[String
             is_abstract: false,
             pin: None,
             banners: Vec::new(),
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

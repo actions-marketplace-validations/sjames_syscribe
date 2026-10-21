@@ -973,6 +973,7 @@ mod tests {
             is_abstract: false,
             pin: pin.map(|(x, y, w, h)| Rect { x, y, w: Some(w), h: Some(h) }),
             banners: vec![],
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

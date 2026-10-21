@@ -236,6 +236,7 @@ pub fn generate(
             // applied-stereotype banners of `REQ-TRS-VIS-012` belong to the
             // block views, and would not fit the fixed header.
             banners: Vec::new(),
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,
@@ -348,6 +349,7 @@ pub fn generate(
                                 is_abstract: false,
                                 pin: None,
                                 banners: Vec::new(),
+                                stereo: None,
                                 feature: None,
                                 mark: None,
                                 flow: None,
@@ -403,6 +405,7 @@ pub fn generate(
             is_abstract: false,
             pin: Some(Rect { x: (HEADER_W - ACTIVATION_W) / 2.0, y, w: Some(ACTIVATION_W), h: Some(last + ACTIVATION_PAD - y) }),
             banners: Vec::new(),
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

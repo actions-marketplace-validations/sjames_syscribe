@@ -116,6 +116,7 @@ fn emit(graph: &mut DiagramGraph, mut selected: Vec<&FeatureNode>, filters: &Fil
             is_abstract: f.is_abstract,
             pin: None,
             banners: Vec::new(),
+            stereo: None,
             feature: Some(FeatureMark {
                 mandatory: f.mandatory,
                 group: f.group_kind.as_str().to_string(),
