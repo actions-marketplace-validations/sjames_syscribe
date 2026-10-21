@@ -14,7 +14,7 @@ testFunctions:
   - fragments_span_the_messages_they_contain
   - the_activation_sits_on_the_subjects_lifeline_spanning_its_messages
   - every_node_is_pinned_and_every_message_runs_horizontally_between_stems
-  - a_partdef_subject_is_w418_and_draws_nothing
+  - a_partdef_that_performs_nothing_is_w418_and_draws_nothing
   - filters_keep_or_drop_participants_by_qualified_or_short_name
   - a_derived_sequence_diagram_raises_no_w080_while_a_manifest_still_does
   - every_writer_accepts_the_derived_sequence

@@ -244,7 +244,7 @@ fn every_node_is_pinned_and_every_message_runs_horizontally_between_stems() {
 }
 
 #[test]
-fn a_partdef_subject_is_w418_and_draws_nothing() {
+fn a_partdef_that_performs_nothing_is_w418_and_draws_nothing() {
     let root = fixture_model();
     add_diagram(&root, "Bad", "diagramKind: Sequence\nsubject: Sys::Propulsion\n");
     let (g, findings) = graph_of(&root, "Diagrams::Bad");
@@ -475,4 +475,79 @@ A hand-listed sequence diagram with no layout.
         // Lifeline headers carry no banners (they would overflow the fixed header).
         assert!(g.nodes.iter().filter(|n| n.kind == NodeKind::Lifeline).all(|n| n.banners.is_empty()));
     }
+}
+
+// ── REQ-TRS-VIS-021 / GH #365: a PartDef or Part subject derives from the actions it performs ────
+
+fn labels(g: &DiagramGraph) -> Vec<String> {
+    g.edges.iter().filter(|e| e.kind == EdgeKind::Message).filter_map(|e| e.label.clone()).collect()
+}
+
+fn first_lifeline(g: &DiagramGraph) -> Option<&str> {
+    g.nodes.iter().find(|n| n.kind == NodeKind::Lifeline).map(|n| n.label.as_str())
+}
+
+#[test]
+fn a_partdef_that_performs_an_action_derives_that_actions_messages() {
+    let root = fixture_model();
+    add_diagram(&root, "FcSeq", "diagramKind: Sequence\nsubject: Sys::FlightController\n");
+    let (g, findings) = graph_of(&root, "Diagrams::FcSeq");
+    assert!(codes(&findings, "W418").is_empty(), "a part that performs an action is a valid subject: {findings:?}");
+    assert_eq!(first_lifeline(&g), Some("FlightController"), "the part is the subject lifeline");
+    let (mission, _) = derived(&root);
+    assert!(!labels(&g).is_empty(), "{:?}", g.nodes.iter().map(|n| &n.label).collect::<Vec<_>>());
+    let (mut a, mut b) = (labels(&g), labels(&mission));
+    a.sort();
+    b.sort();
+    assert_eq!(a, b, "the part sends and accepts what the action it performs does");
+    assert!(g.nodes.iter().all(|n| n.label != "Mission"), "the action is not a lifeline of the part's sequence");
+}
+
+#[test]
+fn a_part_performing_two_actions_shows_them_in_the_order_it_declares() {
+    let root = fixture_model();
+    let send = |n: &str| format!("---\ntype: ActionDef\nname: {n}\nsubActions:\n  - name: {n}Msg\n    kind: SendAction\n    payload: Sys::{n}Item\n    to: Sys::Propulsion\n---\n\n{n}.\n");
+    write(&root, "Sys/Ping.md", &send("Ping"));
+    write(&root, "Sys/Pong.md", &send("Pong"));
+    write(&root, "Sys/Dual.md", "---\ntype: PartDef\nname: Dual\nperforms:\n  - Sys::Pong\n  - name: second\n    typedBy: Sys::Ping\n---\n\nDual.\n");
+    add_diagram(&root, "DualSeq", "diagramKind: Sequence\nsubject: Sys::Dual\n");
+    let (g, findings) = graph_of(&root, "Diagrams::DualSeq");
+    assert!(codes(&findings, "W418").is_empty(), "{findings:?}");
+    let ys: Vec<(String, f64)> = g.edges.iter().filter(|e| e.kind == EdgeKind::Message).map(|e| (e.label.clone().unwrap_or_default(), e.waypoints.as_ref().unwrap()[0].y)).collect();
+    assert_eq!(ys.len(), 2, "{ys:?}");
+    assert!(ys[0].0.contains("PongMsg") && ys[1].0.contains("PingMsg") && ys[0].1 < ys[1].1, "declaration order, top to bottom: {ys:?}");
+}
+
+#[test]
+fn a_part_usage_without_performs_shows_its_definitions() {
+    let root = fixture_model();
+    write(&root, "Sys/fc1.md", "---\ntype: Part\nname: fc1\ntypedBy: Sys::FlightController\n---\n\nUsage.\n");
+    add_diagram(&root, "UsageSeq", "diagramKind: Sequence\nsubject: Sys::fc1\n");
+    let (g, findings) = graph_of(&root, "Diagrams::UsageSeq");
+    assert!(codes(&findings, "W418").is_empty(), "{findings:?}");
+    assert!(!labels(&g).is_empty());
+    assert_eq!(first_lifeline(&g), Some("fc1"));
+}
+
+#[test]
+fn performs_entries_that_resolve_to_nothing_leave_the_part_with_nothing_to_draw() {
+    let root = fixture_model();
+    write(&root, "Sys/Ghostly.md", "---\ntype: PartDef\nname: Ghostly\nperforms:\n  - Sys::Nowhere\n  - Sys::Propulsion\n---\n\nG.\n");
+    add_diagram(&root, "GhostSeq", "diagramKind: Sequence\nsubject: Sys::Ghostly\n");
+    let (g, findings) = graph_of(&root, "Diagrams::GhostSeq");
+    assert!(g.nodes.is_empty());
+    let w = codes(&findings, "W418");
+    assert_eq!(w.len(), 1, "{findings:?}");
+    assert!(w[0].contains("performs"), "the message says what to add: {w:?}");
+}
+
+#[test]
+fn the_derived_part_sequence_is_placed_and_renders_like_any_other() {
+    let root = fixture_model();
+    add_diagram(&root, "FcSeq", "diagramKind: Sequence\nsubject: Sys::FlightController\n");
+    let (g, _) = graph_of(&root, "Diagrams::FcSeq");
+    assert!(g.nodes.iter().all(|n| n.pin.is_some()), "every node pinned: no ELK run");
+    assert!(g.edges.iter().all(|e| e.waypoints.is_some()));
+    let m = render_mermaid(&g, &|_| None).expect("mermaid");
+    assert!(m.starts_with("sequenceDiagram"), "{m}");
 }
