@@ -2,6 +2,7 @@
 type: PartDef
 name: Control Board
 domain: hardware
+tags: [protection-hw]
 features:
   - {name: mcu, typedBy: System::Hardware::Stm32G474}
   - {name: comms, typedBy: System::Hardware::CommsHardware}

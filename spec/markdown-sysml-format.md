@@ -4934,6 +4934,50 @@ July 2026 safety release — release baseline.
 
 ---
 
+### 8.20 Architecture Rules (`ArchitectureRule`)
+
+An `ArchitectureRule` (`AR-*`, `type: ArchitectureRule`; `REQ-TRS-ARCH-001`..`-005`, GH #369) states a structural
+property of the architecture that `validate` then enforces, so a claim such as "the hardware trip path is independent
+of the firmware" is checked rather than prose.
+
+```yaml
+---
+type: ArchitectureRule
+id: AR-GTI-001
+name: The hardware trip path does not depend on software
+kind: forbid-dependency        # forbid-dependency | independence
+from: {tag: protection-hw}     # selector of the components the rule starts from
+to:   {domain: software}       # selector of the components it is about
+via: [connections, typedBy, allocations]   # optional; default all three
+severity: error                # error (default) | warning
+---
+Rationale: the claim this protects and where it comes from.
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes | `^AR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$`; additional prefixes through `[ids.prefixes]` |
+| `name` | string | yes | The rule in a sentence |
+| `kind` | string | yes | `forbid-dependency` or `independence` |
+| `from`, `to` | mapping | yes | Selectors: `package` (qualified-name prefix), `tag`, `domain` (`system`, `hardware`, `software`), `stereotype` (a stereotype selector, §8.15); keys are ANDed, `tag` and `domain` take a list (any of) |
+| `via` | list | no | The edge sources that count |
+| `severity` | string | no | `error` (default) or `warning` |
+| `status` | string | no | `draft` is not evaluated |
+
+**Dependency.** The components are the `PartDef` and `Part` elements. `X` depends on `Y` through `connections` when a
+`connections:` entry `from: a.p, to: b.q` joins them — the definition of `b` depends on that of `a`, the consumer on
+the producer, and a one-segment endpoint is a boundary port of the owner; through `typedBy` when `X` has a usage typed by `Y` (a composite
+depends on what it contains); through `allocations` when `X` is allocated to `Y` (`allocatedTo:`, `allocatedFrom:` or an
+`Allocation` element — software depends on the hardware it runs on).
+
+**`forbid-dependency`.** No component chosen by `from` may depend, directly or transitively, on one chosen by `to`.
+Each violation is `E660` (`W660` under `severity: warning`) on the rule, naming it and the shortest path.
+
+**`independence`.** The transitive closures of the two chosen sets must be disjoint. Each component in both is `E661`
+(`W661`), with a path from each set to it; wiring one set to a member of the other makes that member shared.
+
+A malformed rule is `E662` and is not evaluated; a selector that chooses no component is `W662`.
+
 ## 9 Variability and Variation Points
 
 ### 9.1 Variation Definitions
@@ -6418,6 +6462,9 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
 | `E650` | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | `E651` | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
+| `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
+| `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
+| `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
 
 #### Warnings
 
@@ -6444,6 +6491,9 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W315` | A `done` `PlanningItem` achieves a non-Requirement work product (`SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan`, `Baseline`) whose status is still `draft`/`review`/`proposed` |
 | `W316` | `[metadata] profiles` names an element that is not a package with `profile: true` (or does not exist) |
 | `W650` | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
+| `W660` | The same violation under `severity: warning`. |
+| `W661` | The same violation under `severity: warning`. |
+| `W662` | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9103,6 +9153,7 @@ since `status: in_progress` alone already signals active work.
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
+| `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |

@@ -44,6 +44,10 @@ computed by the tool and never authored.
 | `isNegated` | Constraint | bool | `false` |
 | `isSemantic` | MetadataDef | bool | `false` |
 | `isDeploymentPackage` | PartDef/Part | bool | `false` |
+| `kind` | ArchitectureRule | string | **required** | `forbid-dependency` or `independence` (GH #369) |
+| `from` | ArchitectureRule | map | **required** | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
+| `to` | ArchitectureRule | map | **required** | Selector of the components the rule is about (same keys as `from`) |
+| `via` | ArchitectureRule | list | all three | Edge sources that count: `connections`, `typedBy`, `allocations` |
 | `profile` | Package | bool | `false` | `true` marks a stereotype profile; enabled by `[metadata] profiles` (`W316`) |
 | `version` | Package | string | absent | The version of a stereotype profile |
 | `checks` | MetadataDef | list | absent | Expressions run on every carrier: a string, or `{expr, message, severity: error\|warning}` (`E650`/`W650`) |

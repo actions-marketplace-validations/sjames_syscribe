@@ -1274,6 +1274,14 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("autoApply");
             }
         }
+        // `kind:`, `from:`, `to:` and `via:` belong to an ArchitectureRule (REQ-TRS-ARCH-001).
+        if !matches!(fm.element_type, Some(ElementType::ArchitectureRule)) {
+            for (set, name) in [(fm.kind.is_some(), "kind"), (fm.from.is_some(), "from"), (fm.to.is_some(), "to"), (fm.via.is_some(), "via")] {
+                if set {
+                    unknown_keys.push(name);
+                }
+            }
+        }
         if fm.checks.is_some() && !matches!(fm.element_type, Some(ElementType::MetadataDef)) {
             unknown_keys.push("checks");
         }
@@ -9534,6 +9542,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // Dormant unless some Configuration declares `subConfigurations:`, same as
     // the checks above.
     findings.extend(open_parameter_findings(elements, config, &resolver));
+
+    // Architecture rules (REQ-TRS-ARCH-001..005, GH #369).
+    for (is_error, code, file, msg) in crate::arch_rules::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
 
     // W316: `[metadata] profiles` names something that is not a `profile: true` package
     // (REQ-TRS-META-031).

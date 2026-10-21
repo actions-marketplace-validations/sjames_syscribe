@@ -2,6 +2,7 @@
 type: PartDef
 name: Sensing
 domain: hardware
+tags: [protection-hw]
 silLevel: 2
 satisfies:
   - REQ-GTI-SYS-031
