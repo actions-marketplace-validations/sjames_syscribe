@@ -13,6 +13,7 @@ A profile shall be able to declare rules that apply a stereotype to matching ele
 
 ## Behavior
 
-- A rule has a selector (REQ-TRS-META-024) and a stereotype with optional values, e.g. every `PartDef` with `domain: software` and `isDeploymentPackage` gets `Deployment`.
-- A derived application is visible to queries, checks and diagrams and is marked derived in `show`; it is never written to the element's file.
+- `autoApply:` on a profile package lists rules `{select: {type, stereotype?, where: {field: value, …}}, apply: {type: Def, key: value, …}}`. `where` compares frontmatter fields (e.g. every `PartDef` with `domain: software` and `isDeploymentPackage: true` gets `Deployment`). The shared selector grammar of REQ-TRS-META-024 may later replace `select`.
+- Only the rules of *enabled* profiles apply.
+- A derived application is visible to queries, `has()`/`meta()`, `list --json` (`derived: true`) and `show` (`(derived)`); it is never written to the element's file. Diagrams and the typing/constraint checks read written applications only.
 - An explicit application of the same definition wins over the derived one.

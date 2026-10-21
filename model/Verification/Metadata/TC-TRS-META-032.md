@@ -4,7 +4,7 @@ id: TC-TRS-META-032
 name: "A standard stereotype library ships with the tool"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_profiles.rs
+sourceFile: repo:crates/syscribe/tests/metadata_profile_enable.rs
 verifies:
   - REQ-TRS-META-032
 tags:

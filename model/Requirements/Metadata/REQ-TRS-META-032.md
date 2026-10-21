@@ -13,6 +13,7 @@ A read-only standard library of common stereotypes shall resolve without `E317` 
 
 ## Behavior
 
-- Definitions: `Safety` (`level`, `goal`), `Optional` (`feature`), `Regulatory` (`status`, `source`, `reviewer`), `External`, `Environment`, `Deployment` (`kind`), `Budget` (`cpu`, `ram`).
+- The library is the package `StdMetadata`, built into the tool. It is part of the model when an element refers to `StdMetadata::…`, or when `[metadata] stdlib = true`; otherwise an unused library adds nothing.
+- Definitions: `Safety` (`level` 0..4, `goal`), `Optional` (`feature`), `Regulatory` (`status` verified|unverified|waived, `source`, `reviewer`), `External`, `Environment`, `Deployment` (`kind` firmware|process|container|library), `Budget` (`cpu`, `ram`).
 - They are visible in `types` and `list`, typed per REQ-TRS-META-010, and can be specialised by a project.
-- The library is read-only; editing or deleting one through a write route is refused.
+- The library is read-only; editing or deleting one through a write route or `set` is refused.
