@@ -43,6 +43,8 @@ pub enum MoveError {
     SourceHasNoFile(String),
     #[error("Source '{qname}' is synthesized from a shared sheet file ({file}) — moving it would relocate every sibling entry in that file; edit the sheet directly instead.")]
     SourceIsSynthesized { qname: String, file: String },
+    #[error("'{0}' is built into the tool and read-only; specialise it in a package of your own project instead.")]
+    SourceIsBuiltin(String),
     #[error("Invalid destination qualified name: '{0}'")]
     InvalidDestination(String),
     #[error("Destination equals source ('{0}') — nothing to do.")]
@@ -322,6 +324,9 @@ pub fn move_element(
     // `file_path` is the *sheet's* file, shared with every sibling entry.
     // Moving it by that path would relocate the whole sheet, mislabeled as
     // renaming one entry — refuse instead of silently doing that.
+    if let Some(e) = resolved.filter(|e| e.file_path.starts_with(crate::tagged_values::BUILTIN_PREFIX)) {
+        return Err(MoveError::SourceIsBuiltin(e.qualified_name.clone()));
+    }
     if let (Some(e), Some(f)) = (resolved, &src_file) {
         let rel = f.strip_prefix(model_root).unwrap_or(f);
         if is_synthesized(e, rel) {

@@ -55,10 +55,22 @@ stable id, a qualified name, or a display name. List/grid tools accept
 ## Read tools — navigate & query
 
 - `get_element {ref, detail?, fields?}` — one element; summary by default,
-  `detail:true` adds the body + frontmatter, `fields:[..]` projects keys.
-- `search {query?, type?, status?, domain?, where?, limit?, offset?}` — ranked
-  search over id/qname/name and the documentation body, with filters.
-- `list_by_type {type, limit?, offset?}` — every element of a type.
+  `detail:true` adds the body + frontmatter, `fields:[..]` projects keys. An element that
+  applies stereotypes also carries `stereotypes: [{def, values, defaulted, derived?}]`: the
+  resolved definition, the written values plus declared defaults (inherited ones too), and
+  `derived: true` for an application a profile's `autoApply:` rule gives it. The raw
+  `metadata:` stays under `frontmatter`.
+- `search {query?, type?, status?, domain?, where?, metadata?, limit?, offset?}` — ranked
+  search over id/qname/name and the documentation body, with filters. `where` takes the CLI's
+  `custom.…` and `meta.<Def>.<key><op><value>` predicates; `metadata` is a list of stereotype
+  clauses as the CLI `--metadata` (all must hold; `A,B` is either; `!A` negates; a
+  specialisation counts). A name no `MetadataDef` or element has is a tool error.
+- `list_by_type {type, where?, metadata?, limit?, offset?}` — every element of a type, filtered
+  the same way; `total` counts the filtered set.
+- `meta {def?, group_by?}` — the stereotype report: applications per definition, the elements
+  of one definition, or those grouped by a tagged value; same data as `meta --json`.
+- `gates {}` — evaluate `[gates] deny_meta` and `[[gates.coverage]]`: `{tripped, denyMeta:
+  [{condition, element}], coverage: [line]}`; the conditions `validate` gates on. Read-only.
 - `tree {ref?, depth?}` — containment subtree.
 - `neighbors {ref, edges?, direction?}` — adjacent graph nodes (one hop).
 - `graph_query {from, to?, edges?, direction?, depth?}` — typed-edge graph walk.
@@ -182,6 +194,9 @@ These mirror the CLI corpus commands of the same name (`--json` output).
   served model root.
 
 ## Guarded-write tools
+
+An element built into the tool (the `StdMetadata` library) is read-only: `update_element`,
+`delete_element`, `move_element` and `apply_changes` refuse it with a message saying so.
 
 All write tools default to `dry_run: true`: they report the validation delta of
 the proposed change without touching disk. Pass `dry_run: false` to commit.
