@@ -1,7 +1,8 @@
 //! The Sequence generator (`REQ-TRS-VIS-021`).
 //!
 //! Subject: an `ActionDef`/`Action` (or a `UseCaseDef`/`UseCase` with
-//! `actors:`). Produces one `Lifeline` per participant in first-appearance
+//! `actors:`), or a `PartDef`/`Part` that `performs:` an action (`REQ-TRS-SEQ-001`:
+//! the performed actions' steps in `performs:` order; a part with none is `W418`). Produces one `Lifeline` per participant in first-appearance
 //! order — the subject first, then every element a `SendAction`'s `to:`
 //! chain or a `SendAction`'s/`AcceptAction`'s `via:` chain resolves to (a
 //! port chain resolves to the part that owns the port; an unresolved chain
@@ -108,6 +109,30 @@ enum Step {
     },
 }
 
+/// The `ActionDef`s a part performs, in declaration order: its own `performs:` entries (a string, or a map with
+/// `typedBy:`), else — for a `Part` usage — its `typedBy` definition's. Entries that resolve to no action are skipped.
+fn performed_actions<'a>(part: &'a RawElement, elements: &'a [RawElement], resolver: &Resolver) -> Vec<&'a RawElement> {
+    let own: Vec<&serde_yaml::Value> = part.frontmatter.performs.iter().flatten().collect();
+    let source: &RawElement = if own.is_empty() && part.frontmatter.element_type == Some(ElementType::Part) {
+        yaml_strings(part.frontmatter.typed_by.as_ref()).first().and_then(|t| resolver.resolve_ref(elements, t)).unwrap_or(part)
+    } else {
+        part
+    };
+    source
+        .frontmatter
+        .performs
+        .iter()
+        .flatten()
+        .filter_map(|p| match p {
+            serde_yaml::Value::String(s) => Some(s.as_str()),
+            serde_yaml::Value::Mapping(m) => map_str(m, "typedBy").or_else(|| map_str(m, "type")),
+            _ => None,
+        })
+        .filter_map(|r| resolver.resolve_ref(elements, r))
+        .filter(|a| matches!(a.frontmatter.element_type, Some(ElementType::ActionDef | ElementType::Action)))
+        .collect()
+}
+
 pub fn generate(
     graph: &mut DiagramGraph,
     subject: &RawElement,
@@ -117,9 +142,20 @@ pub fn generate(
     issues: &mut Vec<Issue>,
 ) {
     let Some(st) = subject.frontmatter.element_type.as_ref() else { return };
-    if !matches!(st, ElementType::ActionDef | ElementType::Action | ElementType::UseCaseDef | ElementType::UseCase) {
+    let is_part = matches!(st, ElementType::PartDef | ElementType::Part);
+    // A part's behaviour is the actions it performs (REQ-TRS-SEQ-001): its `performs:`, else its definition's.
+    let performed: Vec<&RawElement> = if is_part { performed_actions(subject, elements, resolver) } else { Vec::new() };
+    if is_part && performed.is_empty() {
         issues.push(w418(format!(
-            "`subject` '{}' is a {} — a Sequence subject must be an ActionDef or Action (or a UseCaseDef/UseCase with `actors`)",
+            "`subject` '{}' is a {} that performs no action — add `performs:` naming an ActionDef, or use an ActionDef as the subject",
+            subject.qualified_name,
+            st.name()
+        )));
+        return;
+    }
+    if !is_part && !matches!(st, ElementType::ActionDef | ElementType::Action | ElementType::UseCaseDef | ElementType::UseCase) {
+        issues.push(w418(format!(
+            "`subject` '{}' is a {} — a Sequence subject must be an ActionDef or Action, a UseCaseDef/UseCase with `actors`, or a PartDef/Part that `performs:` an action",
             subject.qualified_name,
             st.name()
         )));
@@ -134,9 +170,20 @@ pub fn generate(
     } else {
         subject
     };
-    let steps = match behaviour.frontmatter.sub_actions.as_deref() {
-        Some(list) => ordered_steps(list, behaviour.frontmatter.succession_connections.as_deref(), true),
-        None => Vec::new(),
+    let steps = if is_part {
+        // each performed action's own steps, the actions in the order `performs:` declares them
+        performed
+            .iter()
+            .flat_map(|a| match a.frontmatter.sub_actions.as_deref() {
+                Some(list) => ordered_steps(list, a.frontmatter.succession_connections.as_deref(), true),
+                None => Vec::new(),
+            })
+            .collect()
+    } else {
+        match behaviour.frontmatter.sub_actions.as_deref() {
+            Some(list) => ordered_steps(list, behaviour.frontmatter.succession_connections.as_deref(), true),
+            None => Vec::new(),
+        }
     };
 
     // ── participants, in first-appearance order ─────────────────────────

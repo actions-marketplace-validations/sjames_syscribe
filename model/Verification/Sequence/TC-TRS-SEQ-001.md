@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-SEQ-001
 name: "A part is a sequence subject through the actions it performs"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/vis_derive_sequence.rs
 verifies:
