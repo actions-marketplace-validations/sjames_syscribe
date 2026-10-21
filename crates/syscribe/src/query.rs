@@ -380,6 +380,30 @@ pub fn where_matches(elements: &[RawElement], elem: &RawElement, pred: &CustomWh
     }
 }
 
+/// The elements among `candidates` that satisfy a `--deny-meta` / `[gates] deny_meta` condition
+/// (`Def.key=value`, any `meta.` form without its prefix), as `(condition, qualified name)`
+/// (REQ-TRS-META-051). `all` is the whole model, which definitions resolve in.
+pub fn meta_gate_hits<'a>(
+    all: &[RawElement],
+    candidates: impl Iterator<Item = &'a RawElement>,
+    conditions: &[String],
+) -> Result<Vec<(String, String)>, String> {
+    let preds: Vec<(String, CustomWhere)> = conditions
+        .iter()
+        .map(|c| parse_custom_where(&format!("meta.{c}")).map(|p| (c.clone(), p)).map_err(|e| format!("deny-meta '{c}': {e}")))
+        .collect::<Result<_, _>>()?;
+    let mut hits = Vec::new();
+    for e in candidates.filter(|e| !e.file_path.starts_with(syscribe_model::tagged_values::BUILTIN_PREFIX)) {
+        for (c, p) in &preds {
+            if where_matches(all, e, p, false) {
+                hits.push((c.clone(), e.qualified_name.clone()));
+            }
+        }
+    }
+    hits.sort();
+    Ok(hits)
+}
+
 /// True when `elem`'s `custom_fields` satisfy the predicate. An element without the
 /// named field never matches (including the presence form).
 pub fn custom_field_matches(elem: &RawElement, pred: &CustomWhere) -> bool {

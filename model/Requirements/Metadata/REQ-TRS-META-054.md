@@ -13,4 +13,4 @@ tags:
 
 ## Behavior
 
-- A condition such as no unverified `Regulatory` blocks sealing, naming the offending elements; `--force` is not provided.
+- A `[gates] deny_meta` condition (REQ-TRS-META-051) that holds for an element in the sealed scope blocks sealing, naming the offending elements; `--force` is not provided.

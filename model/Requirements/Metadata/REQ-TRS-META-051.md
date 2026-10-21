@@ -13,6 +13,6 @@ tags:
 
 ## Behavior
 
-- `validate --deny-meta Regulatory.status=unverified` exits non-zero exactly when a matching element exists, and lists them.
-- `[gates]` in `.syscribe.toml` holds the same conditions for CI.
-- Coverage-based gates (e.g. every `Safety` with `integrity>=2` covered by a campaign) use the selector grammar.
+- `validate --deny-meta Regulatory.status=unverified` (repeatable; any `list --where meta.…` form without the prefix) exits 2 — a tripped gate — exactly when a matching element exists, and lists them. A malformed condition is a usage error (exit 1).
+- `[gates] deny_meta = ["…"]` in `.syscribe.toml` holds the same conditions as standing ones.
+- Coverage-based gates (e.g. every `Safety` with `integrity>=2` covered by a campaign) are not yet supported; they need the selector grammar of REQ-TRS-META-024.

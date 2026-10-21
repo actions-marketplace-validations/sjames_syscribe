@@ -771,3 +771,73 @@ fn derived_applications(elements: &[crate::element::RawElement], e: &crate::elem
     }
     out
 }
+
+// ── stereotype-conditioned checks and gates (`REQ-TRS-META-050`, `-051`) ────
+
+/// One entry of a `MetadataDef`'s `checks:`.
+#[derive(Debug, Clone)]
+pub struct Check {
+    pub expr: expr::Expr,
+    pub src: String,
+    pub message: Option<String>,
+    /// `error` (the default) or `warning`.
+    pub warning: bool,
+}
+
+/// The parsed checks of a definition and the problems with its malformed entries.
+pub fn parse_checks(def: &crate::element::RawElement) -> (Vec<Check>, Vec<String>) {
+    let (mut ok, mut bad) = (Vec::new(), Vec::new());
+    for (i, entry) in def.frontmatter.checks.iter().flatten().enumerate() {
+        let at = format!("checks[{i}]");
+        let (src, message, sev) = match entry {
+            Yaml::String(s) => (Some(s.clone()), None, None),
+            Yaml::Mapping(_) => (
+                entry.get("expr").and_then(Yaml::as_str).map(str::to_string),
+                entry.get("message").and_then(Yaml::as_str).map(str::to_string),
+                entry.get("severity").and_then(Yaml::as_str).map(str::to_string),
+            ),
+            _ => {
+                bad.push(format!("{at} must be an expression or a mapping with `expr:`"));
+                continue;
+            }
+        };
+        let Some(src) = src else {
+            bad.push(format!("{at} has no `expr:`"));
+            continue;
+        };
+        let warning = match sev.as_deref() {
+            None | Some("error") => false,
+            Some("warning") => true,
+            Some(other) => {
+                bad.push(format!("{at} severity '{other}' is not `error` or `warning`"));
+                false
+            }
+        };
+        let sev_ok = matches!(sev.as_deref(), None | Some("error") | Some("warning"));
+        match parse_constraint(&src) {
+            Ok(expr) if sev_ok => ok.push(Check { expr, src, message, warning }),
+            Ok(_) => {}
+            Err(e) => bad.push(format!("{at} '{src}' does not parse: {e}")),
+        }
+    }
+    (ok, bad)
+}
+
+/// `[gates] deny_meta` of `.syscribe.toml`: stereotype conditions (`Def.key=value`) that must not hold.
+pub fn load_gate_conditions(model_root: &std::path::Path) -> Vec<String> {
+    #[derive(Default, serde::Deserialize)]
+    struct Gates {
+        #[serde(default)]
+        deny_meta: Vec<String>,
+    }
+    #[derive(Default, serde::Deserialize)]
+    struct Root {
+        #[serde(default)]
+        gates: Gates,
+    }
+    std::fs::read_to_string(model_root.join(".syscribe.toml"))
+        .ok()
+        .and_then(|t| toml::from_str::<Root>(&t).ok())
+        .map(|r| r.gates.deny_meta)
+        .unwrap_or_default()
+}

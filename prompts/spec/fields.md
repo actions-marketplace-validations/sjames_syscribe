@@ -46,6 +46,7 @@ computed by the tool and never authored.
 | `isDeploymentPackage` | PartDef/Part | bool | `false` |
 | `profile` | Package | bool | `false` | `true` marks a stereotype profile; enabled by `[metadata] profiles` (`W316`) |
 | `version` | Package | string | absent | The version of a stereotype profile |
+| `checks` | MetadataDef | list | absent | Expressions run on every carrier: a string, or `{expr, message, severity: error\|warning}` (`E650`/`W650`) |
 | `autoApply` | Package (profile) | list | absent | Rules `{select: {type, where}, apply: {type, key: value}}` deriving stereotype applications |
 
 ## Typing and specialization

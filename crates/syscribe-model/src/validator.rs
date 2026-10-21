@@ -1274,6 +1274,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("autoApply");
             }
         }
+        if fm.checks.is_some() && !matches!(fm.element_type, Some(ElementType::MetadataDef)) {
+            unknown_keys.push("checks");
+        }
         unknown_keys.sort_unstable();
         for key in unknown_keys {
             findings.push(warning(
@@ -1541,6 +1544,20 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     }
                 }
             }
+            if tv::constraints_active(elements, elem) {
+                let (_, bad) = tv::parse_checks(elem);
+                for b in bad {
+                    findings.push(error("E650", &file, &format!("stereotype '{def_name}': {b}")));
+                }
+                for c in elem.frontmatter.checks.iter().flatten() {
+                    let src = c.as_str().or_else(|| c.get("expr").and_then(serde_yaml::Value::as_str));
+                    for d in src.map(tv::referenced_defs).unwrap_or_default() {
+                        if tv::find_metadata_def(elements, &resolver, &d).is_none() {
+                            findings.push(error("E650", &file, &format!("stereotype '{def_name}': a check names '{d}', which is not a MetadataDef")));
+                        }
+                    }
+                }
+            }
             if let Some(why) = tv::supertype_problem(elements, &resolver, elem) {
                 findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
             }
@@ -1686,6 +1703,21 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                         &format!("constraint '{src}' of stereotype '{owner_label}' is violated"),
                                     ));
                                 }
+                            }
+                            // E650 / W650: the definition's `checks:` on this carrier (REQ-TRS-META-050).
+                            let (checks, _) = tv::parse_checks(owner);
+                            for ck in checks {
+                                let scope = tv::Scope { elements, resolver: &resolver, carrier: elem };
+                                if tv::evaluate(&ck.expr, &specs, &app.values, Some(&scope)) != tv::Verdict::Violated {
+                                    continue;
+                                }
+                                let draft = fm.status.as_deref() == Some("draft");
+                                if ck.warning && draft {
+                                    continue;
+                                }
+                                let what = ck.message.clone().unwrap_or_else(|| ck.src.clone());
+                                let msg = format!("check of stereotype '{owner_label}' failed on {}: {what}", elem.qualified_name);
+                                findings.push(if ck.warning { warning("W650", &file, &msg) } else { error("E650", &file, &msg) });
                             }
                         }
                     }

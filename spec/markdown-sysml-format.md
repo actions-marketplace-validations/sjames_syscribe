@@ -3319,6 +3319,12 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   defaults are inherited. A sub-definition may narrow a `range` or `enumValues` and `annotates:`,
   never widen them (**`E329`**, which also covers an unresolved, non-`MetadataDef` or cyclic
   `supertype:`); an `isAbstract` definition cannot be applied (**`E328`**);
+- a `MetadataDef` may carry **`checks:`** — expressions run on every element that carries the stereotype
+  (or a specialisation), with `has()`/`meta()` in scope: a string, or `{expr, message, severity}` with
+  `severity` `error` (default, **`E650`**) or `warning` (**`W650`**, draft-suppressed). A profile's checks run
+  only when the profile is enabled. `validate --deny-meta <Def.key=value>` and `[gates] deny_meta` fail the
+  run (exit 2) while a matching element exists, and `baseline create` refuses to seal one
+  (REQ-TRS-META-050, -051, -054);
 - a package with **`profile: true`** (optionally `version:`) is a *stereotype profile* (REQ-TRS-META-031):
   the `constraints:` of the definitions it contains, and its **`autoApply:`** rules, are in force only
   when `[metadata] profiles = ["Pkg"]` in `.syscribe.toml` enables it (**`W316`** if that names
@@ -6400,6 +6406,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E327` | A `constraints:` entry of a `MetadataDef` is violated by an application, or does not parse |
 | `E328` | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
 | `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
+| `E650` | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 
 #### Warnings
 
@@ -6425,6 +6432,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W314` | A non-draft element's `breakdownAdr:` resolves to a `superseded` ADR (cite its successor) |
 | `W315` | A `done` `PlanningItem` achieves a non-Requirement work product (`SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan`, `Baseline`) whose status is still `draft`/`review`/`proposed` |
 | `W316` | `[metadata] profiles` names an element that is not a package with `profile: true` (or does not exist) |
+| `W650` | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9084,7 +9092,7 @@ since `status: in_progress` alone already signals active work.
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
-| Stereotype profiles | `profile`, `version`, `autoApply` (on a package; see §8.15.2) | 8.15.2 |
+| Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |
 | Executable models and plants | `plant`, `fmu`, `plants`, `plantStep`, `plantConnections` (parts and TestCases); on a `PlantDef`: `parameters`, `inputs`, `outputs`, `states`, `equations`, `method`, `maxStep` | 8.8.6; `docs/model-guide/plant-models.md`, `fmi-plants.md` |

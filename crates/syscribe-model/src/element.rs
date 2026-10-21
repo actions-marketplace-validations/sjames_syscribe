@@ -710,6 +710,9 @@ pub struct RawFrontmatter {
     pub redefines: Option<serde_yaml::Value>,
     pub multiplicity: Option<String>,
     pub is_abstract: Option<bool>,
+    /// On a `MetadataDef`: checks run on every element that carries it, each a string expression or
+    /// `{expr, message, severity}` (REQ-TRS-META-050).
+    pub checks: Option<Vec<serde_yaml::Value>>,
     /// On a package: `true` marks it a stereotype profile (REQ-TRS-META-031).
     pub profile: Option<bool>,
     /// On a package: the version of a stereotype profile (REQ-TRS-META-031).

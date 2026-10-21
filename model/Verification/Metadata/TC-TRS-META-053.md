@@ -4,7 +4,7 @@ id: TC-TRS-META-053
 name: "Selectors and thresholds work in rules, views and coverage"
 status: draft
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_checks.rs
+sourceFile: repo:crates/syscribe/tests/metadata_checks.rs
 verifies:
   - REQ-TRS-META-053
 tags:

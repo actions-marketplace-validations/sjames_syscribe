@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-050
 name: "A MetadataDef declares checks run on every carrier"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_checks.rs
+sourceFile: repo:crates/syscribe/tests/metadata_checks.rs
 verifies:
   - REQ-TRS-META-050
 tags:

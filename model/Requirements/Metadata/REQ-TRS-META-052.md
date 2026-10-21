@@ -13,5 +13,5 @@ tags:
 
 ## Behavior
 
-- Output is the compliance worklist: e.g. `Regulatory` grouped by `status`. Supports `--json`.
+- Output is the compliance worklist: e.g. `Regulatory` grouped by `status`, largest group first, an element without the value in `(unset)`. Without `--def` it counts applications per stereotype. Supports `--json`. An unknown `--def` is a usage error.
 - Defaults and inherited values are included.

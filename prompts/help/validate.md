@@ -2,7 +2,7 @@
 
 ## SYNOPSIS
     syscribe -m <root> validate [--file <path>] [--json]
-        [--deny <CODES>] [--max-warnings <N>] [--warnings-as-errors] [--summary]
+        [--deny <CODES>] [--deny-meta <Def.key=value>]... [--max-warnings <N>] [--warnings-as-errors] [--summary]
         [--profile <name>] [--config <C>] [--all-configs]
         [--results <file> [--format <fmt>]] [--fetch-remote]
 
@@ -16,6 +16,9 @@ gating flags promote chosen warnings to build failures.
                             (applies with --config and --all-configs too).
     --json                  Emit findings as a JSON array.
     --deny <CODES>          Comma-separated warning codes treated as gate failures.
+    --deny-meta <COND>      A stereotype condition that must not hold (`Regulatory.status=unverified`; any `meta.` predicate of `list`
+                            without the prefix). Every element satisfying it is listed and the run exits 2.
+                            Repeatable; `[gates] deny_meta = [...]` in .syscribe.toml adds standing conditions.
     --max-warnings <N>      Fail when the warning count exceeds N.
     --warnings-as-errors    Treat every warning as a gate failure.
     --summary               Print finding counts per code and severity instead of each

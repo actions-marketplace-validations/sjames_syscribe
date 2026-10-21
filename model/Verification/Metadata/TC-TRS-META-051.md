@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-051
 name: "validate --deny-meta gates on tagged values"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_checks.rs
+sourceFile: repo:crates/syscribe/tests/metadata_checks.rs
 verifies:
   - REQ-TRS-META-051
 tags:

@@ -252,6 +252,23 @@ fn cmd_create(elems: &[RawElement], resolver: &Resolver, model_root: &Path, rest
     }
     let in_scope: Vec<&RawElement> = in_scope_owned.iter().collect();
 
+    // A stereotype condition the sealed scope must not violate (REQ-TRS-META-054): `[gates] deny_meta`.
+    let conds = syscribe_model::tagged_values::load_gate_conditions(model_root);
+    match crate::query::meta_gate_hits(elems, in_scope.iter().copied(), &conds) {
+        Ok(hits) if hits.is_empty() => {}
+        Ok(hits) => {
+            eprintln!("error: not sealing — {} element(s) in scope violate a [gates] deny_meta condition:", hits.len());
+            for (c, q) in &hits {
+                eprintln!("  {q}: {c}");
+            }
+            return 1;
+        }
+        Err(m) => {
+            eprintln!("error: {m}");
+            return 1;
+        }
+    }
+
     // Review awareness (REQ-TRS-BL-004): warn on suspect/unbaselined in-scope links;
     // --require-reviewed upgrades to a refusal.
     let in_scope_files: std::collections::HashSet<&str> =

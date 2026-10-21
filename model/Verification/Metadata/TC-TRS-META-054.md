@@ -2,9 +2,9 @@
 type: TestCase
 id: TC-TRS-META-054
 name: "A baseline can require a stereotype condition"
-status: draft
+status: active
 testLevel: L2
-sourceFile: repo:crates/syscribe-model/tests/metadata_checks.rs
+sourceFile: repo:crates/syscribe/tests/metadata_checks.rs
 verifies:
   - REQ-TRS-META-054
 tags:

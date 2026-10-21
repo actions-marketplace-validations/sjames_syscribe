@@ -1503,6 +1503,14 @@ $ syscribe -m model/ sysml [--json]
 
 Read-only. For every package declaring `sysmlSubmodel: true` ([Native SysMLv2 Submodels](../model-guide/sysmlv2-submodel.md)) it lists the `.sysml`/`.kerml` files parsed (and whether each parsed), the number of ingested elements per element kind, the parsed-but-unmapped construct counts per kind (the data behind `W543`, including unresolved package-level `satisfy`/`include`), a `Parser:` line naming the `sysml-v2-parser` release and the `W540`-`W543` findings raised for the submodel. `--json` emits `{"parser": {name, version, astVersion}, "submodels": [{package, indexFile, fileCount, filesParsed, files, elementTotal, elementsByKind, unmappedTotal, unmapped, findings}]}`. With no submodel it says so and exits zero (MCP equivalent: the read-only `sysml_submodels` tool, same JSON).
 
+### Report stereotype applications (`meta`)
+
+```
+$ syscribe -m model/ meta [--def <Def>] [--group-by <key>] [--json]
+```
+
+Without `--def`, counts the applications of every stereotype. With `--def <Def>` it lists the elements that apply `Def` or a specialisation of it; `--group-by <key>` groups them by that tagged value (written or defaulted), largest group first, an element without the value in `(unset)`. `syscribe -m model/ meta --def Regulatory --group-by status` is the compliance worklist (REQ-TRS-META-052). Gate the same data in CI with `validate --deny-meta Regulatory.status=unverified` or a standing `[gates] deny_meta` list in `.syscribe.toml`, which `baseline create` also honours (REQ-TRS-META-051, -054).
+
 ### List the project's link types (`link-types`)
 
 ```

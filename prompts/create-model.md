@@ -148,6 +148,7 @@ Use these commands throughout the workflow. Run them in the project root.
 | `syscribe -m model/ coverage tree <req> [--plan <TP-id>] [--config <C>]` | Roll test coverage up the derivation tree (parent coverage from its children) |
 | `syscribe -m model/ baseline create --tag <t> …` / `baseline verify\|diff\|list\|show` | Release baselines: frozen, git-anchored, content-hashed snapshots; `verify` recomputes the seal |
 | `syscribe -m model/ results runs\|failures\|diff <runA> <runB>` | Retained test runs and run-to-run diffs (`--fail-on-regression`) |
+| `syscribe -m model/ meta [--def <Def>] [--group-by <key>] [--json]` | Stereotype report: who applies a `MetadataDef`, grouped by a tagged value (the compliance worklist) |
 | `syscribe -m model/ link-types [--json]` | The project's declared link types for `links:` (run **before** authoring any link — see §12.10 in Part 10) |
 | `syscribe -m model/ follow <qname\|id> <link> [--reverse] [--transitive] [--depth N] [--format text\|json\|dot]` | Walk one link type (custom type, its `inverse`, or a built-in link / reverse index such as `satisfiedBy`) |
 
