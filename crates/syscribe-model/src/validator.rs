@@ -1529,6 +1529,12 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     }
                 }
             }
+            if let Some(why) = tv::supertype_problem(elements, &resolver, elem) {
+                findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
+            }
+            for why in tv::narrowing_problems(elements, &resolver, elem) {
+                findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
+            }
             for c in fm.constraints.iter().flatten() {
                 if let Some(src) = c.as_str() {
                     match tv::parse_constraint(src) {
@@ -1563,7 +1569,16 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     ) =>
                 {
                     // E318: applicability constraint (`annotates:` metaclass names).
-                    if let Some(ref allowed) = def_el.frontmatter.annotates {
+                    let chain = crate::tagged_values::lineage(elements, &resolver, def_el);
+                    // E328: an abstract definition is never applied directly (REQ-TRS-META-030).
+                    if def_el.frontmatter.is_abstract == Some(true) {
+                        findings.push(error(
+                            "E328",
+                            &file,
+                            &format!("stereotype '{}' is abstract and cannot be applied; apply a specialisation of it", app.def),
+                        ));
+                    }
+                    if let Some(allowed) = crate::tagged_values::effective_annotates(&chain) {
                         let this_ty = fm
                             .element_type
                             .as_ref()
@@ -1588,19 +1603,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         }
                     }
                     // W045: tagged-value keys must be declared features of the def.
-                    let feat_names: Vec<String> = def_el
-                        .frontmatter
-                        .features
-                        .iter()
-                        .flatten()
-                        .filter_map(|f| match f {
-                            serde_yaml::Value::Mapping(m) => m
-                                .get(serde_yaml::Value::from("name"))
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string),
-                            _ => None,
-                        })
-                        .collect();
+                    let feat_names: Vec<String> = crate::tagged_values::merged_specs(&chain).into_iter().map(|f| f.name).collect();
                     for (k, _) in &app.values {
                         if !feat_names.contains(k) {
                             findings.push(warning(
@@ -1616,7 +1619,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     // E322–E327: typed tagged values (REQ-TRS-META-010..014, GH #375).
                     {
                         use crate::tagged_values as tv;
-                        let specs = tv::feature_specs(&def_el.frontmatter.features);
+                        let specs = tv::merged_specs(&chain);
                         let def_label = def_el.frontmatter.name.clone().unwrap_or_else(|| app.def.clone());
                         for spec in &specs {
                             let given: Vec<&serde_yaml::Value> = app
@@ -1658,15 +1661,19 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             }
                         }
                         // E327: constraints of the definition, evaluated for this application.
-                        for c in def_el.frontmatter.constraints.iter().flatten() {
-                            let Some(src) = c.as_str() else { continue };
-                            let Ok(e) = tv::parse_constraint(src) else { continue };
-                            if tv::evaluate(&e, &specs, &app.values, Some(&tv::Scope { elements, resolver: &resolver, carrier: elem })) == tv::Verdict::Violated {
-                                findings.push(error(
-                                    "E327",
-                                    &file,
-                                    &format!("constraint '{src}' of stereotype '{def_label}' is violated"),
-                                ));
+                        // The definition's own constraints and every ancestor's (REQ-TRS-META-030).
+                        for owner in &chain {
+                            let owner_label = owner.frontmatter.name.clone().unwrap_or_else(|| def_label.clone());
+                            for c in owner.frontmatter.constraints.iter().flatten() {
+                                let Some(src) = c.as_str() else { continue };
+                                let Ok(e) = tv::parse_constraint(src) else { continue };
+                                if tv::evaluate(&e, &specs, &app.values, Some(&tv::Scope { elements, resolver: &resolver, carrier: elem })) == tv::Verdict::Violated {
+                                    findings.push(error(
+                                        "E327",
+                                        &file,
+                                        &format!("constraint '{src}' of stereotype '{owner_label}' is violated"),
+                                    ));
+                                }
                             }
                         }
                     }

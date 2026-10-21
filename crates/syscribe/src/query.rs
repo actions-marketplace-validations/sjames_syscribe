@@ -338,7 +338,7 @@ fn meta_where_matches(elements: &[RawElement], elem: &RawElement, def: &str, key
         let apps = syscribe_model::tagged_values::effective_applications(elements, resolver, elem);
         let wanted: Vec<_> = apps
             .iter()
-            .filter(|a| a.def == def || (!def.contains("::") && a.def.rsplit("::").next() == Some(def)))
+            .filter(|a| a.lineage.iter().any(|q| q == def || (!def.contains("::") && q.rsplit("::").next() == Some(def))))
             .collect();
         let Some(key) = key else { return !wanted.is_empty() };
         let values: Vec<&serde_yaml::Value> = wanted
@@ -1555,20 +1555,31 @@ pub fn cmd_types(elements: &[RawElement]) {
     }
 }
 
-/// Whether `e` applies stereotype `name`, by full reference or last `::` segment.
-fn applies_stereotype(e: &RawElement, name: &str) -> bool {
-    syscribe_model::element::metadata_applications(&e.frontmatter.metadata)
-        .iter()
-        .any(|a| a.def == name || a.def.rsplit("::").next() == Some(name))
+/// Whether `name` names `qname` (or one of its ancestors): by full reference or last `::` segment.
+fn names_stereotype(qname: &str, name: &str) -> bool {
+    qname == name || qname.rsplit("::").next() == Some(name)
+}
+
+/// Whether `e` applies stereotype `name` — or a specialisation of it (REQ-TRS-META-030) — by full
+/// reference or last `::` segment.
+fn applies_stereotype(elements: &[RawElement], e: &RawElement, name: &str) -> bool {
+    if e.frontmatter.metadata.is_none() {
+        return false;
+    }
+    with_resolver(elements, |resolver| {
+        syscribe_model::tagged_values::effective_applications(elements, resolver, e)
+            .iter()
+            .any(|a| a.lineage.iter().any(|q| names_stereotype(q, name)))
+    })
 }
 
 /// `--metadata` clauses (REQ-TRS-META-021): every clause must hold; a clause is a comma list of
 /// alternatives, any of which may hold; a leading `!` on an alternative negates it.
-fn metadata_clauses_hold(e: &RawElement, clauses: &[&str]) -> bool {
+fn metadata_clauses_hold(elements: &[RawElement], e: &RawElement, clauses: &[&str]) -> bool {
     clauses.iter().all(|clause| {
         clause.split(',').map(str::trim).filter(|a| !a.is_empty()).any(|alt| match alt.strip_prefix('!') {
-            Some(name) => !applies_stereotype(e, name),
-            None => applies_stereotype(e, alt),
+            Some(name) => !applies_stereotype(elements, e, name),
+            None => applies_stereotype(elements, e, alt),
         })
     })
 }
@@ -1582,7 +1593,7 @@ pub fn unknown_metadata_names(elements: &[RawElement], clauses: &[&str]) -> Vec<
             e.frontmatter.element_type == Some(ElementType::MetadataDef)
                 && (e.qualified_name == name || e.qualified_name.rsplit("::").next() == Some(name))
         });
-        if !is_def && !elements.iter().any(|e| applies_stereotype(e, name)) && !out.iter().any(|o| o == name) {
+        if !is_def && !elements.iter().any(|e| applies_stereotype(elements, e, name)) && !out.iter().any(|o| o == name) {
             out.push(name.to_string());
         }
     }
@@ -1640,7 +1651,7 @@ pub fn cmd_list(
         .filter(|e| feature.is_none_or(|feat| gates_feature(e, feat)))
         // `--metadata <Def>`: keep only elements that apply that stereotype (MetadataDef),
         // matched by full ref or last `::` segment (REQ-TRS-META-001).
-        .filter(|e| metadata_clauses_hold(e, metadata))
+        .filter(|e| metadata_clauses_hold(elements, e, metadata))
         // `--status <s>`: keep only elements whose `status:` equals s exactly.
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         // `--sil <v>`: one flag covers SIL and ASIL — match when `silLevel`

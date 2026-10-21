@@ -319,7 +319,7 @@ pub fn evaluate(e: &expr::Expr, specs: &[FeatureSpec], values: &[(String, Yaml)]
     let applies = |def: &str| -> Option<&EffectiveApp> {
         let sc = scope?;
         let want = find_metadata_def(sc.elements, sc.resolver, def)?.qualified_name.clone();
-        apps.iter().find(|a| a.def == want)
+        apps.iter().find(|a| a.lineage.contains(&want))
     };
     let lookup = |n: &str| -> Option<Value> {
         if let Some(def) = n.strip_prefix("has.") {
@@ -379,6 +379,9 @@ pub struct EffectiveApp {
     pub values: Vec<(String, Yaml)>,
     /// The keys whose value came from a default.
     pub defaulted: Vec<String>,
+    /// The definition and its ancestors, nearest first (qualified names; just `def` when it does
+    /// not resolve). An application counts as an application of every one of them.
+    pub lineage: Vec<String>,
 }
 
 fn metadata_def<'a>(
@@ -403,15 +406,22 @@ pub fn effective_applications(
             let def = metadata_def(elements, resolver, &a.def);
             let mut values = a.values.clone();
             let mut defaulted = Vec::new();
+            let mut names = vec![];
             if let Some(d) = def {
-                for spec in feature_specs(&d.frontmatter.features) {
+                let chain = lineage(elements, resolver, d);
+                names = chain.iter().map(|x| x.qualified_name.clone()).collect();
+                for spec in merged_specs(&chain) {
                     if let (Some(dv), false) = (&spec.default, values.iter().any(|(k, _)| k == &spec.name)) {
                         values.push((spec.name.clone(), dv.clone()));
                         defaulted.push(spec.name);
                     }
                 }
             }
-            EffectiveApp { def: def.map(|d| d.qualified_name.clone()).unwrap_or(a.def), values, defaulted }
+            let def_name = def.map(|d| d.qualified_name.clone()).unwrap_or(a.def);
+            if names.is_empty() {
+                names.push(def_name.clone());
+            }
+            EffectiveApp { def: def_name, values, defaulted, lineage: names }
         })
         .collect()
 }
@@ -427,7 +437,7 @@ pub fn reference_values(
     for a in crate::element::metadata_applications(&e.frontmatter.metadata) {
         let Some(def) = metadata_def(elements, resolver, &a.def) else { continue };
         let label = def.frontmatter.name.clone().unwrap_or_else(|| a.def.clone());
-        for spec in feature_specs(&def.frontmatter.features) {
+        for spec in merged_specs(&lineage(elements, resolver, def)) {
             if !matches!(spec.kind(), Kind::Element(_)) {
                 continue;
             }
@@ -459,4 +469,126 @@ pub fn find_metadata_def<'a>(
     });
     let first = hits.next()?;
     hits.next().is_none().then_some(first)
+}
+
+fn supertype_name(def: &crate::element::RawElement) -> Option<String> {
+    match def.frontmatter.supertype.as_ref()? {
+        Yaml::String(t) => Some(t.clone()),
+        Yaml::Sequence(q) => q.iter().find_map(|v| v.as_str().map(str::to_string)),
+        _ => None,
+    }
+}
+
+/// A `MetadataDef` and its ancestors, nearest first (`REQ-TRS-META-030`). Stops at an unresolved
+/// or non-`MetadataDef` supertype and at a cycle, so it always terminates.
+pub fn lineage<'a>(
+    elements: &'a [crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    def: &'a crate::element::RawElement,
+) -> Vec<&'a crate::element::RawElement> {
+    let mut out = vec![def];
+    let mut cur = def;
+    while let Some(next) = supertype_name(cur).and_then(|n| metadata_def(elements, resolver, &n)) {
+        if out.iter().any(|d| std::ptr::eq(*d, next)) {
+            break;
+        }
+        out.push(next);
+        cur = next;
+    }
+    out
+}
+
+/// Why a definition's `supertype:` is not a valid specialisation, if it is not.
+pub fn supertype_problem(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    def: &crate::element::RawElement,
+) -> Option<String> {
+    let name = supertype_name(def)?;
+    let Some(first) = resolver.resolve_ref(elements, &name) else {
+        return Some(format!("supertype '{name}' does not resolve"));
+    };
+    if !matches!(first.frontmatter.element_type, Some(crate::element::ElementType::MetadataDef)) {
+        return Some(format!("supertype '{name}' is not a MetadataDef"));
+    }
+    let mut cur = first;
+    let mut seen = vec![def.qualified_name.clone()];
+    loop {
+        if seen.contains(&cur.qualified_name) {
+            return Some(format!("supertype chain through '{name}' is a cycle"));
+        }
+        seen.push(cur.qualified_name.clone());
+        match supertype_name(cur).and_then(|n| metadata_def(elements, resolver, &n)) {
+            Some(n) => cur = n,
+            None => return None,
+        }
+    }
+}
+
+/// The features of a definition including inherited ones. A sub-definition's declaration of a
+/// feature overrides the inherited one field by field (what it leaves out is inherited).
+pub fn merged_specs(lineage: &[&crate::element::RawElement]) -> Vec<FeatureSpec> {
+    let mut out: Vec<FeatureSpec> = Vec::new();
+    for def in lineage.iter().rev() {
+        for mut sub in feature_specs(&def.frontmatter.features) {
+            if let Some(at) = out.iter().position(|p| p.name == sub.name) {
+                let p = out.remove(at);
+                sub.type_ref = sub.type_ref.or(p.type_ref);
+                sub.unit = sub.unit.or(p.unit);
+                sub.range = sub.range.or(p.range);
+                sub.enum_values = sub.enum_values.or(p.enum_values);
+                sub.default = sub.default.or(p.default);
+                if !sub.mult_declared {
+                    sub.mult = p.mult;
+                    sub.mult_declared = p.mult_declared;
+                }
+                out.insert(at, sub);
+            } else {
+                out.push(sub);
+            }
+        }
+    }
+    out
+}
+
+/// The `annotates:` in force for a definition: its own, else the nearest ancestor's.
+pub fn effective_annotates<'a>(lineage: &[&'a crate::element::RawElement]) -> Option<&'a Vec<String>> {
+    lineage.iter().find_map(|d| d.frontmatter.annotates.as_ref())
+}
+
+/// Findings (`E329`) for a sub-definition that widens what its supertype allows.
+pub fn narrowing_problems(
+    elements: &[crate::element::RawElement],
+    resolver: &crate::resolver::Resolver,
+    def: &crate::element::RawElement,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let chain = lineage(elements, resolver, def);
+    if chain.len() < 2 {
+        return out;
+    }
+    let parent = merged_specs(&chain[1..]);
+    for own in feature_specs(&def.frontmatter.features) {
+        let Some(p) = parent.iter().find(|p| p.name == own.name) else { continue };
+        if let (Some((lo, hi)), Some((plo, phi))) = (own.range, p.range) {
+            if lo < plo || hi > phi {
+                out.push(format!("feature '{}' widens the range {}..{} of its supertype to {}..{}", own.name, expr::format_number(plo), expr::format_number(phi), expr::format_number(lo), expr::format_number(hi)));
+            }
+        }
+        if let (Some(vals), Some(pvals)) = (&own.enum_values, &p.enum_values) {
+            let extra: Vec<&String> = vals.iter().filter(|v| !pvals.contains(v)).collect();
+            if !extra.is_empty() {
+                out.push(format!("feature '{}' adds enumeration values its supertype does not allow: {}", own.name, extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+            }
+        }
+    }
+    if let (Some(own), Some(parent)) = (&def.frontmatter.annotates, effective_annotates(&chain[1..])) {
+        if !parent.iter().any(|a| a == "Element") {
+            let extra: Vec<&String> = own.iter().filter(|a| !parent.contains(a)).collect();
+            if !extra.is_empty() {
+                out.push(format!("annotates {} which its supertype does not", extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")));
+            }
+        }
+    }
+    out
 }

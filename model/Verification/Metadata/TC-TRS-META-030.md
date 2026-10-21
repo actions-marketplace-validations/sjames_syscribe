@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-META-030
 name: "A MetadataDef can specialise another"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/metadata_profiles.rs
 verifies:

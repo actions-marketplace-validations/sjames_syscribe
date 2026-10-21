@@ -3313,6 +3313,12 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   a value outside `range` **`E323`**, outside `enumValues` **`E324`**, a count outside
   `multiplicity` **`E325`**, a reference that does not resolve to the stated element type
   **`E326`**. A feature that declares none of these is checked by name only (REQ-TRS-META-010..013);
+- a `MetadataDef` may specialise another with `supertype:` (REQ-TRS-META-030). An application of the
+  sub-definition counts as an application of every ancestor — `list --metadata`, `--where meta.…`,
+  `has()`/`meta()` and the ancestors' `constraints:` all see it — and tagged values, typing and
+  defaults are inherited. A sub-definition may narrow a `range` or `enumValues` and `annotates:`,
+  never widen them (**`E329`**, which also covers an unresolved, non-`MetadataDef` or cyclic
+  `supertype:`); an `isAbstract` definition cannot be applied (**`E328`**);
 - a `MetadataDef` may carry `constraints:` — boolean expressions over its own tagged values
   (`integrity >= 2 implies goal != ""`) — and a false one is **`E327`** on the applying element
   (REQ-TRS-META-014). An absent String is `""` and an absent Boolean `false`; a constraint over
@@ -6365,6 +6371,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E325` | A tagged value's count violates the feature's declared `multiplicity` (an omitted required value included) |
 | `E326` | A reference-typed tagged value does not resolve, or resolves to an element of another type |
 | `E327` | A `constraints:` entry of a `MetadataDef` is violated by an application, or does not parse |
+| `E328` | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
+| `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
 
 #### Warnings
 
