@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPS-002
 name: "An operation is realised by an ActionDef"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operations_binding.rs
 verifies:

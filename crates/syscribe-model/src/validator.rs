@@ -9548,6 +9548,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 
+    // Operations bound to behaviour (REQ-TRS-OPS-001..003, GH #364).
+    for (is_error, code, file, msg) in crate::operations::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
+
     // W316: `[metadata] profiles` names something that is not a `profile: true` package
     // (REQ-TRS-META-031).
     if let Some(root) = &config.model_root {

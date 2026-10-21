@@ -1473,6 +1473,8 @@ The `operations:` field declares callable operations (synchronous) or receptions
 | `isAsync` | bool | optional | `false` | If `true`, this is a reception — caller does not block waiting for a result; `returnType` must be absent |
 | `parameters` | list | optional | `[]` | Typed, directional parameters (see table below) |
 | `returnType` | string | optional | absent | Qualified name of the element typing the return value; mutually exclusive with `isAsync: true` |
+| `errors` | string or list | optional | absent | Error types the operation can raise: an `ItemDef`, `AttributeDef` or enumeration each (`E670`); not on an asynchronous operation |
+| `realizedBy` | string | optional | absent | The `ActionDef` that implements the operation (`E671`); its parameters must match the operation's (`E672`): the same names, directions, types and units, and its one `direction: return` parameter is the `returnType` |
 
 **Parameter entry schema** (each entry in `parameters:`):**
 
@@ -6467,6 +6469,9 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E660` | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `E661` | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `E662` | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
+| `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
+| `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
 
 #### Warnings
 

@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPS-001
 name: "An operation declares the errors it can raise"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operations_binding.rs
 verifies:

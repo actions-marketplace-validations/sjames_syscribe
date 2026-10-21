@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPS-003
 name: "A realising action's signature matches the operation"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operations_binding.rs
 verifies:
