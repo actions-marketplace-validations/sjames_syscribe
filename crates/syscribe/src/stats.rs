@@ -76,7 +76,7 @@ fn keys(e: &RawElement) -> Vec<String> {
 }
 
 /// Does this requirement pass the scoping filters (`--status`, `--tag`, `--where`)?
-fn passes_filters(e: &RawElement, opts: &StatsOptions) -> bool {
+fn passes_filters(elements: &[RawElement], e: &RawElement, opts: &StatsOptions) -> bool {
     if let Some(s) = opts.status {
         if e.frontmatter.status.as_deref() != Some(s) {
             return false;
@@ -89,7 +89,7 @@ fn passes_filters(e: &RawElement, opts: &StatsOptions) -> bool {
         }
     }
     for pred in opts.wheres {
-        if !query::custom_or_extra_matches(e, pred) {
+        if !query::where_matches(elements, e, pred, true) {
             return false;
         }
     }
@@ -181,7 +181,7 @@ pub fn compute_stats(
     // Requirements in scope: native Requirements passing the scoping filters.
     let reqs: Vec<&RawElement> = view
         .iter()
-        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(e, opts))
+        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(&view, e, opts))
         .collect();
     let total = reqs.len() as u64;
 

@@ -1,7 +1,7 @@
 # ls — list namespace children
 
 ## SYNOPSIS
-    syscribe -m <root> ls [qname] [--where custom.<key>[<op><value>]]...
+    syscribe -m <root> ls [qname] [--where custom.<key>[<op><value>] | meta.<Def>.<key><op><value>]...
 
 ## DESCRIPTION
 Lists the direct children of a namespace (default: the model root). The scope is a

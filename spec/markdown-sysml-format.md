@@ -3307,9 +3307,55 @@ keys set its `features` as tagged values. This is the SysMLv2 way to model a **s
   or via the abstract `Element`/`Definition`/`Usage` — is **`E318`**;
 - a tagged-value key that is not a declared `features:` attribute of the `MetadataDef` is
   warning **`W045`**.
+- a `features:` entry may also declare `typedBy` (`ScalarValues::Integer|Real|Boolean|String`, or an
+  element-type name such as `PartDef` for a reference), `unit`, `range: "lo..hi"`, `enumValues`,
+  `multiplicity` (`1`, `0..1`, `1..*`) and `default`. A wrong type or unit dimension is **`E322`**,
+  a value outside `range` **`E323`**, outside `enumValues` **`E324`**, a count outside
+  `multiplicity` **`E325`**, a reference that does not resolve to the stated element type
+  **`E326`**. A feature that declares none of these is checked by name only (REQ-TRS-META-010..013);
+- a `MetadataDef` may specialise another with `supertype:` (REQ-TRS-META-030). An application of the
+  sub-definition counts as an application of every ancestor — `list --metadata`, `--where meta.…`,
+  `has()`/`meta()` and the ancestors' `constraints:` all see it — and tagged values, typing and
+  defaults are inherited. A sub-definition may narrow a `range` or `enumValues` and `annotates:`,
+  never widen them (**`E329`**, which also covers an unresolved, non-`MetadataDef` or cyclic
+  `supertype:`); an `isAbstract` definition cannot be applied (**`E328`**);
+- a `MetadataDef` may carry **`checks:`** — expressions run on every element that carries the stereotype
+  (or a specialisation), with `has()`/`meta()` in scope: a string, or `{expr, message, severity}` with
+  `severity` `error` (default, **`E650`**) or `warning` (**`W650`**, draft-suppressed). A profile's checks run
+  only when the profile is enabled. `validate --deny-meta <Def.key=value>` and `[gates] deny_meta` fail the
+  run (exit 2) while a matching element exists, and `baseline create` refuses to seal one
+  (REQ-TRS-META-050, -051, -054);
+- a **stereotype selector** is `{stereotype: Def, where: <expr>}` or the string `Def where <expr>`: it
+  matches an element that applies `Def` (or a specialisation) and, with `where`, whose application
+  satisfies the expression over its tagged values (`meta`/`has` available). A TestPlan's
+  `selection.stereotypes:` lists selectors (any of them): a TestCase is selected when it, or a requirement it
+  `verifies:`, matches one — malformed or unknown is **`E651`**; `matrix --select` keeps the requirement
+  rows a selector matches (REQ-TRS-META-024);
+- a map application may carry **`appliesWhen:`** (a feature expression, as on an element): under `--config`
+  the application is dropped from the projection where it is false, and `diff` reports applications that
+  differ between two products (REQ-TRS-META-025);
+- a package with **`profile: true`** (optionally `version:`) is a *stereotype profile* (REQ-TRS-META-031):
+  the `constraints:` of the definitions it contains, and its **`autoApply:`** rules, are in force only
+  when `[metadata] profiles = ["Pkg"]` in `.syscribe.toml` enables it (**`W316`** if that names
+  something else). A definition outside any profile package is always checked. An `autoApply:` rule
+  is `{select: {type, where: {field: value, …}}, apply: {type: Def, key: value, …}}`: matching elements
+  carry the application without it being written (shown `(derived)`; `derived: true` in `list --json`);
+  an explicit application of the same definition wins (REQ-TRS-META-033);
+- the built-in **`StdMetadata`** package (`Safety`, `Optional`, `Regulatory`, `External`,
+  `Environment`, `Deployment`, `Budget`) is part of the model whenever an element refers to
+  `StdMetadata::…` or `[metadata] stdlib = true`; it is read-only (REQ-TRS-META-032);
+- a `MetadataDef` may carry `constraints:` — boolean expressions over its own tagged values
+  (`integrity >= 2 implies goal != ""`) — and a false one is **`E327`** on the applying element
+  (REQ-TRS-META-014). An absent String is `""` and an absent Boolean `false`; a constraint over
+  an absent number is undecided, not violated.
 
 Applied stereotypes are shown by `show` as **«Name»** banners and are filterable with
-`list <Type> --metadata <MetadataDef>`.
+`list <Type> --metadata <MetadataDef>` (repeatable, `A,B` for either, `!A` to exclude) and by tagged
+value with `--where meta.<Def>.<key><op><value>` (REQ-TRS-META-020, -021).
+
+In a `MetadataDef`'s `constraints:`, `has(Def)` is true when the carrying element applies `Def`, and
+`meta(Def).key` is that application's tagged value (its default when unwritten). An absent stereotype or
+value is *absent*: any comparison with it is false, never an error (REQ-TRS-META-023).
 
 #### 8.15.3 Standard Library Metadata
 
@@ -3886,7 +3932,7 @@ A chain whose endpoint is not a node of the diagram produces no edge and relies 
 - **`depth:`** (default `1`; `0` is read as `1`; capped at `16`) — part levels drawn. At `2` and deeper, the part usages of a usage's definition and of the usage element itself (inline features or child `Part` files) are drawn as nested `block`s inside it with their ports, and the definition's connection lists add edges whose chains are read relative to that usage (`mcu.adc` inside `controlBoard` is port `adc` of `controlBoard::mcu`). An edge between nodes at different levels is one edge from port to port; the hierarchical layout routes it across the boundaries. A definition that contains itself, directly or through others, is drawn once on each path and not opened again. Two members whose ids coincide (a port and a part of one name, `a::b` beside `a_b`, a part named like a domain frame) are both drawn; the later one takes the id with `-2`, `-3`, … appended.
 - **Deployment containment** — a drawn usage of a deployment package (`isDeploymentPackage: true`) that is allocated to a hardware element in any §12.9 form is moved inside a drawn usage of that element, or, when the target is not drawn at this depth, inside the innermost drawn usage whose definition contains it. Among several candidates the one nearest the package wins (the deepest common ancestor, so each board's firmware goes into that board's MCU), then one not yet hosting a package of the same definition (two images, two MCUs: one each), then the first drawn. Its own nested parts move with it.
 - **Marks** — a usage whose element or definition declares `silLevel:` (1 or higher), `asilLevel:` (A to D, a leading `ASIL` ignored; a decomposed `B(D)` keeps its notation) or a `safety` applied stereotype gets a mark with that level as a badge (`SIL 2`, `ASIL B(D)`, `safety`), tone `warn` and a heavy outline; one with `appliesWhen:` (on the inline feature, the usage element or its definition) gets the badge `optional` and the value `when <feature>`, tone `neutral` with a dashed outline unless it is also safety-rated. Marks are the generic `NodeMark` of §8.16.8.10, so every writer draws them (PlantUML as stereotypes and colours); the SVG adds a legend only when a part is marked.
-- **`groupBy: domain`** — the subject's direct parts are framed by their `domain:` (the usage element's, else its definition's): one `swimlane` per domain, ordered `system`, `hardware`, `software`, then the rest, with id `derived_shape_id("<subject>::domain::<domain>")`. A part with no domain stays in the boundary. Containment wins over the frame: a deployed package stays inside its hardware and carries its domain as a banner. Any other `groupBy:` value is warning `W420` and is ignored; `groupBy:` on a diagram kind other than `IBD`, on a manifest diagram or on an element that is not a `Diagram` is also `W420`. DOT draws the frames, and parts with parts inside them, as clusters.
+- **`groupBy: domain`** — the subject's direct parts are framed by their `domain:` (the usage element's, else its definition's): one `swimlane` per domain, ordered `system`, `hardware`, `software`, then the rest, with id `derived_shape_id("<subject>::domain::<domain>")`. A part with no domain stays in the boundary. Containment wins over the frame: a deployed package stays inside its hardware and carries its domain as a banner. **`groupBy: stereotype`** frames the parts that apply a stereotype marked `frame = true` in `[diagram.stereotypes.<Def>]` (the part's, or its definition's; a specialisation counts): one `swimlane` per such stereotype, strongest first, labelled with its name; a part with none stays in the boundary (REQ-TRS-META-041). Any other `groupBy:` value is warning `W420` and is ignored; `groupBy:` on a diagram kind other than `IBD`, on a manifest diagram or on an element that is not a `Diagram` is also `W420`. DOT draws the frames, and parts with parts inside them, as clusters.
 - **`--config`** — a diagram exported or served under a `Configuration` is derived from the projected model, so a part inactive in that product is not drawn, and since every part left is present, none is badged `optional`.
 
 Without `depth:`, `groupBy:`, an allocated deployment package, a safety level or an `appliesWhen:`, the derived IBD is the same as before.
@@ -4512,6 +4558,7 @@ A view says what a diagram is about, not where things go (`REQ-TRS-VIS-031`, GH 
 | `domains` | `domain:` values of the usage element or its definition |
 | `tags` | `tags:` of the usage element or its definition |
 | `features` | Features, by qname or `FEAT-*` id: parts whose `appliesWhen:` (inline, usage element or definition) names one of them or a feature beneath one |
+| `stereotypes` | Stereotype selectors (`Def` or `Def where <expr>`, REQ-TRS-META-024): parts whose usage element or definition applies one, a specialisation counting. A malformed entry or one naming no `MetadataDef` is `W421` and ignored |
 | `depth` | As the diagram's `depth:`, which wins when both are set |
 | `members` | The list form's member filter (§8.16.8.2); members outside it are not drawn at all |
 
@@ -4533,6 +4580,23 @@ context = "hide"
 ```
 
 A diagram draws with the project's `[diagram.styles]`, then `[diagram.style.default]` when it is defined, then the chain of its `style:` from the root to the named style, the nearest winning key by key. Pins in `layout:` are applied on top of whatever the style gives. Under `context = "hide"` the faded nodes (with what is inside them) and edges are left out. A style is project configuration, not a model element: it changes how a diagram looks, never what the model says.
+
+**Style by stereotype** (REQ-TRS-META-040, -043, -044). `[diagram.stereotypes.<Def>]` gives the nodes of the elements that apply a stereotype — or a specialisation of it — their own presentation, in every writer (browser, SVG, DOT, PlantUML, Mermaid):
+
+```toml
+[diagram.stereotypes.Safety]
+stroke = "#d00000"          # fill, stroke: #rgb, #rrggbb or a colour name
+fill   = "#ffe5e5"
+width  = 3                  # outline width
+when   = "integrity >= 2"   # optional: only where the application's tagged values satisfy this
+
+[diagram.stereotypes.Optional]
+dash     = "6,3"            # a dashed outline ("" is solid)
+banner   = false            # hide the «Optional» banner
+priority = 5                # higher wins a property two styles set; ties go to the later definition name
+```
+
+Several stereotypes on one element compose property by property. The graph carries a legend of the stereotypes that actually styled a node (strongest first), which the SVG writer draws under the diagram. With no table a diagram draws exactly as before. A malformed entry is `W419` and is ignored. `frame = true` makes a stereotype a swimlane for an IBD with `groupBy: stereotype`. A stereotype applied on a `connections:` entry (`metadata:`), or on its `typedBy` `ConnectionDef`, restyles that edge (`stroke`, `width`, `dash`) in every writer. Not yet: `icon` and `badge`.
 
 **Layout hints.** Beside its pins, `layout:` takes two keys a shape id never has:
 
@@ -6344,6 +6408,16 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E319` | Results-gated: `Requirement` at `verified` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `E317` | A `metadata:` application does not resolve to a `MetadataDef` (§8.15.2) |
 | `E318` | A `metadata:` application's `MetadataDef` declares `annotates:` that excludes the annotated element's type (the abstract `Element`/`Definition`/`Usage` metaclasses match; standard-library metadata is recognised) |
+| `E322` | A tagged value has the wrong type, or a unit of another dimension, than its `MetadataDef` feature declares; also a feature `default` that violates its own typing |
+| `E323` | A tagged value is outside the feature's declared `range` |
+| `E324` | A tagged value is not in the feature's declared `enumValues` |
+| `E325` | A tagged value's count violates the feature's declared `multiplicity` (an omitted required value included) |
+| `E326` | A reference-typed tagged value does not resolve, or resolves to an element of another type |
+| `E327` | A `constraints:` entry of a `MetadataDef` is violated by an application, or does not parse |
+| `E328` | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
+| `E329` | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
+| `E650` | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
+| `E651` | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
 
 #### Warnings
 
@@ -6368,6 +6442,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W313` | An `accepted` `ADR` supersedes an ADR whose status is not `superseded` |
 | `W314` | A non-draft element's `breakdownAdr:` resolves to a `superseded` ADR (cite its successor) |
 | `W315` | A `done` `PlanningItem` achieves a non-Requirement work product (`SafetyGoal`, `CybersecurityGoal`, `ADR`, `Argument`, `TestPlan`, `Baseline`) whose status is still `draft`/`review`/`proposed` |
+| `W316` | `[metadata] profiles` names an element that is not a package with `profile: true` (or does not exist) |
+| `W650` | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9027,6 +9103,7 @@ since `status: in_progress` alone already signals active work.
 | Diagram | `diagramKind`, `svgMode`, `svgFile`, `pumlMode`, `pumlFile`, `shapes`, `edges`, `layout`, `groupBy`, `flowKind` (also on a `PortDef`, a port feature and a `connections:` entry) | 8.16, 8.16.8.2, 8.16.9 |
 | HARA | `severity`, `exposure`, `controllability`, `consequence`, `freqExposure`, `avoidance`, `demandRate`, `operationalSituation`, `hazardousEvents`, `safeState`, `ftti` | 8.18.1 |
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
+| Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |
 | Executable models and plants | `plant`, `fmu`, `plants`, `plantStep`, `plantConnections` (parts and TestCases); on a `PlantDef`: `parameters`, `inputs`, `outputs`, `states`, `equations`, `method`, `maxStep` | 8.8.6; `docs/model-guide/plant-models.md`, `fmi-plants.md` |

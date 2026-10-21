@@ -44,6 +44,10 @@ computed by the tool and never authored.
 | `isNegated` | Constraint | bool | `false` |
 | `isSemantic` | MetadataDef | bool | `false` |
 | `isDeploymentPackage` | PartDef/Part | bool | `false` |
+| `profile` | Package | bool | `false` | `true` marks a stereotype profile; enabled by `[metadata] profiles` (`W316`) |
+| `version` | Package | string | absent | The version of a stereotype profile |
+| `checks` | MetadataDef | list | absent | Expressions run on every carrier: a string, or `{expr, message, severity: error\|warning}` (`E650`/`W650`) |
+| `autoApply` | Package (profile) | list | absent | Rules `{select: {type, where}, apply: {type, key: value}}` deriving stereotype applications |
 
 ## Typing and specialization
 
@@ -458,7 +462,7 @@ Fields defined in the full specification (`spec/markdown-sysml-format.md`) that 
 | `faultSet` | spec §12.14 | the FMEA rows (`FMEAEntry`) and fault-tree events (`FaultTreeEvent`) whose joint failure the decision is about, by id or qualified name. It names a set exactly as `inject` reports it: `[A, B]` explains the set `A + B`, not `A` alone |
 | `fixedIn` | VulnerabilityReport | version that fixes the vulnerability; a `mitigated`/`resolved`/`fixed`/`closed` report needs this or `mitigatedBy` (`W976`) |
 | `goal` | ResidualRisk | the `SafetyGoal`(s) the defeated invariant protects (spec §12.14) |
-| `groupBy` | derived IBD Diagram | `domain` frames the parts by their `domain:` (GH #336) |
+| `groupBy` | derived IBD Diagram | `domain` frames the parts by their `domain:` (GH #336); `stereotype` frames them by a `frame = true` stereotype (GH #378) |
 | `injection` | FMEAEntry row, FaultTreeEvent | injectable fault model for `inject`: a list of mappings with a `kind` (`stuck`, `offset`, `silent`, `drop`, `delay`, …); malformed is `E936` |
 | `layout` | spec §8.16.2 | Shape id → `{x, y, w, h}` pixel coordinates (an edge id → `{points: [[x, y], …]}` pins its routing). Entries are **pins** (`REQ-TRS-VIS-007`): a pinned shape keeps its position while the browser lays the unpinned rest out around it; `w`/`h` are optional. A key naming no shape or edge is `W416`; an entry without numeric `x`/`y` is `E405`. Two keys are *hints*, not shape ids: `flow` (`left-to-right` / `top-to-bottom`) and `layers` (bands in order); see §8.16.10. |
 | `maxStep` | PlantDef | longest integration sub-step; each communication step is split evenly below it |

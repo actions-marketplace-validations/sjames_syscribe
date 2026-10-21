@@ -44,6 +44,7 @@ How a parent is judged complete is a policy, `both` by default:
     parent_rule = "both"
     [[coverage.rule]]
     reqClass = "stakeholder"     # also requirementKind = ["process"], status = ["approved"], tag = ["function"] (any of)
+                                 # stereotype = ["Optional", "Safety where integrity >= 2"]  (any of; a specialisation counts)
     parent_rule = "rollup"
 
 A requirement without the field never matches a requirementKind/status selector;

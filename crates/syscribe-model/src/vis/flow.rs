@@ -65,9 +65,37 @@ pub struct ResolvedStyle {
     pub flows: BTreeMap<FlowKind, FlowStyle>,
 }
 
+/// One `[diagram.stereotypes.<Def>]` table (`REQ-TRS-META-040`): the presentation a stereotype gives the
+/// nodes of the elements that apply it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StereotypeStyle {
+    pub fill: Option<String>,
+    pub stroke: Option<String>,
+    /// `dash = "6,3"` is a dashed outline; `""` is solid.
+    pub dashed: Option<bool>,
+    pub width: Option<f64>,
+    /// `banner = false` hides the stereotype's `«Name»` banner.
+    pub banner: Option<bool>,
+    /// `frame = true` makes the stereotype a swimlane criterion of an IBD with `groupBy: stereotype`.
+    pub frame: Option<bool>,
+    /// A tagged-value condition over the application (`integrity >= 2`).
+    pub when: Option<String>,
+    /// Higher wins a property two styles both set; ties go to the later definition name.
+    pub priority: i64,
+}
+
+impl StereotypeStyle {
+    /// Whether the style sets anything a reader can see on a node (a banner switch is not drawn).
+    pub fn is_visual(&self) -> bool {
+        self.fill.is_some() || self.stroke.is_some() || self.dashed.is_some() || self.width.is_some()
+    }
+}
+
 /// The `[diagram]` table.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DiagramConfig {
+    /// `[diagram.stereotypes.<Def>]` (`REQ-TRS-META-040`), keyed by the definition as written.
+    pub stereotypes: BTreeMap<String, StereotypeStyle>,
     pub styles: BTreeMap<FlowKind, FlowStyle>,
     pub port_sides: BTreeMap<FlowKind, PortSideRule>,
     /// `[diagram.style.<name>]` (GH #338).
@@ -118,11 +146,53 @@ impl DiagramConfig {
                 }
                 "portSides" | "port_sides" => c.sides_from(v),
                 "style" => c.named_from(v),
-                other => c.problems.push(format!("[diagram] has an unknown key '{other}' (known: styles, portSides, style) — ignored")),
+                "stereotypes" => c.stereotypes_from(v),
+                other => c.problems.push(format!("[diagram] has an unknown key '{other}' (known: styles, portSides, style, stereotypes) — ignored")),
             }
         }
         c.check_chains();
         c
+    }
+
+    fn stereotypes_from(&mut self, v: &toml::Value) {
+        let Some(t) = v.as_table() else {
+            self.problems.push("[diagram.stereotypes] must be a table of stereotype styles — ignored".into());
+            return;
+        };
+        for (def, v) in t {
+            let at = format!("[diagram.stereotypes.{def}]");
+            let Some(e) = v.as_table() else {
+                self.problems.push(format!("{at} must be a table — ignored"));
+                continue;
+            };
+            let mut st = StereotypeStyle::default();
+            for (key, val) in e {
+                match (key.as_str(), val) {
+                    ("fill" | "stroke", toml::Value::String(c)) if is_color(c) => {
+                        if key == "fill" { st.fill = Some(c.clone()) } else { st.stroke = Some(c.clone()) }
+                    }
+                    ("fill" | "stroke", _) => self.problems.push(format!("{at} {key} must be #rgb, #rrggbb or a colour name — ignored")),
+                    ("dash", toml::Value::String(d)) if is_dash(d) => st.dashed = Some(!d.trim().is_empty()),
+                    ("dash", _) => self.problems.push(format!("{at} dash must be a stroke-dasharray such as \"6,3\", or \"\" for solid — ignored")),
+                    ("width", toml::Value::Integer(w)) if *w > 0 => st.width = Some(*w as f64),
+                    ("width", toml::Value::Float(w)) if *w > 0.0 => st.width = Some(*w),
+                    ("width", _) => self.problems.push(format!("{at} width must be a positive number — ignored")),
+                    ("frame", toml::Value::Boolean(b)) => st.frame = Some(*b),
+                    ("frame", _) => self.problems.push(format!("{at} frame must be true or false — ignored")),
+                    ("banner", toml::Value::Boolean(b)) => st.banner = Some(*b),
+                    ("banner", _) => self.problems.push(format!("{at} banner must be true or false — ignored")),
+                    ("when", toml::Value::String(w)) => match crate::tagged_values::parse_constraint(w) {
+                        Ok(_) => st.when = Some(w.clone()),
+                        Err(m) => self.problems.push(format!("{at} when '{w}' does not parse ({m}) — ignored")),
+                    },
+                    ("when", _) => self.problems.push(format!("{at} when must be an expression string — ignored")),
+                    ("priority", toml::Value::Integer(p)) => st.priority = *p,
+                    ("priority", _) => self.problems.push(format!("{at} priority must be an integer — ignored")),
+                    _ => self.problems.push(format!("{at} has an unknown key '{key}' (known: fill, stroke, dash, width, banner, frame, when, priority) — ignored")),
+                }
+            }
+            self.stereotypes.insert(def.clone(), st);
+        }
     }
 
     fn named_from(&mut self, v: &toml::Value) {

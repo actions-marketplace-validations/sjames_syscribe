@@ -230,7 +230,9 @@ pub fn referrers(elements: &[RawElement], target_qname: &str) -> Vec<(String, Op
         if e.qualified_name == target_qname {
             continue;
         }
-        let hits = element_ref_strings(e).into_iter().any(|(_, r)| {
+        // Reference-typed tagged values of a stereotype (REQ-TRS-META-013) are referrers too.
+        let tagged = crate::tagged_values::reference_values(elements, &resolver, e).into_iter().map(|(_, r)| r);
+        let hits = element_ref_strings(e).into_iter().map(|(_, r)| r).chain(tagged).any(|r| {
             resolver
                 .resolve_ref(elements, &r)
                 .is_some_and(|t| t.qualified_name == target_qname)

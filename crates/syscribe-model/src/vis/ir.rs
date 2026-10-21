@@ -561,6 +561,10 @@ pub struct Node {
     /// drawn as `«Name»` beneath the kind stereotype.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banners: Vec<String>,
+    /// Presentation the project's `[diagram.stereotypes]` gives this node because of the stereotypes
+    /// its element applies (`REQ-TRS-META-040`); folded into the node's style by `style::node_style`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stereo: Option<StereoStyle>,
     /// Feature notation state of a `FeatureModel` node (`REQ-TRS-FMED-001`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature: Option<FeatureMark>,
@@ -599,6 +603,36 @@ impl Tone {
             Tone::Neutral => "neutral",
         }
     }
+}
+
+/// Presentation properties a stereotype sets on a node; each is `None` when no style set it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StereoStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+}
+
+/// One row of a diagram's stereotype legend: a stereotype that styled at least one node.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LegendItem {
+    /// The stereotype's name, drawn as `«name»`.
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dashed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
 }
 
 /// A generic node overlay (GH #223): what an analysis says about the element
@@ -948,6 +982,25 @@ pub struct DiagramGraph {
     /// `layout.flow` set the direction (GH #338), so writers that otherwise keep their own default (PlantUML) follow it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flow_set: bool,
+    /// The stereotypes that styled a node, in precedence order (`REQ-TRS-META-043`); empty without a
+    /// `[diagram.stereotypes]` table, so an unstyled graph serialises exactly as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub legend: Vec<LegendItem>,
+    /// `groupBy: stereotype` of a derived IBD: the stereotypes the project marks `frame = true` frame the parts
+    /// (`REQ-TRS-META-041`, applied by `vis::stereo`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub group_by_stereotype: bool,
+    /// The `metadata:` applications written on a connection entry or its `ConnectionDef`, keyed by edge id: the
+    /// input of `vis::stereo` for `REQ-TRS-META-042`. Derivation scratch; never serialised.
+    #[serde(skip)]
+    pub edge_meta: std::collections::BTreeMap<String, Vec<serde_yaml::Value>>,
+    /// The definition of a part usage, keyed by node id: a usage has no stereotypes of its own, its
+    /// definition's style it (`vis::stereo`). Derivation scratch; never serialised.
+    #[serde(skip)]
+    pub node_defs: std::collections::BTreeMap<String, String>,
+    /// Presentation the project's `[diagram.stereotypes]` gives an edge, keyed by edge id (`REQ-TRS-META-042`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub edge_stereo: std::collections::BTreeMap<String, StereoStyle>,
 }
 
 impl DiagramGraph {
@@ -964,6 +1017,11 @@ impl DiagramGraph {
             flow_styles: Default::default(),
             style: None,
             flow_set: false,
+            legend: Vec::new(),
+            group_by_stereotype: false,
+            node_defs: Default::default(),
+            edge_meta: Default::default(),
+            edge_stereo: Default::default(),
         }
     }
 
@@ -1151,6 +1209,7 @@ mod tests {
             is_abstract: false,
             pin,
             banners: vec![],
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

@@ -343,16 +343,65 @@ fn texts(e: &RawElement) -> [&str; 2] {
     [e.doc.as_str(), e.frontmatter.name.as_deref().unwrap_or("")]
 }
 
+/// String tagged values of an element's `metadata:` applications that hold a `{{…}}` placeholder
+/// (`REQ-TRS-META-015`). The reserved `type`/`name`/`about` keys are never tagged values.
+fn metadata_placeholder_texts(e: &RawElement) -> Vec<&str> {
+    let mut out = Vec::new();
+    for entry in e.frontmatter.metadata.iter().flatten() {
+        if let serde_yaml::Value::Mapping(m) = entry {
+            for (k, v) in m {
+                let reserved = matches!(k.as_str(), Some("type" | "apply" | "def" | "name" | "about"));
+                if let (false, Some(t)) = (reserved, v.as_str()) {
+                    if t.contains("{{") {
+                        out.push(t);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Substitute placeholders in the tagged values of `e`'s `metadata:` applications. A value that
+/// reads as a number or Boolean once substituted is stored typed, so it is checked as one.
+fn substitute_metadata(e: &mut RawElement, f: &dyn Fn(&Placeholder) -> Option<String>) {
+    for entry in e.frontmatter.metadata.iter_mut().flatten() {
+        let serde_yaml::Value::Mapping(m) = entry else { continue };
+        for (k, v) in m.iter_mut() {
+            if matches!(k.as_str(), Some("type" | "apply" | "def" | "name" | "about")) {
+                continue;
+            }
+            let Some(t) = v.as_str().filter(|t| t.contains("{{")) else { continue };
+            let done = substitute_text(t, &f);
+            if done.contains("{{") {
+                continue; // unresolved: left as written, reported by `findings`
+            }
+            *v = match (done.trim().parse::<i64>(), done.trim().parse::<f64>(), done.trim()) {
+                (Ok(i), _, _) => serde_yaml::Value::from(i),
+                (_, Ok(x), _) => serde_yaml::Value::from(x),
+                (_, _, "true") => serde_yaml::Value::Bool(true),
+                (_, _, "false") => serde_yaml::Value::Bool(false),
+                _ => serde_yaml::Value::String(done),
+            };
+        }
+    }
+}
+
+/// Whether any element's `metadata:` tagged value holds a `{{…}}` placeholder (`REQ-TRS-META-015`).
+pub fn metadata_any(elements: &[RawElement]) -> bool {
+    elements.iter().any(|e| metadata_placeholder_texts(e).iter().any(|t| !find(t).is_empty()))
+}
+
 /// Placeholders in an element's body and name.
 pub fn of_element(e: &RawElement) -> Vec<Placeholder> {
-    let mut v: Vec<Placeholder> = texts(e).iter().flat_map(|t| find(t)).collect();
+    let mut v: Vec<Placeholder> = texts(e).iter().copied().chain(metadata_placeholder_texts(e)).flat_map(|t| find(t)).collect();
     v.extend(e.frontmatter.placeholder_fields.values().filter_map(|raw| parse_whole(raw)));
     v
 }
 
 /// Whether any element uses a placeholder (cheap pre-check).
 pub fn any(elements: &[RawElement]) -> bool {
-    elements.iter().any(|e| !e.frontmatter.placeholder_fields.is_empty() || texts(e).iter().any(|t| t.contains("{{") && !find(t).is_empty()) || machine_has_placeholder(e))
+    elements.iter().any(|e| !e.frontmatter.placeholder_fields.is_empty() || texts(e).iter().any(|t| t.contains("{{") && !find(t).is_empty()) || metadata_placeholder_texts(e).iter().any(|t| !find(t).is_empty()) || machine_has_placeholder(e))
 }
 
 /// A parameter declared on a `FeatureDef`.
@@ -489,6 +538,7 @@ pub fn substitute(view: &mut [RawElement], full: &[RawElement], sel: &crate::pro
             // lowering reports it (GH #311)
             substitute_machine(&mut e.frontmatter, &f);
         }
+        substitute_metadata(e, &f);
         if e.doc.contains("{{") {
             e.doc = substitute_text(&e.doc, &f);
         }

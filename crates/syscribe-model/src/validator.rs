@@ -1262,6 +1262,21 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 unknown_keys.push("rateStatus");
             }
         }
+        // `profile:`, `version:` and `autoApply:` belong to a stereotype profile package (REQ-TRS-META-031).
+        if !matches!(fm.element_type, Some(ElementType::Package | ElementType::LibraryPackage | ElementType::Namespace)) {
+            if fm.profile.is_some() {
+                unknown_keys.push("profile");
+            }
+            if fm.version.is_some() {
+                unknown_keys.push("version");
+            }
+            if fm.auto_apply.is_some() {
+                unknown_keys.push("autoApply");
+            }
+        }
+        if fm.checks.is_some() && !matches!(fm.element_type, Some(ElementType::MetadataDef)) {
+            unknown_keys.push("checks");
+        }
         unknown_keys.sort_unstable();
         for key in unknown_keys {
             findings.push(warning(
@@ -1514,6 +1529,57 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             }
         }
 
+        // E322 / E327: the definition's own declarations (REQ-TRS-META-012, -014, GH #375): a
+        // default must satisfy its feature's typing, and each `constraints:` entry must parse.
+        if matches!(fm.element_type, Some(crate::element::ElementType::MetadataDef)) {
+            use crate::tagged_values as tv;
+            let def_name = fm.name.clone().unwrap_or_default();
+            for spec in tv::feature_specs(&fm.features) {
+                if let Some(d) = &spec.default {
+                    for v in tv::values_of(d) {
+                        for (code, msg) in tv::check_value(&def_name, &spec, v) {
+                            let msg = format!("default: {msg}");
+                            findings.push(if code == "E322" { error("E322", &file, &msg) } else if code == "E323" { error("E323", &file, &msg) } else { error("E324", &file, &msg) });
+                        }
+                    }
+                }
+            }
+            if tv::constraints_active(elements, elem) {
+                let (_, bad) = tv::parse_checks(elem);
+                for b in bad {
+                    findings.push(error("E650", &file, &format!("stereotype '{def_name}': {b}")));
+                }
+                for c in elem.frontmatter.checks.iter().flatten() {
+                    let src = c.as_str().or_else(|| c.get("expr").and_then(serde_yaml::Value::as_str));
+                    for d in src.map(tv::referenced_defs).unwrap_or_default() {
+                        if tv::find_metadata_def(elements, &resolver, &d).is_none() {
+                            findings.push(error("E650", &file, &format!("stereotype '{def_name}': a check names '{d}', which is not a MetadataDef")));
+                        }
+                    }
+                }
+            }
+            if let Some(why) = tv::supertype_problem(elements, &resolver, elem) {
+                findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
+            }
+            for why in tv::narrowing_problems(elements, &resolver, elem) {
+                findings.push(error("E329", &file, &format!("stereotype '{def_name}': {why}")));
+            }
+            for c in fm.constraints.iter().flatten().filter(|_| tv::constraints_active(elements, elem)) {
+                if let Some(src) = c.as_str() {
+                    match tv::parse_constraint(src) {
+                        Err(e) => findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' does not parse: {e}"))),
+                        Ok(_) => {
+                            for d in tv::referenced_defs(src) {
+                                if tv::find_metadata_def(elements, &resolver, &d).is_none() {
+                                    findings.push(error("E327", &file, &format!("constraint '{src}' of stereotype '{def_name}' names '{d}', which is not a MetadataDef")));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // E317 / E318 / W045: stereotype applications via `metadata:` (REQ-TRS-META-001).
         // Each application must resolve to a MetadataDef (E317); if that def declares
         // `annotates:`, this element's type must be allowed (E318); each tagged-value key
@@ -1532,7 +1598,16 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                     ) =>
                 {
                     // E318: applicability constraint (`annotates:` metaclass names).
-                    if let Some(ref allowed) = def_el.frontmatter.annotates {
+                    let chain = crate::tagged_values::lineage(elements, &resolver, def_el);
+                    // E328: an abstract definition is never applied directly (REQ-TRS-META-030).
+                    if def_el.frontmatter.is_abstract == Some(true) {
+                        findings.push(error(
+                            "E328",
+                            &file,
+                            &format!("stereotype '{}' is abstract and cannot be applied; apply a specialisation of it", app.def),
+                        ));
+                    }
+                    if let Some(allowed) = crate::tagged_values::effective_annotates(&chain) {
                         let this_ty = fm
                             .element_type
                             .as_ref()
@@ -1557,19 +1632,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                         }
                     }
                     // W045: tagged-value keys must be declared features of the def.
-                    let feat_names: Vec<String> = def_el
-                        .frontmatter
-                        .features
-                        .iter()
-                        .flatten()
-                        .filter_map(|f| match f {
-                            serde_yaml::Value::Mapping(m) => m
-                                .get(serde_yaml::Value::from("name"))
-                                .and_then(|v| v.as_str())
-                                .map(str::to_string),
-                            _ => None,
-                        })
-                        .collect();
+                    let feat_names: Vec<String> = crate::tagged_values::merged_specs(&chain).into_iter().map(|f| f.name).collect();
                     for (k, _) in &app.values {
                         if !feat_names.contains(k) {
                             findings.push(warning(
@@ -1580,6 +1643,82 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                                     k, app.def
                                 ),
                             ));
+                        }
+                    }
+                    // E322–E327: typed tagged values (REQ-TRS-META-010..014, GH #375).
+                    {
+                        use crate::tagged_values as tv;
+                        let specs = tv::merged_specs(&chain);
+                        let def_label = def_el.frontmatter.name.clone().unwrap_or_else(|| app.def.clone());
+                        for spec in &specs {
+                            let given: Vec<&serde_yaml::Value> = app
+                                .values
+                                .iter()
+                                .filter(|(k, _)| k == &spec.name)
+                                .flat_map(|(_, v)| tv::values_of(v))
+                                .collect();
+                            let count = if given.is_empty() && spec.default.is_some() { 1 } else { given.len() };
+                            if spec.mult_declared {
+                                if let Some((c, m)) = tv::check_multiplicity(&def_label, spec, count) {
+                                    findings.push(error(c, &file, &m));
+                                }
+                            }
+                            for v in given {
+                                // An unsubstituted `{{Feature.param}}` is checked under `--config`.
+                                if v.as_str().is_some_and(|t| t.contains("{{")) {
+                                    continue;
+                                }
+                                if spec.is_typed() {
+                                    for (c, m) in tv::check_value(&def_label, spec, v) {
+                                        findings.push(error(c, &file, &m));
+                                    }
+                                }
+                                if let tv::Kind::Element(want) = spec.kind() {
+                                    if let Some(r) = v.as_str() {
+                                        let ok = resolver
+                                            .resolve_ref(elements, r)
+                                            .is_some_and(|t| format!("{:?}", t.frontmatter.element_type.clone().unwrap_or(crate::element::ElementType::Unknown)) == want);
+                                        if !ok {
+                                            findings.push(error(
+                                                "E326",
+                                                &file,
+                                                &format!("tagged value '{}' of stereotype '{def_label}' = '{r}' does not resolve to a {want}", spec.name),
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // E327: constraints of the definition, evaluated for this application.
+                        // The definition's own constraints and every ancestor's (REQ-TRS-META-030).
+                        for owner in chain.iter().filter(|o| tv::constraints_active(elements, o)) {
+                            let owner_label = owner.frontmatter.name.clone().unwrap_or_else(|| def_label.clone());
+                            for c in owner.frontmatter.constraints.iter().flatten() {
+                                let Some(src) = c.as_str() else { continue };
+                                let Ok(e) = tv::parse_constraint(src) else { continue };
+                                if tv::evaluate(&e, &specs, &app.values, Some(&tv::Scope { elements, resolver: &resolver, carrier: elem })) == tv::Verdict::Violated {
+                                    findings.push(error(
+                                        "E327",
+                                        &file,
+                                        &format!("constraint '{src}' of stereotype '{owner_label}' is violated"),
+                                    ));
+                                }
+                            }
+                            // E650 / W650: the definition's `checks:` on this carrier (REQ-TRS-META-050).
+                            let (checks, _) = tv::parse_checks(owner);
+                            for ck in checks {
+                                let scope = tv::Scope { elements, resolver: &resolver, carrier: elem };
+                                if tv::evaluate(&ck.expr, &specs, &app.values, Some(&scope)) != tv::Verdict::Violated {
+                                    continue;
+                                }
+                                let draft = fm.status.as_deref() == Some("draft");
+                                if ck.warning && draft {
+                                    continue;
+                                }
+                                let what = ck.message.clone().unwrap_or_else(|| ck.src.clone());
+                                let msg = format!("check of stereotype '{owner_label}' failed on {}: {what}", elem.qualified_name);
+                                findings.push(if ck.warning { warning("W650", &file, &msg) } else { error("E650", &file, &msg) });
+                            }
                         }
                     }
                 }
@@ -1804,6 +1943,18 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                             ));
                         }
                     }
+                }
+            }
+
+            // E651: each `selection.stereotypes` selector must be well formed and name a MetadataDef
+            // (REQ-TRS-META-024).
+            for v in fm.selection.iter().filter_map(|s| s.stereotypes.as_ref()).flatten() {
+                match crate::tagged_values::parse_selector(v) {
+                    Err(why) => findings.push(error("E651", &file, &format!("selection.stereotypes: {why}"))),
+                    Ok(sel) if crate::tagged_values::find_metadata_def(elements, &resolver, &sel.def).is_none() => {
+                        findings.push(error("E651", &file, &format!("selection.stereotypes names '{}', which is not a MetadataDef", sel.def)));
+                    }
+                    Ok(_) => {}
                 }
             }
 
@@ -5445,8 +5596,9 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // `[coverage]` parent_rule = "rollup" (GH #253): a parent is covered through its leaves when every
     // live leaf descendant has an active verifying TestCase. Never for an integrity-rated parent
     // (E898), and draft / rejected / obsolete leaves are skipped. Shared by W305 and W310.
-    let parent_rolled_up = |req_id: &str, fm: &crate::element::RawFrontmatter| -> bool {
-        if config.coverage.rule_for(fm).0 != crate::config::ParentRule::Rollup || crate::config::is_integrity_rated(fm) {
+    let parent_rolled_up = |req_id: &str, req: &RawElement| -> bool {
+        let fm = &req.frontmatter;
+        if config.coverage.rule_for_element(elements, &resolver, req).0 != crate::config::ParentRule::Rollup || crate::config::is_integrity_rated(fm) {
             return false;
         }
         let live = |id: &str| {
@@ -5549,7 +5701,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             } else {
                 !active_tcs.is_empty()
             };
-            let covered = covered || (is_parent && parent_rolled_up(req_id, &target.frontmatter));
+            let covered = covered || (is_parent && parent_rolled_up(req_id, target));
             if !covered {
                 let need = if is_parent {
                     "active system-integration TestCase (testLevel L3, L4, or L5)"
@@ -5904,7 +6056,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // (L3 system test, L4 system integration test, or L5 HIL/acceptance).
         // Leaf-level test cases (L1/L2) on derived requirements are not sufficient to
         // verify the emergent, composed behaviour expressed by the parent.
-        let (cov_rule, cov_source) = config.coverage.rule_for(&elem.frontmatter);
+        let (cov_rule, cov_source) = config.coverage.rule_for_element(elements, &resolver, elem);
         if is_parent && cov_rule != crate::config::ParentRule::Both && crate::config::is_integrity_rated(&elem.frontmatter) {
             findings.push(error("E898", &elem.file_path, &format!(
                 "{req_id} is integrity-rated (ASIL/CAL/SIL) but {cov_source} of [coverage] sets parent_rule = \"{}\"; an integrity-rated parent needs \"both\"",
@@ -5919,7 +6071,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
             });
             // Under `rollup` a parent whose every live leaf descendant has an active verifying
             // TestCase is covered through them (GH #253); never an integrity-rated parent (E898).
-            let is_rolled_up = !has_integration_tc && parent_rolled_up(req_id, &elem.frontmatter);
+            let is_rolled_up = !has_integration_tc && parent_rolled_up(req_id, elem);
             if is_rolled_up {
                 rolled_up.insert(req_id.to_string());
             }
@@ -9382,6 +9534,24 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
     // Dormant unless some Configuration declares `subConfigurations:`, same as
     // the checks above.
     findings.extend(open_parameter_findings(elements, config, &resolver));
+
+    // W316: `[metadata] profiles` names something that is not a `profile: true` package
+    // (REQ-TRS-META-031).
+    if let Some(root) = &config.model_root {
+        for name in crate::tagged_values::load_config(root).profiles {
+            let ok = elements.iter().any(|e| e.qualified_name == name && e.frontmatter.profile == Some(true));
+            if !ok {
+                findings.push(warning(
+                    "W316",
+                    &root.join(".syscribe.toml").to_string_lossy(),
+                    &format!("[metadata] profiles names '{name}', which is not a package with `profile: true`"),
+                ));
+            }
+        }
+    }
+
+    // The built-in library is the tool's, not the model's: nothing is reported against it.
+    findings.retain(|f| !f.file.starts_with(crate::tagged_values::BUILTIN_PREFIX));
 
     ValidationResult {
         findings,

@@ -361,6 +361,7 @@ layout: {flow: left-to-right, layers: [power, sensing]}
 | `domains` | parts whose usage or definition has that `domain:` |
 | `tags` | parts whose usage or definition has that tag |
 | `features` | parts whose `appliesWhen:` names that feature (qname or `FEAT-*` id) or one beneath it |
+| `stereotypes` | stereotype selectors (`Safety`, `Safety where integrity >= 2`; a specialisation counts): parts, or their definitions, that apply one. An entry that is malformed or names no `MetadataDef` is `W421` and ignored |
 
 A named style lives in `.syscribe.toml`:
 
@@ -375,6 +376,23 @@ width = 4
 ```
 
 Styles layer as project `[diagram.styles]`, then `[diagram.style.default]`, then the `extends` chain, then the named style; pins apply on top. `layout.flow` sets the layout direction and `layout.layers` orders each container's parts by band (a part name, a flow kind or a domain frame label).
+
+**Style by stereotype** (`REQ-TRS-META-040`, `-043`, `-044`). `[diagram.stereotypes.<Def>]` gives the nodes of the elements that apply a stereotype — or a specialisation of it — their own presentation, in every writer (browser, SVG, DOT, PlantUML, Mermaid):
+
+```toml
+[diagram.stereotypes.Safety]
+stroke = "#d00000"          # fill, stroke: #rgb, #rrggbb or a colour name
+fill   = "#ffe5e5"
+width  = 3                  # outline width
+when   = "integrity >= 2"   # optional: only where the application's tagged values satisfy this
+
+[diagram.stereotypes.Optional]
+dash     = "6,3"            # a dashed outline ("" is solid)
+banner   = false            # hide the «Optional» banner
+priority = 5                # higher wins a property two styles set; ties go to the later definition name
+```
+
+Several stereotypes on one element compose property by property. The graph carries a legend of the stereotypes that actually styled a node (strongest first), which the SVG writer draws under the diagram. With no table a diagram draws exactly as before. A malformed entry is `W419` and is ignored. `frame = true` makes a stereotype a swimlane for an IBD with `groupBy: stereotype` (the part's, or its definition's, stereotype; strongest first). A stereotype applied on a `connections:` entry (`metadata:`), or on its `typedBy` `ConnectionDef`, restyles that edge (`stroke`, `width`, `dash`) in every writer. Not yet: `icon` and `badge`.
 
 `syscribe diagram export <qname> --config A --config B` draws two products in one diagram: what only `A` has is marked `only A`, what only `B` has `only B`. Parameter values that change no element are not shown; `syscribe diff --config A --config B` reports them.
 

@@ -800,7 +800,29 @@ $ syscribe -m model/ list PartDef --where custom.partNumbers~=A-1001 # list memb
 $ syscribe -m model/ find . --where custom.supplier                  # presence
 ```
 
-`=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
+Filter by a stereotype's tagged values with `meta.<Def>.<key>` (REQ-TRS-META-020). `<Def>` is a qualified name or the last segment; a declared default counts as a value:
+
+```
+$ syscribe -m model/ list PartDef --where 'meta.SafetyCritical.integrity>=2'   # < <= > >= need a number
+$ syscribe -m model/ list PartDef --where meta.Regulatory.status=unverified    # = != =~ ~=
+$ syscribe -m model/ list PartDef --where meta.Safety.goal                      # a value is present
+$ syscribe -m model/ list PartDef --where meta.Safety                           # the stereotype is applied
+$ syscribe -m model/ list PartDef --metadata Safety --metadata '!Optional'      # repeat = and; A,B = or; ! = not
+```
+
+An element without the stereotype or the value never matches, `!=` included. `--metadata` names that are no `MetadataDef` of the model and that no element applies are a usage error. `ls`, `find`, `digest` and `stats` take the same `--where`, and `list --json` carries each element's applications as `metadata: [{def, values, defaulted}]`.
+
+Stereotype **profiles** and the standard library are configured in `.syscribe.toml` (REQ-TRS-META-031, -032):
+
+```toml
+[metadata]
+profiles = ["Profiles::Regulatory"]   # packages with `profile: true`: their constraints and autoApply rules apply
+stdlib   = true                       # add the built-in StdMetadata package (Safety, Optional, Regulatory, …) even if unused
+```
+
+`StdMetadata::…` is also added automatically whenever an element refers to it. This is separate from `[profiles.<name>]`, the *severity* profiles chosen with `validate --profile`.
+
+For `custom.` predicates, `=`, `=~`, `~=` and the bare presence form are the **only** operators. Any other spelling — `!=`, `==`, a bare `~`, `>`, `<`, `>=`, `<=` — is a usage error (exit `1`, a message listing the supported forms, nothing on stdout) rather than a predicate that silently matches nothing.
 
 ---
 
@@ -909,7 +931,7 @@ Per process area, the expected work product and how many matching elements are p
 syscribe -m <root> coverage tree <req> [--plan <TP-id>] [--config <id>] [--json]
 ```
 
-Shows how well a requirement and every requirement derived below it is verified: per node the leaf counts (`leaves 1/3 active, 1 planned`), the number of direct verifying TestCases and a verdict glyph (`●` complete, `◐` partial, `○` nothing). Roll-up never replaces a parent's own test: a parent whose leaves are all verified but which has no direct test shows `◐`. `matrix --rollup [--json] [--tag] [--status] [--config]` lists the same roll-up for every requirement at once (own coverage, coverage below it, verdict, rule applied) with a per-`reqClass` footer. How a parent is judged complete is set by an optional `[coverage]` table in `.syscribe.toml` (`default` and ordered `[[coverage.rule]]` entries selecting by `reqClass`, `requirementKind`, `status`, `tag`, `asil`, `cal`, `sil`; `parent_rule` = `direct` | `rollup` | `both`, default `both`; a requirement without a `requirementKind` or `status` never matches that selector, and unknown kind/status values are errors; note a `status` rule can start to loosen a rated requirement when it moves to that status). Loosening an integrity-rated requirement (ASIL/CAL/SIL) is a configuration error. See `syscribe help coverage`. `--plan` / `--config` evaluate the tree on the plan / configuration lens (a root outside the lens exits `1`). Exit `1` when `<req>` does not resolve to a requirement (in the lens) or the policy is invalid.
+Shows how well a requirement and every requirement derived below it is verified: per node the leaf counts (`leaves 1/3 active, 1 planned`), the number of direct verifying TestCases and a verdict glyph (`●` complete, `◐` partial, `○` nothing). Roll-up never replaces a parent's own test: a parent whose leaves are all verified but which has no direct test shows `◐`. `matrix --rollup [--json] [--tag] [--status] [--config]` lists the same roll-up for every requirement at once (own coverage, coverage below it, verdict, rule applied) with a per-`reqClass` footer. How a parent is judged complete is set by an optional `[coverage]` table in `.syscribe.toml` (`default` and ordered `[[coverage.rule]]` entries selecting by `reqClass`, `requirementKind`, `status`, `tag`, `asil`, `cal`, `sil`, `stereotype` (stereotype selectors, any of — `"Safety where integrity >= 2"`; REQ-TRS-META-053); `parent_rule` = `direct` | `rollup` | `both`, default `both`; a requirement without a `requirementKind` or `status` never matches that selector, and unknown kind/status values are errors; note a `status` rule can start to loosen a rated requirement when it moves to that status). Loosening an integrity-rated requirement (ASIL/CAL/SIL) is a configuration error. See `syscribe help coverage`. `--plan` / `--config` evaluate the tree on the plan / configuration lens (a root outside the lens exits `1`). Exit `1` when `<req>` does not resolve to a requirement (in the lens) or the policy is invalid.
 
 ## Run history (`ingest-results --run`, `results`)
 
@@ -1480,6 +1502,14 @@ $ syscribe -m model/ sysml [--json]
 ```
 
 Read-only. For every package declaring `sysmlSubmodel: true` ([Native SysMLv2 Submodels](../model-guide/sysmlv2-submodel.md)) it lists the `.sysml`/`.kerml` files parsed (and whether each parsed), the number of ingested elements per element kind, the parsed-but-unmapped construct counts per kind (the data behind `W543`, including unresolved package-level `satisfy`/`include`), a `Parser:` line naming the `sysml-v2-parser` release and the `W540`-`W543` findings raised for the submodel. `--json` emits `{"parser": {name, version, astVersion}, "submodels": [{package, indexFile, fileCount, filesParsed, files, elementTotal, elementsByKind, unmappedTotal, unmapped, findings}]}`. With no submodel it says so and exits zero (MCP equivalent: the read-only `sysml_submodels` tool, same JSON).
+
+### Report stereotype applications (`meta`)
+
+```
+$ syscribe -m model/ meta [--def <Def>] [--group-by <key>] [--json]
+```
+
+Without `--def`, counts the applications of every stereotype. With `--def <Def>` it lists the elements that apply `Def` or a specialisation of it; `--group-by <key>` groups them by that tagged value (written or defaulted), largest group first, an element without the value in `(unset)`. `syscribe -m model/ meta --def Regulatory --group-by status` is the compliance worklist (REQ-TRS-META-052). Gate the same data in CI with `validate --deny-meta Regulatory.status=unverified` or a standing `[gates] deny_meta` list in `.syscribe.toml`, which `baseline create` also honours (REQ-TRS-META-051, -054).
 
 ### List the project's link types (`link-types`)
 

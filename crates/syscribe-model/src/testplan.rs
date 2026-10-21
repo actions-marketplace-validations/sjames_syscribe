@@ -95,6 +95,19 @@ fn selection_matches(
         }
     }
 
+    if let Some(sels) = &sel.stereotypes {
+        let sels: Vec<crate::tagged_values::Selector> = sels.iter().filter_map(|v| crate::tagged_values::parse_selector(v).ok()).collect();
+        // The TestCase itself, or a requirement it verifies, satisfies a selector.
+        let verified: Vec<&RawElement> = tc.frontmatter.verifies.iter().flatten().filter_map(|r| resolver.resolve_ref(elements, r)).collect();
+        let hit = sels.iter().any(|s| {
+            crate::tagged_values::selector_matches(elements, resolver, tc, s)
+                || verified.iter().any(|v| crate::tagged_values::selector_matches(elements, resolver, v, s))
+        });
+        if !hit {
+            return false;
+        }
+    }
+
     true
 }
 

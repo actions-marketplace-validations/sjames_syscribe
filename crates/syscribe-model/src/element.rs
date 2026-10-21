@@ -613,7 +613,7 @@ pub fn metadata_applications(metadata: &Option<Vec<serde_yaml::Value>>) -> Vec<M
                     let values = m
                         .iter()
                         .filter_map(|(k, v)| k.as_str().map(|k| (k.to_string(), v.clone())))
-                        .filter(|(k, _)| !matches!(k.as_str(), "type" | "apply" | "def" | "name" | "about"))
+                        .filter(|(k, _)| !matches!(k.as_str(), "type" | "apply" | "def" | "name" | "about" | "appliesWhen"))
                         .collect();
                     out.push(MetaApply { def: def.to_string(), values });
                 }
@@ -637,12 +637,15 @@ pub struct TestPlanSelection {
     pub domains: Option<Vec<String>>,
     /// Matched against TestCase `tags`.
     pub tags: Option<Vec<String>>,
+    /// Stereotype selectors (REQ-TRS-META-024), any of which may match: a TestCase is selected when it,
+    /// or a requirement it `verifies:`, satisfies one.
+    pub stereotypes: Option<Vec<serde_yaml::Value>>,
 }
 
 impl TestPlanSelection {
     /// True when the block carries no sub-field constraints at all (matches nothing).
     pub fn is_empty(&self) -> bool {
-        self.test_levels.is_none() && self.domains.is_none() && self.tags.is_none()
+        self.test_levels.is_none() && self.domains.is_none() && self.tags.is_none() && self.stereotypes.is_none()
     }
 }
 
@@ -710,6 +713,19 @@ pub struct RawFrontmatter {
     pub redefines: Option<serde_yaml::Value>,
     pub multiplicity: Option<String>,
     pub is_abstract: Option<bool>,
+    /// On a `MetadataDef`: checks run on every element that carries it, each a string expression or
+    /// `{expr, message, severity}` (REQ-TRS-META-050).
+    pub checks: Option<Vec<serde_yaml::Value>>,
+    /// On a package: `true` marks it a stereotype profile (REQ-TRS-META-031).
+    pub profile: Option<bool>,
+    /// On a package: the version of a stereotype profile (REQ-TRS-META-031).
+    pub version: Option<String>,
+    /// Set by the walker on a profile package named in `[metadata] profiles` (REQ-TRS-META-031).
+    /// Never authored, never serialised.
+    #[serde(skip)]
+    pub profile_enabled: bool,
+    /// On a profile package: rules that apply a stereotype to matching elements (REQ-TRS-META-033).
+    pub auto_apply: Option<Vec<serde_yaml::Value>>,
     pub direction: Option<String>,
     /// `unit:` on an `Attribute` — qualified/simple name of the unit of a quantity-valued `value:`
     /// (the spec's inline-feature `unit` shorthand, §3.6.1, on a standalone element;
@@ -1597,7 +1613,7 @@ impl<'de> Deserialize<'de> for IncludeSpec {
         use serde::de::Error;
         let v = serde_yaml::Value::deserialize(d)?;
         let serde_yaml::Value::Mapping(m) = v else {
-            return serde_yaml::from_value::<Vec<String>>(v).map(IncludeSpec::List).map_err(|e| D::Error::custom(format!("{e} (or, on a derived IBD, a mapping of members, kinds, domains, tags, features, depth)")));
+            return serde_yaml::from_value::<Vec<String>>(v).map(IncludeSpec::List).map_err(|e| D::Error::custom(format!("{e} (or, on a derived IBD, a mapping of members, kinds, domains, tags, features, stereotypes, depth)")));
         };
         let mut view = ViewInclude::default();
         for (k, val) in m {
@@ -1609,6 +1625,7 @@ impl<'de> Deserialize<'de> for IncludeSpec {
                 "domains" => &mut view.domains,
                 "tags" => &mut view.tags,
                 "features" => &mut view.features,
+                "stereotypes" => &mut view.stereotypes,
                 "depth" => {
                     match serde_yaml::from_value::<usize>(val.clone()) {
                         Ok(n) => view.depth = Some(n),
@@ -1645,6 +1662,8 @@ pub struct ViewInclude {
     pub tags: Option<Vec<String>>,
     /// Features (qname or `FEAT-*` id): parts whose `appliesWhen:` names one of them or a feature beneath one.
     pub features: Option<Vec<String>>,
+    /// Stereotype selectors (`Def` or `Def where <expr>`): parts that apply one, on the usage element or its definition.
+    pub stereotypes: Option<Vec<String>>,
     /// Same as the diagram's `depth:`, which wins when both are set.
     pub depth: Option<usize>,
     /// Any other key, reported as `W421`.

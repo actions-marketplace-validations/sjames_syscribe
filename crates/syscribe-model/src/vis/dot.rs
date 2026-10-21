@@ -293,6 +293,7 @@ mod tests {
             is_abstract: false,
             pin: None,
             banners: vec![],
+            stereo: None,
             feature: None,
             mark,
             flow: None,

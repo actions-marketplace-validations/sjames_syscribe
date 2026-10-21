@@ -192,15 +192,31 @@ pub fn node_style(node: &Node) -> NodeStyle {
             stroke_width = Some(EMPHASIS_WIDTH);
         }
     }
+    // The project's `[diagram.stereotypes]` (REQ-TRS-META-040): over the kind's colours and the mark's tone.
+    let (mut fill, mut stroke) = (fill.to_string(), stroke.to_string());
+    let mut dashed_by_stereo = false;
+    if let Some(st) = &node.stereo {
+        if let Some(f) = &st.fill {
+            fill = f.clone();
+        }
+        if let Some(s) = &st.stroke {
+            stroke = s.clone();
+        }
+        dashed_by_stereo = st.dashed == Some(true);
+        if st.width.is_some() {
+            stroke_width = st.width;
+        }
+    }
     NodeStyle {
-        fill: fill.to_string(),
-        stroke: stroke.to_string(),
-        header_fill: header.then(|| stroke.to_string()),
+        fill,
+        header_fill: header.then(|| stroke.clone()),
+        stroke,
         text: TEXT.to_string(),
         // unresolved, an `optional` (appliesWhen-gated) part (GH #336), or a part of the test set-up (`role: environment`, GH #337)
         dashed: !node.resolved
             || node.mark.as_ref().is_some_and(|m| m.badges.iter().any(|x| x == "optional"))
-            || node.stereotype.as_deref() == Some("environment"),
+            || node.stereotype.as_deref() == Some("environment")
+            || dashed_by_stereo,
         stroke_width,
     }
 }
@@ -296,6 +312,18 @@ pub fn edge_style_in(edge: &Edge, graph: &DiagramGraph) -> EdgeStyle {
             layer(&mut style, over);
         }
     }
+    // A stereotype on the connection (REQ-TRS-META-042) restyles it last.
+    if let Some(st) = graph.edge_stereo.get(&edge.id) {
+        if let Some(s) = &st.stroke {
+            style.stroke = s.clone();
+        }
+        if let Some(w) = st.width {
+            style.width = w;
+        }
+        if let Some(d) = st.dashed {
+            style.dash = d.then(|| "6,3".to_string());
+        }
+    }
     style
 }
 
@@ -303,7 +331,9 @@ pub fn edge_style_in(edge: &Edge, graph: &DiagramGraph) -> EdgeStyle {
 /// leaves an edge to its theme (Mermaid, PlantUML) must spell out. `None` for an edge with no flow kind, or one whose
 /// kind adds nothing (`signal`), so those edges draw exactly as before.
 pub fn flow_override(edge: &Edge, graph: &DiagramGraph) -> Option<EdgeStyle> {
-    edge.flow?;
+    if edge.flow.is_none() && !graph.edge_stereo.contains_key(&edge.id) {
+        return None;
+    }
     let base = edge_style(edge.kind);
     let st = edge_style_in(edge, graph);
     (st.stroke != base.stroke || st.width != base.width || st.dash != base.dash).then_some(st)
@@ -348,6 +378,7 @@ mod tests {
             is_abstract: false,
             pin: None,
             banners: vec![],
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

@@ -7,7 +7,8 @@
 Lists the elements active in one configuration but not the other — the delta
 between two products of the line. Each --config is a stored Configuration
 (id/qname) or an ad-hoc feature set ('Features::A,Features::B'). --json emits
-{onlyInA:[…], onlyInB:[…]} (element ids / qualified names).
+{onlyInA:[…], onlyInB:[…]} (element ids / qualified names), plus `metadata:[{element,onlyInA,onlyInB}]`
+when an element in both products applies different stereotypes (a `metadata:` application with its own `appliesWhen:`).
 
 ## EXAMPLES
     syscribe -m model/ diff --config CONF-UAV-SURVEY-001 --config CONF-UAV-DELIVERY-001

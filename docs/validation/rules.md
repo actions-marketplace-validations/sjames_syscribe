@@ -322,7 +322,7 @@ The optional common field `extRef:` (string or list) marks an element as the rep
 | W417 | `include:`/`exclude:` on a manifest diagram (ignored), or an entry that names no member of the subject — entries name a member by qualified name or by name relative to the subject; a derived diagram is one with a `subject:` and no `shapes:` (REQ-TRS-VIS-003) |
 | W418 | A derived diagram's `subject:` type is not valid for its `diagramKind:` (§8.16.8 valid subject types — a BDD needs a `Package`/`PartDef`/`ItemDef`, an IBD a `PartDef`/`Part`, a StateMachine a `StateDef`/`State`, an Action an `ActionDef`/`Action`, a Sequence an `ActionDef`/`Action`/`UseCaseDef`, a Requirement a `Package`/`RequirementDef`/`Requirement`, an Allocation a `Package`/`AllocationDef`/`Allocation`, a FaultTree a `FaultTree`/`SafetyGoal` that a fault tree names as `topEvent`, an AttackTree an `AttackTree`/`ThreatScenario` that an attack tree names as `threatRef`, a SafetyCase a `SafetyGoal`/`Argument`/`Package` covering at least one goal, a Traceability a `SafetyGoal`/`HazardousEvent`/`Requirement`/`Package` reaching a goal or hazard, a ZoneConduit a `Package`/`Zone`/`Conduit` reaching a zone, a ThreatGraph a `Package`/`TARASheet`/`ThreatScenario`/`DamageScenario`/`Asset`/`CybersecurityGoal`/`SecurityControl` reaching a chain); the diagram is drawn empty (REQ-TRS-VIS-003) |
 | W419 | A `flowKind:` or `side:` names no flow kind (`power`, `signal`, `command`, `data`, `protection`, `mechanical`) or side, or a `[diagram]` entry in `.syscribe.toml` is malformed; the value is ignored (REQ-TRS-VIS-028) |
-| W420 | `groupBy:` on a derived diagram names no grouping (the only one is `domain`), or is set on a diagram kind other than `IBD`, on a manifest diagram or on an element that is not a `Diagram`; the field is ignored (REQ-TRS-VIS-029) |
+| W420 | `groupBy:` on a derived diagram names no grouping (the groupings are `domain` and `stereotype`), or is set on a diagram kind other than `IBD`, on a manifest diagram or on an element that is not a `Diagram`; the field is ignored (REQ-TRS-VIS-029) |
 | W421 | the mapping form of `include:` is malformed or not on a derived IBD (an unknown key, a `kinds` entry that is no flow kind, a `domains` entry that is no domain, a `features` entry that is no feature), a `style:` names no `[diagram.style.<name>]` or is set on an element that is not a `Diagram`, or a `layout:` hint is malformed (`flow` other than left-to-right/top-to-bottom, `layers` not a list or an entry matching no part); ignored (REQ-TRS-VIS-031) |
 | W080 | A manifest `Sequence` diagram's subject `ActionDef` has a `SendAction`/`AcceptAction` in its sub-action tree not referenced by any `edges:` entry (draft-suppressed; `--deny W080`; never raised on a derived Sequence diagram — `subject:` and neither `shapes:` nor `edges:` — which generates every message itself, REQ-TRS-VIS-021) |
 
@@ -1393,7 +1393,7 @@ TestCase    = ["QT"]
 | W057 | An `ISQ::` quantity type or `SI::` unit is not known to this tool's tables (a subset of the SysML v2 library); SI prefixes (`k`, `M`, `m`, `µ`/`u`, `n`, … and `kilo`, `milli`, …) are parsed, so `kN`, `mm`, `MHz` are known — usually a typo; no dimensional check is possible for it |
 | W056 | A `connections:` endpoint's later segment (the port after the part) is not found on the part it follows — advisory; models often wire a sibling port loosely |
 
-## Stereotypes — metadata applications (E317, E318, W045)
+## Stereotypes — metadata applications (E317, E318, E322–E329, E650, E651, W045, W316, W650)
 
 SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an element via its `metadata:` field (bare reference, or a map whose `apply`/`def` names the def and whose other keys are tagged values).
 
@@ -1402,6 +1402,18 @@ SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an el
 | E317 | A `metadata:` application does not resolve to a `MetadataDef` (unresolved stereotype). The root-name hint applies. |
 | E318 | A `metadata:` application names a `MetadataDef` whose `annotates:` does not include the annotated element's type (directly or via the abstract `Element`/`Definition`/`Usage` metaclasses) — stereotype not applicable to this element kind. Standard-library metadata (`ModelingMetadata`, `RiskMetadata`) is recognised (no `E317`). |
 | W045 | A tagged-value key in a `metadata:` application is not a declared `features:` attribute of the referenced `MetadataDef` (likely typo / undeclared attribute). |
+| E322 | A tagged value has the wrong type or a unit of a different dimension than its `MetadataDef` feature declares (`typedBy`, `unit`); also raised on the definition when a feature's `default` violates its own typing. |
+| E323 | A tagged value is outside the feature's declared `range` (`lo..hi`). |
+| E324 | A tagged value is not in the feature's declared `enumValues`. |
+| E325 | A tagged value has fewer or more values than the feature's declared `multiplicity` (an omitted required value included; a `default` counts as one value). |
+| E326 | A reference-typed tagged value (`typedBy:` an element-type name such as `PartDef`) does not resolve, or resolves to an element of another type. |
+| E327 | A `constraints:` entry of a `MetadataDef` evaluates false for an application (`A implies B` is accepted), or does not parse (reported on the definition). |
+| E328 | An abstract `MetadataDef` (`isAbstract: true`) is applied directly; apply a specialisation of it. |
+| E329 | A `MetadataDef` `supertype:` is not a valid specialisation: it does not resolve, is not a `MetadataDef`, is on a cycle, or the sub-definition widens a `range`, adds `enumValues`, or `annotates` a kind its supertype does not. |
+| W316 | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
+| E650 | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
+| W650 | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
+| E651 | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
 
 ## Audit policy configuration (W934)
 

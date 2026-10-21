@@ -182,6 +182,7 @@ fn render_class(graph: &DiagramGraph, links: &dyn Fn(&str) -> Option<String>) ->
         }
         out.push('\n');
     }
+    stereo_styles(&mut out, &classes);
     click_lines(&mut out, &classes, links);
     out
 }
@@ -329,12 +330,29 @@ fn render_flowchart(graph: &DiagramGraph, direction: &str, links: &dyn Fn(&str) 
     }
     let nodes: Vec<&Node> = drawn.iter().filter_map(|id| graph.node(id)).collect();
     tone_classes(&mut out, &nodes);
+    stereo_styles(&mut out, &nodes);
     let faded: Vec<String> = nodes.iter().filter(|n| n.faded).map(|n| mermaid_id(&n.id)).collect();
     if !faded.is_empty() {
         out.push_str(&format!("  classDef faded opacity:0.25\n  class {} faded\n", faded.join(",")));
     }
     click_lines(&mut out, &nodes, links);
     out
+}
+
+/// `style` lines giving a node the presentation its stereotypes ask for (`REQ-TRS-META-040`, `-044`): the
+/// same resolved colours, width and dash the other writers draw.
+fn stereo_styles(out: &mut String, nodes: &[&Node]) {
+    for n in nodes.iter().filter(|n| n.stereo.is_some()) {
+        let st = super::style::node_style(n);
+        let mut css = vec![format!("fill:{}", st.fill), format!("stroke:{}", st.stroke)];
+        if let Some(w) = st.stroke_width {
+            css.push(format!("stroke-width:{}px", w));
+        }
+        if st.dashed {
+            css.push("stroke-dasharray:6 3".to_string());
+        }
+        out.push_str(&format!("  style {} {}\n", mermaid_id(&n.id), css.join(",")));
+    }
 }
 
 /// `classDef`/`class` lines painting every marked node in its tone's colours
@@ -460,6 +478,7 @@ mod tests {
             is_abstract: false,
             pin: None,
             banners: vec![],
+            stereo: None,
             feature: None,
             mark: None,
             flow: None,

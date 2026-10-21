@@ -39,7 +39,7 @@ fn keys(e: &RawElement) -> Vec<String> {
     k
 }
 
-fn passes_filters(e: &RawElement, opts: &DigestOptions) -> bool {
+fn passes_filters(elements: &[RawElement], e: &RawElement, opts: &DigestOptions) -> bool {
     if let Some(s) = opts.status {
         if e.frontmatter.status.as_deref() != Some(s) {
             return false;
@@ -51,7 +51,7 @@ fn passes_filters(e: &RawElement, opts: &DigestOptions) -> bool {
         }
     }
     for pred in opts.wheres {
-        if !query::custom_or_extra_matches(e, pred) {
+        if !query::where_matches(elements, e, pred, true) {
             return false;
         }
     }
@@ -108,7 +108,7 @@ pub fn compute_digest(view: &[RawElement], opts: &DigestOptions) -> Value {
 
     let matched: Vec<&RawElement> = view
         .iter()
-        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(e, opts))
+        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(&view, e, opts))
         .collect();
     let total = matched.len();
     let offset = opts.offset.unwrap_or(0);

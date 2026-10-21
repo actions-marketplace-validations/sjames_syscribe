@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 mod annotations;
+mod metacmd;
 mod audit;
 mod aw;
 mod baseline;
@@ -915,6 +916,13 @@ fn main() {
                     std::process::exit(code);
                 }
             }
+            "meta" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = metacmd::cmd_meta(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
             "link-types" => {
                 // REQ-TRS-LINKTYPE-008 — the declared link-type vocabulary. Read-only.
                 let json = subcommand_args.iter().any(|a| a == "--json");
@@ -1039,6 +1047,26 @@ fn main() {
                         eprintln!("--fetch-remote: no [remote] download hook configured in .syscribe.toml");
                     }
                 }
+                // `--deny-meta <Def.key=value>` / `[gates] deny_meta` (REQ-TRS-META-051): a stereotype condition
+                // that must not hold. A hit lists the elements and trips the gate (exit 2) once the report is out.
+                let mut meta_conds: Vec<String> = syscribe_model::tagged_values::load_gate_conditions(model_root);
+                meta_conds.extend(rest.windows(2).filter(|w| w[0] == "--deny-meta").map(|w| w[1].clone()));
+                let meta_hits = match query::meta_gate_hits(&elems, elems.iter(), &meta_conds) {
+                    Ok(h) => h,
+                    Err(m) => {
+                        eprintln!("Error: {m}");
+                        std::process::exit(1);
+                    }
+                };
+                if !meta_hits.is_empty() {
+                    let lines: Vec<String> = meta_hits.iter().map(|(c, q)| format!("deny-meta {c}: {q}")).collect();
+                    if json {
+                        eprintln!("{}", lines.join("\n"));
+                    } else {
+                        println!("Metadata gate tripped ({} element(s)):\n{}\n", meta_hits.len(), lines.join("\n"));
+                    }
+                }
+                let meta_tripped = !meta_hits.is_empty();
                 // Configuration lens: --all-configs gate, or --config <C> projection.
                 let all_configs = rest.iter().any(|a| a == "--all-configs");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
@@ -1061,6 +1089,10 @@ fn main() {
                     }
                 } else {
                     query::cmd_validate(&elems, &vcfg_run, &gate, profile_ref, file_filter, json);
+                }
+                // validate itself exits 1 on errors and 2 on its own tripped gate; reaching here means it was clean.
+                if meta_tripped {
+                    std::process::exit(2);
                 }
             }
             "diff" => {
@@ -1478,10 +1510,17 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--feature")
                     .map(|w| w[1].as_str());
-                let metadata = rest
+                // Repeatable (all must hold); each value is a comma list (any) with `!` negation (GH #376).
+                let metadata: Vec<&str> = rest
                     .windows(2)
-                    .find(|w| w[0] == "--metadata")
-                    .map(|w| w[1].as_str());
+                    .filter(|w| w[0] == "--metadata")
+                    .map(|w| w[1].as_str())
+                    .collect();
+                let unknown = query::unknown_metadata_names(&elems, &metadata);
+                if !unknown.is_empty() {
+                    eprintln!("Error: --metadata names no MetadataDef in the model: {}", unknown.join(", "));
+                    std::process::exit(1);
+                }
                 let status = rest
                     .windows(2)
                     .find(|w| w[0] == "--status")
@@ -1532,14 +1571,14 @@ fn main() {
                     break;
                 }
                 match config {
-                    None => query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json),
+                    None => query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json),
                     Some(c) => match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
-                            query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json)
+                            query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json)
                         }
                         syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
                             let view = syscribe_model::projection::project(&elems, &sel);
-                            query::cmd_list(&view, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json);
+                            query::cmd_list(&view, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json);
                         }
                         syscribe_model::projection::SelectionOutcome::Error(m) => {
                             eprintln!("{m}");
@@ -1567,6 +1606,19 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--status")
                     .map(|w| w[1].as_str());
+                // `--select 'Def where <expr>'` (repeatable, ANDed): keep the requirements a stereotype selector matches
+                // (REQ-TRS-META-024).
+                let mut selectors = Vec::new();
+                for w in rest.windows(2).filter(|w| w[0] == "--select") {
+                    match syscribe_model::tagged_values::parse_selector(&serde_yaml::Value::String(w[1].clone())) {
+                        Ok(sel) => selectors.push(sel),
+                        Err(m) => {
+                            eprintln!("Error: --select '{}': {m}", w[1]);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                matrix::set_select(selectors);
                 let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 // --plan lens (REQ-TRS-PLAN-006), composing with --config.

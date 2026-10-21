@@ -15,6 +15,7 @@ const INTERNAL: &[&str] = &[
     "extra",                // the unknown-key catch-all (W047)
     "inherited",            // computed configuration inheritance
     "placeholderFields",    // computed from {{…}} whole-value placeholders
+    "profileEnabled",       // set by the walker from `[metadata] profiles`
     "tier2",
     "tier3",
     "unknownFmeaKeys",

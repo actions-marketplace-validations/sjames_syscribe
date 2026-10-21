@@ -234,6 +234,7 @@ pub fn generate(
                 is_abstract: false,
                 pin: None,
                 banners: Vec::new(),
+                stereo: None,
                 feature: None,
                 mark,
                 flow: None,

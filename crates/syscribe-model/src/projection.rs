@@ -216,7 +216,29 @@ pub fn project_raw(elements: &[RawElement], sel: &Selection) -> Vec<RawElement> 
     let resolver = Resolver::new(elements);
     let gate = |e: &RawElement| is_active_canon(e, &sel, &pkg, &alias);
     let plan_bound_here = |e: &RawElement| plan_bound_here(e, elements, &resolver, &pkg, &alias, &sel);
-    elements.iter().filter(|e| gate(e) && plan_bound_here(e) && !allocation_gated_off(e, elements, &resolver, &gate)).cloned().collect()
+    let mut out: Vec<RawElement> =
+        elements.iter().filter(|e| gate(e) && plan_bound_here(e) && !allocation_gated_off(e, elements, &resolver, &gate)).cloned().collect();
+    // A stereotype application with its own `appliesWhen:` is part of this product only where it holds
+    // (REQ-TRS-META-025); the element stays either way.
+    for e in out.iter_mut().filter(|e| e.frontmatter.metadata.is_some()) {
+        drop_inactive_applications(e, &sel, &alias);
+    }
+    out
+}
+
+/// Remove from `e.metadata` the map applications whose `appliesWhen:` is false under `sel`.
+fn drop_inactive_applications(e: &mut RawElement, sel: &Selection, alias: &std::collections::HashMap<String, String>) {
+    let Some(list) = e.frontmatter.metadata.as_mut() else { return };
+    list.retain(|entry| {
+        let Some(aw) = entry.get("appliesWhen") else { return true };
+        match variability::applies_when_expr(aw) {
+            Ok(Some(expr)) => {
+                let expr = expr.canonicalize(&|q: &str| variability::canon_feature_ref(q, alias));
+                expr.eval(&|q: &str| sel.get(q).copied().unwrap_or(false))
+            }
+            _ => true,
+        }
+    });
 }
 
 // ── reference taxonomy ──────────────────────────────────────────────────────
@@ -415,6 +437,14 @@ pub fn validate_projected(
     let mut config = config.clone();
     config.machine_config = crate::placeholders::matching_config(full, &wanted).map(|c| c.qualified_name.clone());
     let res = validator::validate_with_config(&active, &config);
+    // Tagged values that hold a feature-parameter placeholder are checked at this variant's value
+    // (REQ-TRS-META-015). Only a substituted copy is checked, and only for the typed-value codes.
+    if crate::placeholders::metadata_any(&active) {
+        let mut view = active.clone();
+        crate::placeholders::substitute(&mut view, full, &wanted);
+        let typed = validator::validate_with_config(&view, &config);
+        findings.extend(typed.findings.into_iter().filter(|f| matches!(f.code, "E322" | "E323" | "E324" | "E325" | "E326" | "E327")));
+    }
     findings.extend(
         res.findings
             .into_iter()
