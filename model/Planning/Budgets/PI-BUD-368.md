@@ -8,10 +8,17 @@ achieves:
   - REQ-TRS-BUD-001
   - REQ-TRS-BUD-002
   - REQ-TRS-BUD-003
+  - REQ-TRS-BUD-004
+  - REQ-TRS-BUD-005
+  - REQ-TRS-BUD-006
 evidence:
   - ref: TC-TRS-BUD-001
   - ref: TC-TRS-BUD-002
   - ref: TC-TRS-BUD-003
+  - ref: TC-TRS-BUD-004
+  - ref: TC-TRS-BUD-005
+  - ref: TC-TRS-BUD-006
+  - path: repo:crates/syscribe-model/tests/budgets_cpu.rs
   - path: repo:crates/syscribe-model/tests/budgets.rs
   - path: repo:crates/syscribe/tests/budgets_cli.rs
   - path: repo:crates/syscribe/tests/budgets_gti.rs
