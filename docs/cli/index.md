@@ -1511,6 +1511,14 @@ $ syscribe -m model/ budgets [--json]
 
 For every hardware part that declares a capacity (`ramCapacity`, `flashCapacity`, `nvmCapacity`), shows each resource: used, capacity, margin, limit, utilisation and the largest contributors — the software allocated to the part and everything it contains, each counted once, RAM including `stack`. `validate` fails with `E690` when use is above `capacity × margin / 100` (the part's own `margin`, else `[budgets] margin` in `.syscribe.toml`, else 100) and with `E691` for a malformed size or margin (REQ-TRS-BUD-001..003). With nothing declared it says so and exits 0.
 
+### Lay out a software part's detailed design (`design-report`)
+
+```
+$ syscribe -m model/ design-report <part> [--json]
+```
+
+The detailed-design work product (ASPICE SWE.3) of one software `PartDef`/`Part`: its level and description, interface (its own operations and those of the ports it contains), behaviour (the `ActionDef`s realising its operations), data (features with type, unit and range), resources (`ram`, `flash`, `nvm`, `stack`, `period`, `deadline`, `wcet`, `priority`), code (`implementedBy:`), the requirements it satisfies, and the tests that verify it with their verdicts. An empty section says `None.`; an element that is not a software part is a usage error (exit 1). See [Software design levels](../format/spec.md).
+
 ### Report stereotype applications (`meta`)
 
 ```

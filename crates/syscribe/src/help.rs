@@ -84,6 +84,7 @@ const HELP: &[(&str, &[(&str, &str)])] = &[
             ("link-types", include_str!("../../../prompts/help/link-types.md")),
             ("meta", include_str!("../../../prompts/help/meta.md")),
             ("budgets", include_str!("../../../prompts/help/budgets.md")),
+            ("design-report", include_str!("../../../prompts/help/design-report.md")),
             ("refs", include_str!("../../../prompts/help/refs.md")),
             ("impact", include_str!("../../../prompts/help/impact.md")),
             ("n2", include_str!("../../../prompts/help/n2.md")),

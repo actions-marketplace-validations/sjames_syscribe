@@ -2,6 +2,7 @@
 
 mod annotations;
 mod budgetcmd;
+mod designreportcmd;
 mod metacmd;
 mod audit;
 mod aw;
@@ -920,6 +921,13 @@ fn main() {
             "budgets" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let code = budgetcmd::cmd_budgets(&elems, model_root, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "design-report" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = designreportcmd::cmd_design_report(&elems, model_root, rest);
                 if code != 0 {
                     std::process::exit(code);
                 }
