@@ -34,7 +34,7 @@ and transition to the fault state.
 | `silLevel` | IEC 61508 SIL 1–4 |
 | `asilLevel` | ISO 26262 ASIL A–D |
 | `derivedFrom` | List of parent REQ-* IDs |
-| `breakdownAdr` | Qualified name of the ADR justifying this derivation (required when `derivedFrom:` is set — E310) |
+| `breakdownAdr` | Qualified name of the ADR justifying this derivation (required when `derivedFrom:` is set — E310, unless `[traceability] require_breakdown_adr = false`) |
 
 ### Normative text
 

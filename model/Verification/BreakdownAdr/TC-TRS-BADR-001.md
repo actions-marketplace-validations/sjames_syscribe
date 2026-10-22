@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-BADR-001
 name: "The breakdown ADR requirement can be disabled"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/breakdown_adr.rs
 verifies:

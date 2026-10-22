@@ -2,7 +2,7 @@
 type: PlanningItem
 id: PI-BADR-001
 name: "Make the breakdown ADR requirement optional"
-status: in_progress
+status: done
 itemType: feature
 achieves:
   - REQ-TRS-BADR-001

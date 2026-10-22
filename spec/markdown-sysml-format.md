@@ -6768,6 +6768,7 @@ Active only when the model uses `[linkTypes]` in `.syscribe.toml` or a `links:` 
 | `E636` | A cycle — including a self-link — formed solely by links of an `acyclic = true` type (once per cycle, naming its members) |
 | `W630` | A `[linkTypes.<name>]` entry is malformed (bad/colliding name or `inverse`, unparseable `cardinality`, non-zero lower bound without `sourceTypes`, unknown element type, unsupported `extends`, `relax`/`coverage` without `extends`, non-relaxable `relax` code) — the entry is ignored as a whole; or an entry carries an unknown key (key ignored). Attached to `.syscribe.toml` |
 | `W631` | A non-`draft` element whose `type:` is in a link type's `sourceTypes` holds fewer targets than the `cardinality` lower bound (opt-in; `--deny W631`) |
+| `W632` | A malformed `[traceability]` entry in `.syscribe.toml` (unknown key, or `require_breakdown_adr` that is not `true`/`false`); the entry is ignored and the default kept (`E310` stays in force) |
 
 #### IEC 62443 Zone/Conduit validation (E950–E956, E925, E926, W950–W953, §13.5)
 

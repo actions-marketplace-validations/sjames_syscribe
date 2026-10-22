@@ -1078,6 +1078,16 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
     }
 
+    // W632: malformed `[traceability]` config (REQ-TRS-BADR-001) — entries ignored, defaults kept.
+    for problem in &config.traceability_problems {
+        let cfg_file = config
+            .model_root
+            .as_ref()
+            .map(|r| r.join(".syscribe.toml").display().to_string())
+            .unwrap_or_else(|| ".syscribe.toml".to_string());
+        findings.push(warning("W632", &cfg_file, problem));
+    }
+
     // W934: malformed `[audit]` config (GH #216) — entries ignored, defaults kept.
     for problem in &config.audit.problems {
         let cfg_file = config
@@ -8023,6 +8033,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         // derivedFrom-like entry comes from a type relaxing E310.
         let derived_len = fm.derived_from.as_ref().map_or(0, |v| v.len());
         if Resolver::is_native_requirement(elem)
+            && !config.breakdown_adr_optional
             && derived_len > 0
                 && fm.breakdown_adr.is_none()
                 && !link_prov.all_relaxed(&elem.qualified_name, crate::link_types::BaseLink::DerivedFrom, derived_len, "E310") {
