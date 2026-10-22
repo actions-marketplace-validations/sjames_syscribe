@@ -133,7 +133,7 @@ fn last(q: &str) -> &str {
 
 /// The static type of a field declared `typedBy:`/`type:` with an optional `unit:`. A number with no unit is
 /// dimensionless; a type that is neither a scalar nor an ISQ quantity is unknown (compatible with everything).
-fn field_ty(m: &Mapping) -> Ty {
+pub(crate) fn field_ty(m: &Mapping) -> Ty {
     let t = field(m, "typedBy")
         .or_else(|| field(m, "type"))
         .and_then(|v| v.as_str())
@@ -622,7 +622,7 @@ fn names(fields: &[Field]) -> String {
 }
 
 /// Why a value of type `got` cannot fill a field of type `want`, if it certainly cannot.
-fn mismatch(want: Ty, got: Ty) -> Option<String> {
+pub(crate) fn mismatch(want: Ty, got: Ty) -> Option<String> {
     match (want, got) {
         (Ty::Num(Some(a)), Ty::Num(Some(b))) if a != b => {
             Some(format!("{}", Ty::Num(Some(b)).describe()))

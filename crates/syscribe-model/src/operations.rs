@@ -203,6 +203,16 @@ fn check_calls(elements: &[RawElement], resolver: &Resolver, out: &mut Vec<Findi
                     out.push((true, "E674", act.file_path.clone(), format!("{who}: calls '{r}' with argument '{g}', which is not an input parameter of the operation")));
                 }
             }
+            // REQ-TRS-OPCALL-003 — the kind and unit dimension of each argument value
+            for arg in m.get("parameters").and_then(Yaml::as_sequence).into_iter().flatten().filter_map(Yaml::as_mapping) {
+                let (Some(name), Some(value)) = (s(arg, "name"), arg.get("value").map(|v| match v { Yaml::String(x) => x.clone(), other => serde_yaml::to_string(other).unwrap_or_default().trim().to_string() })) else { continue };
+                let Some(decl) = op.get("parameters").and_then(Yaml::as_sequence).into_iter().flatten().filter_map(Yaml::as_mapping).find(|p| s(p, "name") == Some(name)) else { continue };
+                let Ok(ast) = crate::expr::parse(&value) else { continue };
+                let Ok(got) = crate::typecheck::infer(&ast, &|_: &str| crate::typecheck::Ty::Unknown) else { continue };
+                if let Some(why) = crate::port_types::mismatch(crate::port_types::field_ty(decl), got) {
+                    out.push((true, "E675", act.file_path.clone(), format!("{who}: calls '{r}' with `{name}: {value}`, which is {why}, not what the parameter declares")));
+                }
+            }
             for p in op_params.iter().filter(|p| p.direction == "in" || p.direction == "inout") {
                 if !given.contains(&p.name) {
                     out.push((true, "E674", act.file_path.clone(), format!("{who}: calls '{r}' without its parameter '{}'", p.name)));

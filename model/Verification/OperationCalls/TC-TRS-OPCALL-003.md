@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPCALL-003
 name: "A call's argument values have the parameter's kind and unit"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operation_calls.rs
 verifies:
