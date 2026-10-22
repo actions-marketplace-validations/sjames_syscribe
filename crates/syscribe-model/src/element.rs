@@ -1446,6 +1446,14 @@ pub struct ColdFrontmatter2 {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdFrontmatter3 {
+    /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
+    pub layer: Option<String>,
+    /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
+    pub layers: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule` of kind `max-depth`: the longest allowed dependency chain (REQ-TRS-ARCH-007).
+    pub max_depth: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: `{element, rationale, expires}` waivers (REQ-TRS-ARCH-008).
+    pub waivers: Option<serde_yaml::Value>,
     /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
     pub range: Option<serde_yaml::Value>,
     /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
@@ -1715,6 +1723,14 @@ pub struct ViewInclude {
 #[derive(Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ColdWire {
+    /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
+    pub layer: Option<String>,
+    /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
+    pub layers: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule` of kind `max-depth`: the longest allowed dependency chain (REQ-TRS-ARCH-007).
+    pub max_depth: Option<serde_yaml::Value>,
+    /// On an `ArchitectureRule`: `{element, rationale, expires}` waivers (REQ-TRS-ARCH-008).
+    pub waivers: Option<serde_yaml::Value>,
     /// On an `AttributeDef`: the numeric interval its values lie in, `lo..hi` or `[lo, hi)` (REQ-TRS-DATA-001).
     pub range: Option<serde_yaml::Value>,
     /// On an `AttributeDef`: a regular expression a string value must match in full (REQ-TRS-DATA-001).
@@ -2575,6 +2591,10 @@ impl ColdWire {
                 derived_from_cybersecurity_goal: w.derived_from_cybersecurity_goal,
                 cybersecurity_properties: w.cybersecurity_properties,
                 tier3: Boxed::of(ColdFrontmatter3 {
+                    layer: w.layer,
+                    layers: w.layers,
+                    max_depth: w.max_depth,
+                    waivers: w.waivers,
                     range: w.range,
                     pattern: w.pattern,
                     default: w.default,

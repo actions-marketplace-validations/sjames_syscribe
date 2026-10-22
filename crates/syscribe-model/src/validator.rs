@@ -1285,6 +1285,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 (fm.flash_capacity.is_some(), "flashCapacity"),
                 (fm.nvm_capacity.is_some(), "nvmCapacity"),
                 (fm.margin.is_some(), "margin"),
+                (fm.layer.is_some(), "layer"),
                 (fm.period.is_some(), "period"),
                 (fm.deadline.is_some(), "deadline"),
                 (fm.priority.is_some(), "priority"),
@@ -1306,7 +1307,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
         }
         // `kind:`, `from:`, `to:` and `via:` belong to an ArchitectureRule (REQ-TRS-ARCH-001).
         if !matches!(fm.element_type, Some(ElementType::ArchitectureRule)) {
-            for (set, name) in [(fm.kind.is_some(), "kind"), (fm.from.is_some(), "from"), (fm.to.is_some(), "to"), (fm.via.is_some(), "via")] {
+            for (set, name) in [(fm.kind.is_some(), "kind"), (fm.from.is_some(), "from"), (fm.to.is_some(), "to"), (fm.via.is_some(), "via"), (fm.layers.is_some(), "layers"), (fm.max_depth.is_some(), "maxDepth"), (fm.waivers.is_some(), "waivers")] {
                 if set {
                     unknown_keys.push(name);
                 }

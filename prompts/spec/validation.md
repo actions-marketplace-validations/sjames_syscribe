@@ -841,11 +841,12 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E650` | error | A `MetadataDef` `checks:` entry fails on an element that carries the stereotype (`severity: error`, the default), or the entry is malformed — no `expr:`, a bad `severity:`, an expression that does not parse, or a call naming a stereotype that does not exist (reported on the definition). |
 | `W650` | warning | A `MetadataDef` `checks:` entry with `severity: warning` fails on an element that carries the stereotype. Draft-suppressed; gate with `--deny W650`. |
 | `E651` | error | A stereotype selector is malformed (a mapping needs `stereotype:`, optional `where:`; or the string `Def where <expr>`), its `where` expression does not parse, or it names no `MetadataDef`. Reported on the TestPlan whose `selection.stereotypes` holds it. |
-| `E660` | error | An `ArchitectureRule` of kind `forbid-dependency` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
+| `E660` | error | An `ArchitectureRule` of kind `forbid-dependency`, `allow-only` or `layering` (`severity: error`) is violated: a component chosen by `from` depends, directly or through a chain of connections, usages and allocations, on one chosen by `to`. The message names the rule and the whole path. |
 | `W660` | warning | The same violation under `severity: warning`. |
 | `E661` | error | An `ArchitectureRule` of kind `independence` (`severity: error`) is violated: the two chosen sets both depend on a shared component. One finding per shared component, with a path from each set. |
 | `W661` | warning | The same violation under `severity: warning`. |
-| `E662` | error | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E662` | error | An `ArchitectureRule` is malformed — id not `AR-…`, `name` missing, unknown `kind`, `from`/`to` missing (where the kind needs them), `layers` or `maxDepth` missing or malformed, a malformed waiver or a selector with an unknown key, an empty selector, a bad domain or an unknown stereotype, a bad `via` or `severity` — and is not evaluated. |
+| `E663` | error | An `ArchitectureRule` of kind `max-depth` (`severity: error`) is violated: a dependency chain starting at a chosen component is longer than `maxDepth`. The message names the rule, the start, the depth and the chain; a chain contained in a longer reported one is not reported again (REQ-TRS-ARCH-007). |
 | `E670` | error | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
 | `E671` | error | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
 | `E672` | error | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
@@ -858,6 +859,8 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E692` | error | The CPU utilisation of the tasks (software parts with a `period` and a `wcet` duration) allocated to a hardware part that declares `cpuMargin` or `scheduling`, counting contained components once, exceeds its limit: the bound (1 for `edf`, Liu–Layland `n (2^(1/n) − 1)` for `rate-monotonic`) × `cpuMargin` / 100. Names the utilisation, the limit and the tasks, largest first (REQ-TRS-BUD-006). |
 | `E693` | error | A software part's `wcet` (when it is a duration) is greater than its `deadline` (REQ-TRS-BUD-005). |
 | `W662` | warning | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
+| `W663` | warning | The same violation under `severity: warning`. |
+| `W664` | warning | An `ArchitectureRule` waiver is expired (`expires` is today or earlier, so it no longer suppresses anything) or suppresses nothing (REQ-TRS-ARCH-008). |
 | `W316` | warning | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 
 ## Stable-ID prefixes, unknown fields, locale variants and about comments (W046, W047, W049, W051, W052)
