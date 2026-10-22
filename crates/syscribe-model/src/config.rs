@@ -148,6 +148,13 @@ pub struct ValidateConfig {
     /// `[coverage]` parent-requirement policy (GH #253, REQ-TRS-COVVAL-001): which rule judges W305.
     pub coverage: CoveragePolicy,
 
+    /// `[traceability] require_breakdown_adr = false` switches `E310` off (REQ-TRS-BADR-001). Stored inverted so
+    /// the derived default (`false`) keeps the rule in force.
+    pub breakdown_adr_optional: bool,
+
+    /// Problems with the `[traceability]` table, reported as `W632`.
+    pub traceability_problems: Vec<String>,
+
     /// GH #222 — ISO/SAE 21434 risk/CAL configuration from the `[cyber]` table of
     /// `<model_root>/.syscribe.toml`. The default (no table) is the historical
     /// `simple` rank-sum method, so existing models validate byte-identically.
@@ -706,8 +713,11 @@ impl ValidateConfig {
         crate::link_types::install(&link_types);
         let audit = AuditConfig::load(&root);
         let root_for_cyber = root.clone();
+        let (breakdown_adr_optional, traceability_problems) = load_traceability(&root);
         Self {
             machine_config: None,
+            breakdown_adr_optional,
+            traceability_problems,
             model_root: Some(root),
             repo_root,
             matchers,
@@ -1028,6 +1038,30 @@ fn resolve_scripts_dir(model_root: &Path) -> PathBuf {
 fn resolve_id_max_digits(model_root: &Path) -> Option<usize> {
     let text = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok()?;
     toml::from_str::<PathsToml>(&text).ok()?.ids.max_digits
+}
+
+/// Read `[traceability]` (REQ-TRS-BADR-001): `(breakdown ADR optional, problems)`.
+fn load_traceability(model_root: &Path) -> (bool, Vec<String>) {
+    let mut problems = Vec::new();
+    let Some(root) = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok().and_then(|t| toml::from_str::<toml::Value>(&t).ok()) else {
+        return (false, problems);
+    };
+    let Some(tbl) = root.get("traceability") else { return (false, problems) };
+    let Some(tbl) = tbl.as_table() else {
+        problems.push("[traceability] must be a table".into());
+        return (false, problems);
+    };
+    let mut optional = false;
+    for (k, v) in tbl {
+        match k.as_str() {
+            "require_breakdown_adr" | "requireBreakdownAdr" => match v.as_bool() {
+                Some(b) => optional = !b,
+                None => problems.push(format!("[traceability] {k} must be true or false, got {v}")),
+            },
+            other => problems.push(format!("[traceability] unknown key '{other}'")),
+        }
+    }
+    (optional, problems)
 }
 
 /// Read `[ids] check_file_names` (GH #185); `false` when unset.

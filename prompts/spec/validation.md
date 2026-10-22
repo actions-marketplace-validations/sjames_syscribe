@@ -791,6 +791,7 @@ Dormant unless `.syscribe.toml` declares `[linkTypes]` or an element carries `li
 | `E634` | A resolved target's `type:` is not in the link type's declared `targetTypes` (names the target) |
 | `E635` | An element holds more targets of a link type than its `cardinality` upper bound |
 | `W631` | A non-`draft` element whose type is in a link type's `sourceTypes` holds fewer targets than the `cardinality` lower bound |
+| `W632` | A malformed `[traceability]` entry in `.syscribe.toml` (unknown key, or `require_breakdown_adr` that is not `true`/`false`); the entry is ignored and the default kept (`E310` stays in force) |
 | `E636` | A cycle — including a self-link — formed solely by links of an `acyclic = true` type; reported once per cycle, naming its members |
 
 A type that `extends` `satisfies`/`verifies`/`derivedFrom`/`refines` is treated as that base link by

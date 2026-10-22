@@ -528,6 +528,7 @@ A project declares its own relationship types in `[linkTypes.<name>]` tables of 
 | E636 | A cycle (including a self-link) formed solely by links of an `acyclic = true` type — once per cycle, naming its members. |
 | W630 | A `[linkTypes.<name>]` entry is malformed — bad or colliding name/`inverse`, unparseable `cardinality`, non-zero lower bound without `sourceTypes`, unknown element type in `sourceTypes`/`targetTypes`, unsupported `extends`, `relax`/`coverage` without `extends`, or a `relax` code not relaxable for the base. The whole entry is ignored (its uses then raise `E630`). An unknown key inside an entry is also `W630` (the key is ignored). |
 | W631 | A non-`draft` element whose `type:` is in the link type's `sourceTypes` holds fewer targets than the `cardinality` lower bound (opt-in; `--deny W631`). |
+| W632 | A malformed `[traceability]` entry in `.syscribe.toml` (unknown key, or `require_breakdown_adr` that is not `true`/`false`); the entry is ignored and the default kept (`E310` stays in force) |
 
 A type with `extends = "satisfies" | "verifies" | "derivedFrom" | "refines"` is also checked by every rule of its base link, minus the codes it lists in `relax` — `satisfies` → `E312`, `E313`; `verifies` → `E104`; `derivedFrom` → `E105`, `E310`, `W303`; `refines` → `E316`. Relaxation never applies to the built-in field itself. Custom links participate in suspect-link detection (`W090`) unless the type sets `suspect = false`.
 

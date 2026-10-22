@@ -57,6 +57,15 @@ breakdownAdr: Decisions::SafetyDecompositionADR   # must be status: accepted
 - **E311** — `breakdownAdr:` does not resolve, or does not resolve to an ADR element
 - **W303** — `breakdownAdr:` resolves to a `proposed` ADR but the requirement is `approved` or higher
 
+A project that does not want an ADR for every breakdown can switch `E310` off in `.syscribe.toml`:
+
+```toml
+[traceability]
+require_breakdown_adr = false   # default true
+```
+
+A `breakdownAdr:` that is present is still checked (`E311`, `W303`). A malformed entry is `W632` and the default stays.
+
 ## Rule 3 — Leaf assignment (§12.3)
 
 Requirements are decomposed until each leaf can be assigned to the architecture that fulfils it. Leaf requirements at `approved` or `implemented` status with no `satisfies:` link fire **W300**.
