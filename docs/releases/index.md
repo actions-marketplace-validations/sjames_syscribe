@@ -2,6 +2,19 @@
 
 `RELEASES`
 
+## 0.55.0 — 2026-10-22
+
+- **New:** stereotypes (metadata) are typed, queryable, styleable and checkable (#374–#379, #387, #389, #390). `MetadataDef` stereotypes carry tagged values, specialise one another and apply to any element; `syscribe meta [--def <D>] [--group-by <field>]` reports applications, `[diagram.stereotypes.<Def>]` styles diagrams (fill, stroke, frames, legend), `[[gates.coverage]]` sets a coverage threshold per stereotype, and the MCP server exposes the same surface.
+- **New:** architecture rules (#369, #388, #396). An `ArchitectureRule` element states a constraint over the software structure: `forbid-dependency`, `independence`, `allow-only`, `layering` (with `layer:` on parts and `layers:` on the rule) and `max-depth`. Findings are `E660`–`E663`/`W662`/`W663`; a `waivers:` entry with a rationale and an expiry date suppresses a finding for one element, and an expired or unused waiver is `W664`.
+- **New:** operations bound to behaviour (#364, #391). `errors:` on an operation (`E670`) and `realizedBy:` naming the `ActionDef` that implements it, whose signature must match (`E671`, `E672`).
+- **New:** operation call sites (#364, #398, #401). A `SendAction`/`PerformAction` names the operation it calls with `operation: <owner>::<name>`; an unknown operation is `E673` and arguments that do not match its input parameters are `E674`. Types and units of the values are not yet checked.
+- **New:** data types with value constraints (#366, #393): `range:`, `pattern:` and `default:` on an `AttributeDef`.
+- **New:** sequence diagrams take a part as subject through the actions it performs (#365, #392).
+- **New:** resource budgets (#368, #394, #395). `syscribe budgets [--json]` rolls up memory use (`ram`, `flash`, `nvm`, `stack` against `*Capacity` and `margin`, `E690`/`E691`) and CPU load (`period`, `deadline`, `wcet`, `priority`; utilisation against the Liu–Layland bound for rate-monotonic or 1 for EDF, `E692`/`E693`).
+- **New:** deployment structure (#370, #397). `deploymentKind` (`soc` … `thread`) makes a part a node; nodes nest outermost first (`E730`, `E731`), a component sits on one node unless `replicated: true` (`E732`), and a node may not have a lower integrity level than what it hosts (`E733`).
+- **New:** software design levels (#371, #400). `level: component | unit` on a software part; a non-draft unit needs an `implementedBy:` (with a `#symbol`, `W740`), a satisfied requirement, an L1 test and a containing component (`E740`–`E744`).
+- **New:** the breakdown ADR requirement can be switched off (#399). `[traceability] require_breakdown_adr = false` in `.syscribe.toml` stops `E310`; a cited ADR is still checked (`E311`, `W303`) and a malformed entry is `W632`.
+
 ## 0.54.0 — 2026-10-13
 
 - **Changed (behaviour):** a command given an option it does not know now fails with a usage error (stderr names the option and lists the valid ones, exit 1) instead of ignoring it. About 40 commands used to ignore unknown options silently, among them `audit`, `matrix`, `metrics`, `cyber-risk`, `feature-check`, `export-html`, `diff`, `claim`, `suspect`, `baseline`, `plantuml`, `magicgrid`, `safety-case` and `zones`, so a mistyped `audit --deny` was never applied in CI. `scripts` still forwards its arguments to user scripts. A table-driven test covers about 48 commands, and the drift tests now require every accepted option to be documented on its help page.
