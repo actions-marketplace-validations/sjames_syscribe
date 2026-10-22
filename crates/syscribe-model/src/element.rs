@@ -1446,6 +1446,10 @@ pub struct ColdFrontmatter2 {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ColdFrontmatter3 {
+    /// On a `PartDef`/`Part`: the kind of deployment node it is (REQ-TRS-DEPL-001).
+    pub deployment_kind: Option<String>,
+    /// On a software `PartDef`/`Part`: deployed on several nodes on purpose (REQ-TRS-DEPL-002).
+    pub replicated: Option<bool>,
     /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
     pub layer: Option<String>,
     /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
@@ -1723,6 +1727,10 @@ pub struct ViewInclude {
 #[derive(Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ColdWire {
+    /// On a `PartDef`/`Part`: the kind of deployment node it is (REQ-TRS-DEPL-001).
+    pub deployment_kind: Option<String>,
+    /// On a software `PartDef`/`Part`: deployed on several nodes on purpose (REQ-TRS-DEPL-002).
+    pub replicated: Option<bool>,
     /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
     pub layer: Option<String>,
     /// On an `ArchitectureRule` of kind `layering`: the layers, top first (REQ-TRS-ARCH-006).
@@ -2591,6 +2599,8 @@ impl ColdWire {
                 derived_from_cybersecurity_goal: w.derived_from_cybersecurity_goal,
                 cybersecurity_properties: w.cybersecurity_properties,
                 tier3: Boxed::of(ColdFrontmatter3 {
+                    deployment_kind: w.deployment_kind,
+                    replicated: w.replicated,
                     layer: w.layer,
                     layers: w.layers,
                     max_depth: w.max_depth,
