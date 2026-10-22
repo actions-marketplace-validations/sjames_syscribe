@@ -1285,6 +1285,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 (fm.flash_capacity.is_some(), "flashCapacity"),
                 (fm.nvm_capacity.is_some(), "nvmCapacity"),
                 (fm.margin.is_some(), "margin"),
+                (fm.period.is_some(), "period"),
+                (fm.deadline.is_some(), "deadline"),
+                (fm.priority.is_some(), "priority"),
+                (fm.cpu_margin.is_some(), "cpuMargin"),
+                (fm.scheduling.is_some(), "scheduling"),
             ] {
                 if set {
                     unknown_keys.push(name);

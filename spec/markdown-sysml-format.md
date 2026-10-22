@@ -5013,11 +5013,18 @@ A malformed rule is `E662` and is not evaluated; a selector that chooses no comp
 | `ram`, `flash`, `nvm` | software part | Static memory used, a size |
 | `stack` | software part | Stack, a size; counts toward RAM |
 | `ramCapacity`, `flashCapacity`, `nvmCapacity` | hardware part | Memory offered, a size |
+| `period`, `deadline` | software part | Durations (`10 ms`, `120 us`, `0.5 s`) |
+| `wcet` | software part | Read as a duration when it is one; an opaque claim (`O(1)`) is left alone |
+| `priority` | software part | Integer |
+| `cpuMargin` | hardware part | Percentage of the schedulability bound that may be used, 0–100 |
+| `scheduling` | hardware part | `edf` (default, bound 1) or `rate-monotonic` (Liu–Layland bound) |
 | `margin` | hardware part | Percentage of capacity that may be used, 0–100 (number or `"80%"`); default `[budgets] margin` in `.syscribe.toml`, else 100 |
 
 A **size** is a number of bytes or text with a unit: `B`, `kB`/`MB`/`GB` (powers of 1000) or `KiB`/`MiB`/`GiB` (powers of 1024). `KB` is ambiguous and a malformed size or margin is **`E691`**.
 
 For a hardware part with a capacity, the *contributors* are the components allocated to it (`allocatedTo:`, `allocatedFrom:` or an `Allocation`) and, transitively, every component in their `features:`, each counted once. Use above `capacity × margin / 100` is **`E690`**, naming the contributors, largest first. A part with no capacity for a resource is not checked for it, and the fields on any other element type are `W047`.
+
+**CPU.** A software part with a `period` and a `wcet` duration is a *task* of utilisation `wcet / period`. A hardware part that declares `cpuMargin` and/or `scheduling` is checked: the tasks allocated to it and contained in what is allocated, each once, sum to a utilisation that must not exceed the bound (1 for `edf`, `n (2^(1/n) − 1)` for `rate-monotonic`) × `cpuMargin` / 100, else **`E692`**. A part whose `wcet` exceeds its `deadline` is **`E693`**. `period` and `deadline` must be positive durations and `priority` an integer (**`E691`**). `syscribe budgets --json` carries a `cpu` array with the tasks.
 
 ```yaml
 ---
@@ -6526,7 +6533,9 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
 | `E683` | A specialising `AttributeDef` widens its supertype: a `range:` not contained in the supertype's (an open end of the supertype is not covered by a closed end), or a different `pattern:` (REQ-TRS-DATA-002). |
 | `E690` | The static memory of the components allocated to a hardware part (and of everything they contain, each counted once) exceeds `capacity × margin / 100` for a resource it declares a capacity for (`ramCapacity`, `flashCapacity`, `nvmCapacity`); RAM includes `stack`. Names the part, the resource, the use, the limit and the contributors, largest first (REQ-TRS-BUD-002). |
-| `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). |
+| `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). Also: a `period` or `deadline` that is not a positive duration, a `priority` that is not an integer, a malformed `cpuMargin`, or a `scheduling` other than `edf`/`rate-monotonic` (REQ-TRS-BUD-004). |
+| `E692` | The CPU utilisation of the tasks (software parts with a `period` and a `wcet` duration) allocated to a hardware part that declares `cpuMargin` or `scheduling`, counting contained components once, exceeds its limit: the bound (1 for `edf`, Liu–Layland `n (2^(1/n) − 1)` for `rate-monotonic`) × `cpuMargin` / 100. Names the utilisation, the limit and the tasks, largest first (REQ-TRS-BUD-006). |
+| `E693` | A software part's `wcet` (when it is a duration) is greater than its `deadline` (REQ-TRS-BUD-005). |
 
 #### Warnings
 
@@ -9217,7 +9226,7 @@ since `status: in_progress` alone already signals active work.
 | TARA | `assets`, `damageSeverity`, `impactCategories`, `damageScenarios`, `attackFeasibility`, `attackVector`, `securityProperty`, `calLevel`, `threatScenarios`, `controlType`, `implementsGoals`, `cveId`, `cvssScore`, `cvssVector`, `cvssSeverity`, `fixedIn`, `mitigatedBy`, `affectedElements`, `assetTable`, `damageTable`, `threatTable`, `goalTable`, `controlTable`, the per-category impact ratings `safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`, and the attack-potential factors `elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` | 8.18.2 |
 | `ArchitectureRule` | `kind`, `from`, `to`, `via` (plus `severity`, `rationale`); see §8.20 | 8.20 |
 | `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
-| Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin` (see §8.21) | 8.21 |
+| Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin`, `period`, `deadline`, `priority`, `cpuMargin`, `scheduling` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |
 | FTA / FMEA / attack trees | `topEvent`, `missionTime`, `gateType`, `inputs`, `eventKind`, `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `probability`, `fmeaRef`, `entries`, `failureMode`, `effect`, `cause`, `fmeaSeverity`, `occurrence`, `detection`, `rpn`, `recommendedAction`, `ftaRef`, `threatRef`, `ccfGroup`, `ccfBeta`, `rateSource`, `rateStatus`, `injection` | 8.18.3–8.18.5, 8.8.6 |

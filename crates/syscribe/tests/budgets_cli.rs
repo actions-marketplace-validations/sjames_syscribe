@@ -96,3 +96,51 @@ fn nothing_declared_says_so_and_exits_zero() {
     let v: serde_json::Value = serde_json::from_str(&j).unwrap();
     assert_eq!(v["budgets"], serde_json::json!([]));
 }
+
+// ── REQ-TRS-BUD-006: the cpu part of the report ─────────────────────────────
+
+fn cpu_model(hw_extra: &str) -> PathBuf {
+    let r = model("", hw_extra);
+    let p = r.join("Sw/A.md");
+    let s = std::fs::read_to_string(&p).unwrap().replacen("ram: \"50 kB\"\n", "ram: \"50 kB\"\nwcet: \"4 ms\"\nperiod: \"10 ms\"\n", 1);
+    std::fs::write(p, s).unwrap();
+    let p = r.join("Sw/B.md");
+    let s = std::fs::read_to_string(&p).unwrap().replacen("ram: \"29 kB\"\n", "ram: \"29 kB\"\nwcet: \"10 ms\"\nperiod: \"100 ms\"\n", 1);
+    std::fs::write(p, s).unwrap();
+    r
+}
+
+#[test]
+fn the_json_report_carries_cpu_utilisation_with_its_tasks() {
+    let r = cpu_model("cpuMargin: 70\nscheduling: rate-monotonic\n");
+    let (o, c) = run(&r, &["budgets", "--json"]);
+    assert_eq!(c, 0, "{o}");
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    let cpu = v["cpu"].as_array().unwrap_or_else(|| panic!("{v}"));
+    assert_eq!(cpu.len(), 1, "{v}");
+    let row = &cpu[0];
+    assert_eq!(row["element"], "Hw::Mcu");
+    assert_eq!(row["scheduling"], "rate-monotonic");
+    assert_eq!(row["marginPercent"], 70);
+    assert_eq!(row["tasks"].as_array().unwrap().len(), 2, "{row}");
+    assert!((row["utilisation"].as_f64().unwrap() - 0.5).abs() < 1e-9, "40 % + 10 %: {row}");
+    assert!((row["boundPercent"].as_f64().unwrap() - 82.84).abs() < 0.01, "{row}");
+    assert_eq!(row["tasks"][0]["element"], "Sw::A", "largest first: {row}");
+}
+
+#[test]
+fn a_part_with_no_cpu_budget_has_no_cpu_row_and_the_memory_rows_are_unchanged() {
+    let r = cpu_model("");
+    let (o, _) = run(&r, &["budgets", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(&o).unwrap();
+    assert_eq!(v["cpu"], serde_json::json!([]));
+    assert!(!v["budgets"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn validate_reports_the_overload() {
+    let r = cpu_model("cpuMargin: 40\n");
+    let (o, c) = run(&r, &["validate"]);
+    assert_eq!(c, 1, "50 % against a 40 % limit: {o}");
+    assert!(o.contains("E692"), "{o}");
+}
