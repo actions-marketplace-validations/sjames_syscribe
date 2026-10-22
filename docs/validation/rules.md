@@ -1435,9 +1435,15 @@ SysMLv2 has no UML stereotypes; a stereotype is a `MetadataDef` applied to an el
 | E731 | A deployment node contains (through `features:`) a node that is not of a later kind than its own, outermost first: `soc` > `core` > `partition` > `container` > `process` > `thread` (REQ-TRS-DEPL-001). |
 | E732 | A component is allocated to two or more distinct parts that declare a `deploymentKind`, and is not marked `replicated: true` (REQ-TRS-DEPL-002). |
 | E733 | A component is allocated to a deployment node that declares a lower `asilLevel` (QM < A < B < C < D) or `silLevel` than the component; nodes or components that declare none are not checked (REQ-TRS-DEPL-003). |
+| E740 | A part's `level` is not `component` or `unit` (REQ-TRS-UNIT-001). |
+| E741 | A non-`draft` `level: unit` part has no `implementedBy:` code link (REQ-TRS-UNIT-002). |
+| E742 | A non-`draft` `level: unit` part satisfies no requirement (REQ-TRS-UNIT-002). |
+| E743 | A non-`draft` `level: unit` part has no unit-level test: no `testLevel: L1` TestCase verifies it or a requirement it satisfies (REQ-TRS-UNIT-002). |
+| E744 | A non-`draft` `level: unit` part is contained (through `features:`) by no part with `level: component` (REQ-TRS-UNIT-002). |
 | W662 | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | W663 | The same violation under `severity: warning`. |
 | W664 | An `ArchitectureRule` waiver is expired (`expires` is today or earlier, so it no longer suppresses anything) or suppresses nothing (REQ-TRS-ARCH-008). |
+| W740 | A `level: unit` part has an `implementedBy:` local path that names no symbol (`path#symbol`); remote URIs and package references are not judged (REQ-TRS-UNIT-002). |
 
 ## Audit policy configuration (W934)
 

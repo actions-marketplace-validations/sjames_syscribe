@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-UNIT-001
 name: "A software part declares its design level"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/unit_level.rs
 verifies:

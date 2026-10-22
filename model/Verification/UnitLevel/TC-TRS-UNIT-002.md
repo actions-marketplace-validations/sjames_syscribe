@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-UNIT-002
 name: "A software unit is traced to code, requirement, test and component"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/unit_level.rs
 verifies:

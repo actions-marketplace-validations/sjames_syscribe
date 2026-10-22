@@ -5079,6 +5079,24 @@ asilLevel: B
 ---
 ```
 
+### 8.23 Software Design Levels
+
+`REQ-TRS-UNIT-001`..`-002` (GH #371). A software `PartDef`/`Part` may declare `level: component` or `level: unit`, the two levels ASPICE SWE.2 and SWE.3 distinguish. Any other value is **`E740`**; on another element type the field is `W047`. Nothing is checked about a part with no level or `component`.
+
+A non-`draft` unit is checked for its traces: **`E741`** no `implementedBy:`; **`W740`** an `implementedBy:` local path naming no symbol (`path#symbol`); **`E742`** it satisfies no requirement; **`E743`** no `testLevel: L1` TestCase verifies the unit or a requirement it satisfies; **`E744`** no `level: component` part contains it through `features:`.
+
+```yaml
+---
+type: PartDef
+name: FrameParser
+status: draft
+domain: software
+level: unit
+implementedBy: "repo:src/frame.rs#parse_frame"
+satisfies: [REQ-LINK-004]
+---
+```
+
 ## 9 Variability and Variation Points
 
 ### 9.1 Variation Definitions
@@ -6582,6 +6600,11 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E731` | A deployment node contains (through `features:`) a node that is not of a later kind than its own, outermost first: `soc` > `core` > `partition` > `container` > `process` > `thread` (REQ-TRS-DEPL-001). |
 | `E732` | A component is allocated to two or more distinct parts that declare a `deploymentKind`, and is not marked `replicated: true` (REQ-TRS-DEPL-002). |
 | `E733` | A component is allocated to a deployment node that declares a lower `asilLevel` (QM < A < B < C < D) or `silLevel` than the component; nodes or components that declare none are not checked (REQ-TRS-DEPL-003). |
+| `E740` | A part's `level` is not `component` or `unit` (REQ-TRS-UNIT-001). |
+| `E741` | A non-`draft` `level: unit` part has no `implementedBy:` code link (REQ-TRS-UNIT-002). |
+| `E742` | A non-`draft` `level: unit` part satisfies no requirement (REQ-TRS-UNIT-002). |
+| `E743` | A non-`draft` `level: unit` part has no unit-level test: no `testLevel: L1` TestCase verifies it or a requirement it satisfies (REQ-TRS-UNIT-002). |
+| `E744` | A non-`draft` `level: unit` part is contained (through `features:`) by no part with `level: component` (REQ-TRS-UNIT-002). |
 
 #### Warnings
 
@@ -6613,6 +6636,7 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `W662` | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | `W663` | The same violation under `severity: warning`. |
 | `W664` | An `ArchitectureRule` waiver is expired (`expires` is today or earlier, so it no longer suppresses anything) or suppresses nothing (REQ-TRS-ARCH-008). |
+| `W740` | A `level: unit` part has an `implementedBy:` local path that names no symbol (`path#symbol`); remote URIs and package references are not judged (REQ-TRS-UNIT-002). |
 | `W312` | Results-gated: `Requirement` at `approved`/`implemented` has an active verifying `TestCase` whose ingested verdict is Fail |
 | `W306` | **Unsatisfied safety mechanism** — a high-integrity `Requirement` (`silLevel >= 4` or `asilLevel: D`) that is `status: draft`, (for a **leaf**) satisfied by no element, or (with a feature model) active in no `Configuration`. The "satisfied by no element" sub-condition applies to leaf requirements only — a **parent** (has `derivedChildren`) is satisfied transitively and may not be satisfied directly (`E312`). Message names the triggering sub-condition(s). Gateable with `--deny W306`; promotable via `[profiles]` |
 | `W029` | A non-draft `Requirement` with an integrity level (`silLevel`/`asilLevel`) declares a `wcet:` claim but no active **measuring** `TestCase` (testLevel `L5`, or tagged `timing`/`wcet`) verifies it. The timing-evidence analog of `W702`. Gateable with `--deny W029`; query with `list --has-wcet` |
@@ -9276,6 +9300,7 @@ since `status: in_progress` alone already signals active work.
 | Architecture layers | `layer` on a `PartDef`/`Part` (see §8.20) | 8.20 |
 | `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
 | Deployment nodes | `deploymentKind`, `replicated` (see §8.22) | 8.22 |
+| Software design levels | `level` (see §8.23) | 8.23 |
 | Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin`, `period`, `deadline`, `priority`, `cpuMargin`, `scheduling` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |

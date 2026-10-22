@@ -12,6 +12,7 @@ pub mod operations;
 pub mod data_types;
 pub mod budgets;
 pub mod deployment;
+pub mod unit_level;
 pub mod attack_tree;
 pub mod baseline;
 pub mod build_config;

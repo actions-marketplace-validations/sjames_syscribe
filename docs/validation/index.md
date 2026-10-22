@@ -80,6 +80,7 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | E650, E651, W650 | Stereotype checks and selectors (GH #379, #376) | A `MetadataDef` `checks:` entry fails on a carrier, or is malformed; a malformed stereotype selector |
 | E670–E672 | Operations (GH #364) | An operation's `errors:` or `realizedBy:` is wrong, or its signature differs from the realising `ActionDef`'s |
 | E680–E683 | Data types (GH #366) | An `AttributeDef`'s `range`/`pattern` is malformed, its `default` or a bound value violates them, or a subtype widens them |
+| E740–E744, W740 | Software unit level (GH #371) | A part's `level` is unknown, or a `level: unit` part lacks a code link (or symbol), a requirement, a unit test or a containing component |
 | E730–E733 | Deployment (GH #370) | A part's `deploymentKind` is unknown, nodes nest out of order, a component sits on two nodes without `replicated`, or a node has lower integrity than its component |
 | E690–E693 | Resource budgets (GH #368) | Software memory allocated to a hardware part exceeds its capacity and margin; a malformed size or margin |
 | E660–E663, W660–W664 | Architecture rules (GH #369) | An `ArchitectureRule`: a forbidden dependency (with its path), a shared element where independence is claimed, a malformed rule, or a selector that chooses nothing |

@@ -862,9 +862,15 @@ A stereotype is a `MetadataDef` applied via an element's `metadata:` field (SysM
 | `E731` | error | A deployment node contains (through `features:`) a node that is not of a later kind than its own, outermost first: `soc` > `core` > `partition` > `container` > `process` > `thread` (REQ-TRS-DEPL-001). |
 | `E732` | error | A component is allocated to two or more distinct parts that declare a `deploymentKind`, and is not marked `replicated: true` (REQ-TRS-DEPL-002). |
 | `E733` | error | A component is allocated to a deployment node that declares a lower `asilLevel` (QM < A < B < C < D) or `silLevel` than the component; nodes or components that declare none are not checked (REQ-TRS-DEPL-003). |
+| `E740` | error | A part's `level` is not `component` or `unit` (REQ-TRS-UNIT-001). |
+| `E741` | error | A non-`draft` `level: unit` part has no `implementedBy:` code link (REQ-TRS-UNIT-002). |
+| `E742` | error | A non-`draft` `level: unit` part satisfies no requirement (REQ-TRS-UNIT-002). |
+| `E743` | error | A non-`draft` `level: unit` part has no unit-level test: no `testLevel: L1` TestCase verifies it or a requirement it satisfies (REQ-TRS-UNIT-002). |
+| `E744` | error | A non-`draft` `level: unit` part is contained (through `features:`) by no part with `level: component` (REQ-TRS-UNIT-002). |
 | `W662` | warning | An `ArchitectureRule` selector (`from` or `to`) chooses no component, so the rule would pass without checking anything. |
 | `W663` | warning | The same violation under `severity: warning`. |
 | `W664` | warning | An `ArchitectureRule` waiver is expired (`expires` is today or earlier, so it no longer suppresses anything) or suppresses nothing (REQ-TRS-ARCH-008). |
+| `W740` | warning | A `level: unit` part has an `implementedBy:` local path that names no symbol (`path#symbol`); remote URIs and package references are not judged (REQ-TRS-UNIT-002). |
 | `W316` | warning | `[metadata] profiles` in `.syscribe.toml` names an element that is not a package with `profile: true` (or does not exist). |
 
 ## Stable-ID prefixes, unknown fields, locale variants and about comments (W046, W047, W049, W051, W052)
