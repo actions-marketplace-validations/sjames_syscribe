@@ -2,6 +2,10 @@
 
 `RELEASES`
 
+## 0.56.0 — 2026-10-22
+
+- **New:** `syscribe design-report <part> [--json]` (#371, #403, REQ-TRS-DREP-001) lays out one software part as the detailed-design (ASPICE SWE.3) work product: level and description, interface (its own operations and those of the ports it contains), behaviour (the `ActionDef`s realising its operations), data (features with type, unit and `range`), resources (`ram`, `flash`, `nvm`, `stack`, `period`, `deadline`, `wcet`, `priority`), code (`implementedBy:`), the requirements it satisfies, and the tests that verify it with their verdicts. An empty section says `None.`; an element that is not a software part is a usage error.
+
 ## 0.55.0 — 2026-10-22
 
 - **New:** stereotypes (metadata) are typed, queryable, styleable and checkable (#374–#379, #387, #389, #390). `MetadataDef` stereotypes carry tagged values, specialise one another and apply to any element; `syscribe meta [--def <D>] [--group-by <field>]` reports applications, `[diagram.stereotypes.<Def>]` styles diagrams (fill, stroke, frames, legend), `[[gates.coverage]]` sets a coverage threshold per stereotype, and the MCP server exposes the same surface.
