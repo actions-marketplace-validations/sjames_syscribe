@@ -128,7 +128,7 @@ subActions:
       - {name: channel, value: "1"}
 ```
 
-The owner must resolve and declare that operation, else `E673`. An argument that is not an `in`/`inout` parameter of the operation, or an `in`/`inout` parameter with no argument, is `E674`. Types and units of the values are not yet checked. A sub-action without `operation:` is not looked at.
+The owner must resolve and declare that operation, else `E673`. An argument that is not an `in`/`inout` parameter of the operation, or an `in`/`inout` parameter with no argument, is `E674`. The value of each argument is typed statically (a number with an optional unit such as `2 s`, a boolean, a string) and compared with its parameter's `typedBy` and `unit`: a different kind or unit dimension is `E675` (dimensions are compared, so `2 ms` fills a parameter in `s`). Names and parameters of other types are not checked. A sub-action without `operation:` is not looked at.
 
 ## Validation
 
@@ -140,3 +140,4 @@ The owner must resolve and declare that operation, else `E673`. An argument that
 | E672 | Error | The realising action's signature differs from the operation's (one per difference) |
 | E673 | Error | A sub-action's `operation:` is on something other than a `SendAction`/`PerformAction`, or does not name an operation (`<owner>::<name>`: the owner does not resolve or declares no such operation) (REQ-TRS-OPCALL-001). |
 | E674 | Error | A call that names an operation passes an argument that is not one of its input parameters, or omits an `in`/`inout` parameter (REQ-TRS-OPCALL-002). |
+| E675 | Error | An argument value of a call that names an operation has a different kind (number, boolean, string) or unit dimension than its parameter declares, found statically; names and untypable values are not checked (REQ-TRS-OPCALL-003). |

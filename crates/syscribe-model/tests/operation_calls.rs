@@ -33,6 +33,10 @@ const IFACE: &str = "operations:
     parameters:
       - {name: gain, typedBy: ScalarValues::Real, direction: in}
       - {name: offset, typedBy: ScalarValues::Real, direction: in}
+  - name: wait
+    parameters:
+      - {name: delay, typedBy: ScalarValues::Real, unit: s, direction: in}
+      - {name: enable, typedBy: ScalarValues::Boolean, direction: in}
 ";
 
 /// An `Api` interface with `IFACE` and an action whose `subActions:` list is `subs`.
@@ -112,4 +116,40 @@ fn a_missing_in_parameter_is_e674() {
 fn all_in_parameters_given_is_clean() {
     let els = model(&call("SendAction", "Api::calibrate", "      - {name: gain, value: \"1\"}\n      - {name: offset, value: \"0\"}\n"));
     assert!(codes(&els, "E674").is_empty());
+}
+
+// ── REQ-TRS-OPCALL-003 ─────────────────────────────────────────────────────
+
+fn wait(delay: &str, enable: &str) -> Vec<(String, String)> {
+    let args = format!("      - {{name: delay, value: \"{delay}\"}}\n      - {{name: enable, value: \"{enable}\"}}\n");
+    codes(&model(&call("SendAction", "Api::wait", &args)), "E675")
+}
+
+#[test]
+fn values_of_the_right_kind_and_unit_are_clean() {
+    assert!(wait("2 s", "true").is_empty());
+    assert!(wait("2 ms", "true").is_empty(), "dimensions are compared, not exact units");
+}
+
+#[test]
+fn a_value_of_the_wrong_unit_dimension_is_e675() {
+    let e = wait("2 m", "true");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(e[0].1.contains("delay"), "{e:?}");
+    assert_eq!(wait("2", "true").len(), 1, "a bare number is dimensionless, not a duration");
+}
+
+#[test]
+fn a_value_of_the_wrong_kind_is_e675() {
+    let e = wait("2 s", "3");
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert!(e[0].1.contains("enable"), "{e:?}");
+    assert_eq!(wait("\\\"two\\\"", "true").len(), 1, "a string for a number");
+}
+
+#[test]
+fn a_name_is_not_checked_and_integer_is_a_number_type() {
+    assert!(wait("t0", "armed").is_empty(), "names are not typed");
+    let els = model(&call("SendAction", "Api::read", "      - {name: channel, value: \"\\\"x\\\"\"}\n"));
+    assert_eq!(codes(&els, "E675").len(), 1, "Integer is a number type, so a string is wrong");
 }

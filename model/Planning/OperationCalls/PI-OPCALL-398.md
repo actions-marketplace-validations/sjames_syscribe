@@ -7,9 +7,11 @@ itemType: feature
 achieves:
   - REQ-TRS-OPCALL-001
   - REQ-TRS-OPCALL-002
+  - REQ-TRS-OPCALL-003
 evidence:
   - ref: TC-TRS-OPCALL-001
   - ref: TC-TRS-OPCALL-002
+  - ref: TC-TRS-OPCALL-003
   - path: repo:crates/syscribe-model/tests/operation_calls.rs
 tags:
   - operations
