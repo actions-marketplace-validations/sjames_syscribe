@@ -115,6 +115,21 @@ operations:
     realizedBy: Behaviour::Compute     # an ActionDef with parameters x (in) and one return
 ```
 
+## Calling an operation
+
+A `SendAction` or `PerformAction` in an `ActionDef`'s `subActions:` (at any depth, including `then`/`else`/`body`) names the operation it calls with `operation: <owner>::<name>`; its `parameters:` entries (`name`, `value`) are the arguments.
+
+```yaml
+subActions:
+  - name: sample
+    kind: PerformAction
+    operation: Sensors::Adc::read
+    parameters:
+      - {name: channel, value: "1"}
+```
+
+The owner must resolve and declare that operation, else `E673`. An argument that is not an `in`/`inout` parameter of the operation, or an `in`/`inout` parameter with no argument, is `E674`. Types and units of the values are not yet checked. A sub-action without `operation:` is not looked at.
+
 ## Validation
 
 | Code | Severity | Condition |
@@ -123,3 +138,5 @@ operations:
 | E670 | Error | `errors:` entry does not resolve or is not a value type; `errors:` on an async operation |
 | E671 | Error | `realizedBy:` does not resolve to an `ActionDef` |
 | E672 | Error | The realising action's signature differs from the operation's (one per difference) |
+| E673 | Error | A sub-action's `operation:` is on something other than a `SendAction`/`PerformAction`, or does not name an operation (`<owner>::<name>`: the owner does not resolve or declares no such operation) (REQ-TRS-OPCALL-001). |
+| E674 | Error | A call that names an operation passes an argument that is not one of its input parameters, or omits an `in`/`inout` parameter (REQ-TRS-OPCALL-002). |

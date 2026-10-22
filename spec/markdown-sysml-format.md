@@ -6588,6 +6588,8 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E670` | An operation's `errors:` is wrong: an entry does not resolve or is not an `ItemDef`, `AttributeDef` or enumeration, or the operation is asynchronous (`isAsync: true`) and so returns nothing (REQ-TRS-OPS-001). |
 | `E671` | An operation's `realizedBy:` does not resolve to an `ActionDef` (REQ-TRS-OPS-002). |
 | `E672` | An operation's signature differs from that of the `ActionDef` that realises it: a parameter the action lacks, an extra action parameter, a different direction, type or unit, or a return that does not correspond (one finding per difference; REQ-TRS-OPS-003). |
+| `E673` | A sub-action's `operation:` is on something other than a `SendAction`/`PerformAction`, or does not name an operation (`<owner>::<name>`: the owner does not resolve or declares no such operation) (REQ-TRS-OPCALL-001). |
+| `E674` | A call that names an operation passes an argument that is not one of its input parameters, or omits an `in`/`inout` parameter (REQ-TRS-OPCALL-002). |
 | `E680` | An `AttributeDef`'s `range:` is not an interval (`lo..hi`, `[lo, hi]`, `(lo, hi)`, `[lo, hi)` or `(lo, hi]`, with `lo <= hi`) or not text, or its `pattern:` is not a valid regular expression (REQ-TRS-DATA-001). |
 | `E681` | An `AttributeDef`'s `default:` is outside its (inherited) `range:`, not a number under a numeric range, or does not match its `pattern:` (REQ-TRS-DATA-002). |
 | `E682` | A `value:` bound to an inline feature or an `Attribute` element typed by a constrained `AttributeDef` is outside the type's (inherited) `range:` — converted to its `unit:` — or does not match its `pattern:` in full (REQ-TRS-DATA-003). |
