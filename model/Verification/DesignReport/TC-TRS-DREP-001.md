@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DREP-001
 name: "A design report lays out one software part"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe/tests/design_report_cli.rs
 verifies:

@@ -91,6 +91,7 @@ fn spec_for(cmd: &str) -> Option<Spec> {
         "claim" => &[("--by", Value), ("--dry-run", Switch)],
         "meta" => &[("--def", Value), ("--group-by", Value), ("--json", Switch)],
         "budgets" => &[("--json", Switch)],
+        "design-report" => &[("--json", Switch)],
         "release" | "move" | "set" => &[("--dry-run", Switch)],
         "scaffold-gherkin" => &[("--fix", Switch)],
         "plantuml" => &[("--dry-run", Switch), ("--output", ValueOrEq), ("-o", Value), ("--jar", ValueOrEq)],

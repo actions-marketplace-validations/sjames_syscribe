@@ -2,7 +2,7 @@
 type: PlanningItem
 id: PI-DREP-371
 name: "design-report, slice two of GH #371"
-status: in_progress
+status: done
 itemType: feature
 achieves:
   - REQ-TRS-DREP-001
