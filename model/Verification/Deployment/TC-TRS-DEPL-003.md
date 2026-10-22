@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DEPL-003
 name: "A node must be at least as trustworthy as what it hosts"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/deployment.rs
 verifies:

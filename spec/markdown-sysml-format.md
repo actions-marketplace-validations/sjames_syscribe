@@ -5058,6 +5058,27 @@ margin: 80
 The microcontroller. Software allocated to it may use at most 80 % of each memory.
 ```
 
+### 8.22 Deployment Structure
+
+`REQ-TRS-DEPL-001`..`-003` (GH #370). A `PartDef`/`Part` is a *deployment node* when it declares a `deploymentKind`; software components are deployed on nodes by the usual allocations (`allocatedTo:`, `allocatedFrom:` or an `Allocation` element).
+
+| Field | On | Description |
+|---|---|---|
+| `deploymentKind` | node | `soc`, `core`, `partition`, `container`, `process` or `thread`, outermost first; any other value is **`E730`** |
+| `replicated` | software part | `true` accepts a deliberate deployment on several nodes |
+
+A node contains other nodes through `features:` (typedBy), and only of a *later* kind: a `process` inside a `partition` is valid, a `partition` inside a `process`, or a node inside one of its own kind, is **`E731`**. A component allocated to two or more nodes is **`E732`** unless it is `replicated: true`; allocation to a part with no `deploymentKind` is not counted. A component allocated to a node whose declared `asilLevel` (QM < A < B < C < D) or `silLevel` is lower than its own is **`E733`**; a node or component that declares none is not checked. A part with no `deploymentKind` is outside all of this.
+
+```yaml
+---
+type: PartDef
+name: Stm32G474
+domain: hardware
+deploymentKind: soc
+asilLevel: B
+---
+```
+
 ## 9 Variability and Variation Points
 
 ### 9.1 Variation Definitions
@@ -6557,6 +6578,10 @@ The remaining subsections tabulate the core codes; a few families (`W060`, `E865
 | `E691` | A budget field is malformed: a size (`ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`) that is negative, not a number or `<number> <unit>`, or has an unknown or ambiguous unit (`KB`; use `kB` or `KiB`), or a `margin` outside 0–100 (REQ-TRS-BUD-001). Also: a `period` or `deadline` that is not a positive duration, a `priority` that is not an integer, a malformed `cpuMargin`, or a `scheduling` other than `edf`/`rate-monotonic` (REQ-TRS-BUD-004). |
 | `E692` | The CPU utilisation of the tasks (software parts with a `period` and a `wcet` duration) allocated to a hardware part that declares `cpuMargin` or `scheduling`, counting contained components once, exceeds its limit: the bound (1 for `edf`, Liu–Layland `n (2^(1/n) − 1)` for `rate-monotonic`) × `cpuMargin` / 100. Names the utilisation, the limit and the tasks, largest first (REQ-TRS-BUD-006). |
 | `E693` | A software part's `wcet` (when it is a duration) is greater than its `deadline` (REQ-TRS-BUD-005). |
+| `E730` | A part's `deploymentKind` is not one of `soc`, `core`, `partition`, `container`, `process`, `thread` (REQ-TRS-DEPL-001). |
+| `E731` | A deployment node contains (through `features:`) a node that is not of a later kind than its own, outermost first: `soc` > `core` > `partition` > `container` > `process` > `thread` (REQ-TRS-DEPL-001). |
+| `E732` | A component is allocated to two or more distinct parts that declare a `deploymentKind`, and is not marked `replicated: true` (REQ-TRS-DEPL-002). |
+| `E733` | A component is allocated to a deployment node that declares a lower `asilLevel` (QM < A < B < C < D) or `silLevel` than the component; nodes or components that declare none are not checked (REQ-TRS-DEPL-003). |
 
 #### Warnings
 
@@ -9250,6 +9275,7 @@ since `status: in_progress` alone already signals active work.
 | `ArchitectureRule` | `kind`, `from`, `to`, `via`, `layers`, `maxDepth`, `waivers` (plus `severity`, `rationale`); see §8.20 | 8.20 |
 | Architecture layers | `layer` on a `PartDef`/`Part` (see §8.20) | 8.20 |
 | `AttributeDef` constraints | `range`, `pattern`, `default` (see §8.5.1) | 8.5.1 |
+| Deployment nodes | `deploymentKind`, `replicated` (see §8.22) | 8.22 |
 | Resource budgets | `ram`, `flash`, `nvm`, `stack`, `ramCapacity`, `flashCapacity`, `nvmCapacity`, `margin`, `period`, `deadline`, `priority`, `cpuMargin`, `scheduling` (see §8.21) | 8.21 |
 | Stereotype profiles and checks | `profile`, `version`, `autoApply` (on a package), `checks` (on a `MetadataDef`); see §8.15.2 | 8.15.2 |
 | `Asset` | `cybersecurityProperties`, `assetOwner`, `relatedSafetyGoal` | 8.18.10 |

@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DEPL-001
 name: "Deployment nodes have a kind and nest in order"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/deployment.rs
 verifies:

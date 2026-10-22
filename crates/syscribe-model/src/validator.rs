@@ -1286,6 +1286,8 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 (fm.nvm_capacity.is_some(), "nvmCapacity"),
                 (fm.margin.is_some(), "margin"),
                 (fm.layer.is_some(), "layer"),
+                (fm.deployment_kind.is_some(), "deploymentKind"),
+                (fm.replicated.is_some(), "replicated"),
                 (fm.period.is_some(), "period"),
                 (fm.deadline.is_some(), "deadline"),
                 (fm.priority.is_some(), "priority"),
@@ -9587,6 +9589,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
     // Operations bound to behaviour (REQ-TRS-OPS-001..003, GH #364).
     for (is_error, code, file, msg) in crate::operations::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
+
+    // Deployment structure (REQ-TRS-DEPL-001..003, GH #370).
+    for (is_error, code, file, msg) in crate::deployment::check(elements, &resolver) {
         findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 

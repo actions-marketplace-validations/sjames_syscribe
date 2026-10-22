@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-DEPL-002
 name: "A component is deployed once unless replicated"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/deployment.rs
 verifies:

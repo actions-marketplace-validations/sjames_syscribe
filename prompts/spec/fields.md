@@ -59,6 +59,8 @@ computed by the tool and never authored.
 | `maxDepth` | ArchitectureRule | integer | required for `max-depth` | Longest allowed dependency chain |
 | `waivers` | ArchitectureRule | list | none | `{element, rationale, expires}`; suppresses findings on `element` until `expires` (YYYY-MM-DD) |
 | `layer` | PartDef/Part | string | absent | The architecture layer of the part; also a selector key (GH #369) |
+| `deploymentKind` | PartDef/Part | enum | absent | Makes the part a deployment node: `soc`, `core`, `partition`, `container`, `process`, `thread` (GH #370) |
+| `replicated` | PartDef/Part | bool | false | A software part deliberately deployed on several nodes (GH #370) |
 | `from` | ArchitectureRule | map | required except for `layering`, `max-depth` | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
 | `to` | ArchitectureRule | map | required for `forbid-dependency`, `independence`, `allow-only` | Selector of the components the rule is about (same keys as `from`) |
 | `via` | ArchitectureRule | list | all three | Edge sources that count: `connections`, `typedBy`, `allocations` |
