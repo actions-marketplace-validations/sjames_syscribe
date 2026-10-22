@@ -1297,6 +1297,7 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
                 (fm.margin.is_some(), "margin"),
                 (fm.layer.is_some(), "layer"),
                 (fm.deployment_kind.is_some(), "deploymentKind"),
+                (fm.level.is_some(), "level"),
                 (fm.replicated.is_some(), "replicated"),
                 (fm.period.is_some(), "period"),
                 (fm.deadline.is_some(), "deadline"),
@@ -9605,6 +9606,11 @@ pub fn validate_with_config(elements: &[RawElement], config: &ValidateConfig) ->
 
     // Deployment structure (REQ-TRS-DEPL-001..003, GH #370).
     for (is_error, code, file, msg) in crate::deployment::check(elements, &resolver) {
+        findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
+    }
+
+    // Software component and unit levels (REQ-TRS-UNIT-001..002, GH #371).
+    for (is_error, code, file, msg) in crate::unit_level::check(elements, &resolver) {
         findings.push(if is_error { error(code, &file, &msg) } else { warning(code, &file, &msg) });
     }
 

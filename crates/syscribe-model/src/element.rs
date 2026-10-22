@@ -1448,6 +1448,8 @@ pub struct ColdFrontmatter2 {
 pub struct ColdFrontmatter3 {
     /// On a `PartDef`/`Part`: the kind of deployment node it is (REQ-TRS-DEPL-001).
     pub deployment_kind: Option<String>,
+    /// On a `PartDef`/`Part`: `component` or `unit` (REQ-TRS-UNIT-001).
+    pub level: Option<String>,
     /// On a software `PartDef`/`Part`: deployed on several nodes on purpose (REQ-TRS-DEPL-002).
     pub replicated: Option<bool>,
     /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
@@ -1729,6 +1731,8 @@ pub struct ViewInclude {
 struct ColdWire {
     /// On a `PartDef`/`Part`: the kind of deployment node it is (REQ-TRS-DEPL-001).
     pub deployment_kind: Option<String>,
+    /// On a `PartDef`/`Part`: `component` or `unit` (REQ-TRS-UNIT-001).
+    pub level: Option<String>,
     /// On a software `PartDef`/`Part`: deployed on several nodes on purpose (REQ-TRS-DEPL-002).
     pub replicated: Option<bool>,
     /// On a `PartDef`/`Part`: the architecture layer it belongs to (REQ-TRS-ARCH-006).
@@ -2600,6 +2604,7 @@ impl ColdWire {
                 cybersecurity_properties: w.cybersecurity_properties,
                 tier3: Boxed::of(ColdFrontmatter3 {
                     deployment_kind: w.deployment_kind,
+                    level: w.level,
                     replicated: w.replicated,
                     layer: w.layer,
                     layers: w.layers,

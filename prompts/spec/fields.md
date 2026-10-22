@@ -59,6 +59,7 @@ computed by the tool and never authored.
 | `maxDepth` | ArchitectureRule | integer | required for `max-depth` | Longest allowed dependency chain |
 | `waivers` | ArchitectureRule | list | none | `{element, rationale, expires}`; suppresses findings on `element` until `expires` (YYYY-MM-DD) |
 | `layer` | PartDef/Part | string | absent | The architecture layer of the part; also a selector key (GH #369) |
+| `level` | PartDef/Part | enum | absent | Design level of a software part: `component` or `unit`; a non-draft unit must be traced to code, a requirement, an L1 test and a component (GH #371) |
 | `deploymentKind` | PartDef/Part | enum | absent | Makes the part a deployment node: `soc`, `core`, `partition`, `container`, `process`, `thread` (GH #370) |
 | `replicated` | PartDef/Part | bool | false | A software part deliberately deployed on several nodes (GH #370) |
 | `from` | ArchitectureRule | map | required except for `layering`, `max-depth` | Selector of the components the rule starts from: `package` (qname prefix), `tag`, `domain`, `stereotype`, ANDed |
