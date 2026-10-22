@@ -78,6 +78,7 @@ Ranges are inclusive and name the codes actually in use; gaps inside a range are
 | W994–W995 | Executable evidence (`@verifies`, §12.12) | Scenario `@verifies` tags or `# verifies:` comments naming a requirement outside the TestCase's `verifies:`, and requirements no tagged scenario claims |
 | W996 | System context (`role: external`, §12.13) | A port of a product part in a context composite that connects to nothing |
 | E650, E651, W650 | Stereotype checks and selectors (GH #379, #376) | A `MetadataDef` `checks:` entry fails on a carrier, or is malformed; a malformed stereotype selector |
+| E673–E674 | Operation calls (GH #398) | A call's `operation:` does not resolve, or its arguments do not match the operation's parameters |
 | E670–E672 | Operations (GH #364) | An operation's `errors:` or `realizedBy:` is wrong, or its signature differs from the realising `ActionDef`'s |
 | E680–E683 | Data types (GH #366) | An `AttributeDef`'s `range`/`pattern` is malformed, its `default` or a bound value violates them, or a subtype widens them |
 | E730–E733 | Deployment (GH #370) | A part's `deploymentKind` is unknown, nodes nest out of order, a component sits on two nodes without `replicated`, or a node has lower integrity than its component |

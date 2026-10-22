@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPCALL-002
 name: "A call matches the operation's signature"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operation_calls.rs
 verifies:

@@ -2,7 +2,7 @@
 type: TestCase
 id: TC-TRS-OPCALL-001
 name: "A call names the operation it calls"
-status: draft
+status: active
 testLevel: L2
 sourceFile: repo:crates/syscribe-model/tests/operation_calls.rs
 verifies:

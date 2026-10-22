@@ -138,5 +138,76 @@ pub fn check(elements: &[RawElement], resolver: &Resolver) -> Vec<Finding> {
             }
         }
     }
+    check_calls(elements, resolver, &mut out);
     out
+}
+
+/// The operation `r` (`<owner>::<name>`) names: the owner that declares it and the operation mapping.
+fn find_operation<'a>(elements: &'a [RawElement], resolver: &Resolver, r: &str) -> Result<&'a serde_yaml::Mapping, String> {
+    let r = r.trim();
+    let (owner_ref, op_name) = r.rsplit_once("::").ok_or_else(|| format!("'{r}' is not `<owner>::<operation>`"))?;
+    let owner = resolver
+        .resolve_ref(elements, owner_ref)
+        .ok_or_else(|| format!("'{owner_ref}' in '{r}' does not resolve"))?;
+    owner
+        .frontmatter
+        .operations
+        .iter()
+        .flatten()
+        .filter_map(Yaml::as_mapping)
+        .find(|o| s(o, "name") == Some(op_name))
+        .ok_or_else(|| format!("'{}' declares no operation '{op_name}'", owner.qualified_name))
+}
+
+/// Every sub-action mapping in a tree, recursing through `then`, `else`, `body` and `subActions`.
+fn walk_subs<'a>(list: &'a [Yaml], f: &mut impl FnMut(&'a serde_yaml::Mapping)) {
+    for sa in list {
+        let Some(m) = sa.as_mapping() else { continue };
+        f(m);
+        for branch in ["then", "else", "body", "subActions"] {
+            if let Some(seq) = m.get(branch).and_then(Yaml::as_sequence) {
+                walk_subs(seq, f);
+            }
+        }
+    }
+}
+
+/// Call sites that name an operation (`REQ-TRS-OPCALL-001`..`-002`, GH #398).
+fn check_calls(elements: &[RawElement], resolver: &Resolver, out: &mut Vec<Finding>) {
+    for act in elements.iter().filter(|e| e.frontmatter.element_type == Some(ElementType::ActionDef)) {
+        let Some(subs) = act.frontmatter.sub_actions.as_deref() else { continue };
+        walk_subs(subs, &mut |m| {
+            let Some(r) = s(m, "operation") else { return };
+            let who = format!("sub-action '{}' of '{}'", s(m, "name").unwrap_or("?"), act.qualified_name);
+            if !matches!(s(m, "kind"), Some("SendAction" | "PerformAction")) {
+                out.push((true, "E673", act.file_path.clone(), format!("{who}: `operation:` is only valid on a SendAction or PerformAction")));
+                return;
+            }
+            let op = match find_operation(elements, resolver, r) {
+                Ok(op) => op,
+                Err(why) => {
+                    out.push((true, "E673", act.file_path.clone(), format!("{who}: operation {why}")));
+                    return;
+                }
+            };
+            let op_params = params(op.get("parameters").and_then(Yaml::as_sequence), "in");
+            let given: Vec<&str> = m
+                .get("parameters")
+                .and_then(Yaml::as_sequence)
+                .into_iter()
+                .flatten()
+                .filter_map(|p| p.as_mapping().and_then(|p| s(p, "name")))
+                .collect();
+            for g in &given {
+                if !op_params.iter().any(|p| p.name == *g && p.direction != "return" && p.direction != "out") {
+                    out.push((true, "E674", act.file_path.clone(), format!("{who}: calls '{r}' with argument '{g}', which is not an input parameter of the operation")));
+                }
+            }
+            for p in op_params.iter().filter(|p| p.direction == "in" || p.direction == "inout") {
+                if !given.contains(&p.name) {
+                    out.push((true, "E674", act.file_path.clone(), format!("{who}: calls '{r}' without its parameter '{}'", p.name)));
+                }
+            }
+        });
+    }
 }
