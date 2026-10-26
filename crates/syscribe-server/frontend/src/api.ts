@@ -20,20 +20,45 @@ export async function fetchDiagramModel(qname: string): Promise<DiagramModelSche
     return asJson<DiagramModelSchema>(resp);
 }
 
-/** Reuses the existing `PATCH /api/diagrams/layout/{qname}` endpoint — its
- * request body is unchanged, but it now returns a `WriteResponse` (the
- * guarded-write engine) instead of the retired always-`{ok:true}` body. */
-export async function patchLayout(
-    diagramQname: string,
-    moves: Record<string, { x: number; y: number }>,
-): Promise<WriteResponse> {
+/** One pin: a parent-relative position, optionally with the size ELK gave
+ * the shape (*Pin all* sends both; a drag sends only `x`/`y`). `null`
+ * removes the pin (`REQ-TRS-VIS-006`). */
+export type LayoutPin = { x: number; y: number; w?: number; h?: number } | null;
+
+/** `PATCH /api/diagrams/layout/{qname}` — every entry written is a pin; the
+ * response is a `WriteResponse` (the guarded-write engine). */
+export async function patchLayout(diagramQname: string, pins: Record<string, LayoutPin>): Promise<WriteResponse> {
     const resp = await fetch('/api/diagrams/layout/' + qnameToPath(diagramQname), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(moves),
+        body: JSON.stringify(pins),
     });
     if (!resp.ok) {
         throw new Error(`PATCH layout failed (${resp.status})`);
+    }
+    return asJson<WriteResponse>(resp);
+}
+
+/** `DELETE /api/diagrams/layout/{qname}` — removes every pin of the diagram
+ * (*Auto-layout*, `REQ-TRS-VIS-007`/`011`). */
+export async function deleteLayout(diagramQname: string): Promise<WriteResponse> {
+    const resp = await fetch('/api/diagrams/layout/' + qnameToPath(diagramQname), { method: 'DELETE' });
+    if (!resp.ok) {
+        throw new Error(`DELETE layout failed (${resp.status})`);
+    }
+    return asJson<WriteResponse>(resp);
+}
+
+/** `PUT /api/diagrams/svg/{qname}` — writes the serialised render to the
+ * diagram's companion `svgFile:` (*Save companion SVG*, `REQ-TRS-VIS-011`). */
+export async function putSvg(diagramQname: string, svg: string): Promise<WriteResponse> {
+    const resp = await fetch('/api/diagrams/svg/' + qnameToPath(diagramQname), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ svg }),
+    });
+    if (!resp.ok) {
+        throw new Error(`PUT svg failed (${resp.status})`);
     }
     return asJson<WriteResponse>(resp);
 }
@@ -89,6 +114,22 @@ export interface AddConnectionRequest {
 
 export async function addConnection(req: AddConnectionRequest): Promise<WriteResponse> {
     const resp = await fetch('/api/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req),
+    });
+    return asJson<WriteResponse>(resp);
+}
+
+/** `POST /api/diagrams/shapes/{qname}` — add an existing element to a manifest
+ * diagram, unpinned unless `x`/`y` are given (`REQ-TRS-VIS-024`); a `WriteResponse` like every
+ * other guarded write (a derived diagram, an unresolved ref or a duplicate is
+ * `written: false` with a `reason`). */
+export async function addShape(
+    diagramQname: string,
+    req: { ref: string; x?: number; y?: number },
+): Promise<WriteResponse> {
+    const resp = await fetch('/api/diagrams/shapes/' + qnameToPath(diagramQname), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),

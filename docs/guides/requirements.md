@@ -17,9 +17,7 @@ status: approved
 reqDomain: software
 asilLevel: D          # or silLevel: 4 for IEC 61508
 verificationMethod: test
-derivedFrom:
-  - Safety::SG-KERNEL-001-SchedulingIntegrity   # parent safety goal
-breakdownAdr: Architecture::Decisions::ADR-SCHED-001  # required when derivedFrom is set
+derivedFromSafetyGoal: Safety::SG-KERNEL-001-SchedulingIntegrity   # parent safety goal, a single reference (not derivedFrom: that is requirement-to-requirement, E105)
 tags: [safety, scheduler]
 ---
 
@@ -48,13 +46,13 @@ rationale auditors look for.
 
 ```
 SafetyGoal (SG-*)
-  └─ derivedFrom → Requirement (REQ-* asilLevel: D)
+  └─ derivedFromSafetyGoal → Requirement (REQ-* asilLevel: D)
        └─ derivedFrom → Requirement (REQ-* asilLevel: D, more specific)
 ```
 
-**Critical rule** (E312): You cannot derive from a *parent* package `Requirement` that is
-itself derived from a safety goal if you intend to also derive directly from the goal. Pick one
-parent; derive linearly. The validator catches cycles and ambiguous chains.
+**Critical rule** (E312): a *parent* requirement (one that has `derivedChildren`) must not
+appear in any element's `satisfies:` list. Assign only the leaf requirements to architecture
+elements; the parent is covered through its children.
 
 **Trace a requirement end-to-end**:
 
@@ -87,9 +85,9 @@ syscribe -m model audit
 | Link | Direction | Field | Validated? |
 |---|---|---|---|
 | Requirement → parent requirement or goal | up | `derivedFrom:` | Yes (E/W) |
-| Requirement → architecture element | down | `satisfiedBy:` on the PartDef, OR `satisfies:` on the PartDef | Yes |
+| Requirement → architecture element | down | `satisfies:` on the PartDef (`satisfiedBy` is the computed reverse index; writing it has no effect) | Yes |
 | Requirement → safety goal | up | `derivedFromSafetyGoal:` | Yes |
-| Requirement → cybersecurity goal | up | `derivedFromSecurityGoal:` | Yes |
+| Requirement → cybersecurity goal | up | `derivedFromCybersecurityGoal:` | Yes |
 | Test case → requirement | up | `verifies:` on the TestCase | Yes |
 
 **Coverage gap**: W015 fires when a requirement is active in a configuration but no test case
@@ -106,9 +104,11 @@ Use exactly one of:
 - `silLevel: 1 | 2 | 3 | 4` — IEC 61508
 - `plLevel: a | b | c | d | e` — ISO 13849-1
 
-Never mix them on the same requirement (W006). The parent element's level propagates
-automatically into derived requirements; the validator flags a derived requirement that claims
-a higher level than its parent (E841).
+Never set both `asilLevel` and `silLevel` on the same requirement (W006). Integrity levels
+must propagate down the trace: an element derived (via `derivedFromSafetyGoal:` / `derivedFrom:`)
+from, or satisfying, an element that carries an ASIL/SIL must set one too (E841 / E842 / E843),
+and a *lower* level than its source needs a `breakdownAdr:` justifying the decomposition (W808).
+The level is authored on each element — it is checked, not inherited automatically.
 
 ### 2.6 Multi-variant products (product line engineering)
 

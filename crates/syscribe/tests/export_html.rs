@@ -98,11 +98,54 @@ fn pages_carry_navigation() {
 
 // ---- TC-TRS-HTML-004 --------------------------------------------------------
 
+// REQ-TRS-VIS-010 fallback chain as REQ-TRS-VIS-016 reduced it: an IR with
+// shapes is drawn by the SVG writer (from its pins, or laid out by the
+// embedded ELK), else a companion SVG, else a PlantUML-rendered SVG, else a
+// placeholder.
+
 #[test]
-fn svg_diagram_is_inlined() {
+fn fully_pinned_diagram_is_drawn_inline_by_the_svg_writer() {
+    let (out, _) = run_export(&[]);
+    let page = read(&elem_page(&out, "Diagrams::FxPinned"));
+    assert!(page.contains("class=\"diagram diagram-pinned\""), "rule 1 applies; got {page}");
+    assert!(page.contains("<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:sysml=\"urn:syscribe:1.0\""), "inline SVG with the sysml namespace");
+    assert!(page.contains("sysml:ref=\"Parts::Base\"") && page.contains("sysml:ref=\"Parts::Derived\""), "every shape carries sysml:ref");
+    assert!(page.contains("sysml:source=\"s-derived\" sysml:target=\"s-base\""), "the edge carries its endpoints");
+    assert!(!page.contains("diagram-placeholder"), "no placeholder for a pinned diagram");
+}
+
+#[test]
+fn companion_svg_diagram_is_embedded() {
+    let (out, _) = run_export(&[]);
+    let page = read(&elem_page(&out, "Diagrams::FxCompanion"));
+    assert!(page.contains("<svg"), "companion SVG is embedded inline; got {page}");
+    assert!(page.contains("fx-companion-marker"), "the embedded SVG is the companion file's content");
+    assert!(!page.contains("<?xml"), "the XML prolog is stripped before inlining");
+    assert!(!page.contains("diagram-placeholder"), "no placeholder when a companion SVG exists");
+}
+
+#[test]
+fn unpinned_diagram_is_laid_out_by_the_embedded_elk() {
+    // REQ-TRS-VIS-016: no pins, no companion — still drawn.
     let (out, _) = run_export(&[]);
     let page = read(&elem_page(&out, "Diagrams::FxBlock"));
-    assert!(page.contains("<svg"), "BDD diagram is inlined as SVG");
+    assert!(page.contains("class=\"diagram diagram-laid-out\""), "rule 1 applies to an unpinned IR; got {page}");
+    assert!(page.contains("<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:sysml=\"urn:syscribe:1.0\""), "inline SVG");
+    assert!(page.contains("sysml:ref=\"Parts::Base\"") && page.contains("sysml:ref=\"Parts::Derived\""), "every shape carries sysml:ref");
+    assert!(page.contains("sysml:source=\"s-derived\" sysml:target=\"s-base\""), "the edge carries its endpoints");
+    assert!(!page.contains("diagram-placeholder"), "no placeholder for a drawable diagram");
+}
+
+#[test]
+fn diagram_without_a_picture_gets_a_placeholder() {
+    let (out, _) = run_export(&[]);
+    let page = read(&elem_page(&out, "Diagrams::FxEmpty"));
+    assert!(page.contains("class=\"diagram diagram-placeholder\""), "placeholder div present; got {page}");
+    assert!(page.contains("Open this diagram in the syscribe-server browser"));
+    assert!(page.contains("FxEmpty"), "placeholder names the diagram");
+    assert!(page.contains("SVG diagram"), "placeholder names the kind");
+    assert!(page.contains("<code>Parts</code>"), "placeholder names the subject");
+    assert!(!page.contains("<svg"), "nothing is drawn for an empty, companion-less diagram");
 }
 
 #[test]
@@ -178,4 +221,21 @@ fn output_has_no_network_resource_loads() {
             assert!(!content.contains(n), "{} contains a network resource load ({n})", f.display());
         }
     }
+}
+
+// ---- GH #225: navigation is focused, not the whole tree on every page --------
+
+#[test]
+fn nav_is_focused_and_full_listing_is_one_page() {
+    let (out, code) = run_export(&[]);
+    assert_eq!(code, 0);
+    let all = read(&out.join("all-elements.html"));
+    assert!(all.contains("Parts__Derived.html"), "all-elements.html lists every element");
+    let page = read(&elem_page(&out, "Parts::Derived"));
+    assert!(page.contains("all-elements.html"), "page links to the full listing");
+    // An element page lists its own path, not unrelated deep elements.
+    let mut htmls = Vec::new();
+    files_with_ext(&out.join("elements"), "html", &mut htmls);
+    let links = |p: &str| p.matches("class=\"el").count();
+    assert!(links(&page) < links(&all), "an element page carries fewer nav links than the full listing");
 }

@@ -3,9 +3,11 @@
 //! Exposes a curated set of read tools and guarded-write tools over an in-memory
 //! [`McpStore`], plus the format spec as resources and the authoring prompt.
 
+mod memory;
 mod store;
 mod util;
 mod variability;
+mod watch;
 mod write;
 
 use std::collections::HashSet;
@@ -36,7 +38,7 @@ use tokio::sync::RwLock;
 
 use syscribe_model::element::{ElementType, RawElement};
 use syscribe_model::graph::{children_of, EdgeKind};
-use syscribe_model::mutate::{plan_create, write_confined};
+use syscribe_model::mutate::{plan_create_in, write_confined};
 use syscribe_model::resolver::{Resolver, STABLE_ID_KINDS};
 use syscribe_model::validator::validate_with_config;
 use syscribe_model::walker::walk_model;
@@ -44,9 +46,8 @@ use syscribe_model::walker::walk_model;
 use crate::lint_docs::lint_docs_findings;
 use crate::matrix::matrix_json;
 use crate::mv;
-use crate::query::{fuzzy_score, next_id_value, tc_verdict, template_str, type_label, TcVerdict};
+use crate::query::{fuzzy_score, next_id_value, tc_verdict, type_label, TcVerdict};
 use crate::spec;
-use syscribe_model::plantuml::render_plantuml;
 use syscribe_model::results::{FnVerdict, ResultsData};
 use store::McpStore;
 use util::{elem_detail, elem_summary, finding_json, rel_file, severity_str};
@@ -84,8 +85,11 @@ struct SearchArgs {
     r#type: Option<String>,
     status: Option<String>,
     domain: Option<String>,
-    /// Custom-field predicate, e.g. `custom.<key>=<value>` (see the CLI `--where`).
+    /// Custom-field or stereotype predicate, e.g. `custom.<key>=<value>` or `meta.<Def>.<key>>=2` (see the CLI `--where`).
     r#where: Option<String>,
+    /// Stereotype clauses (the CLI `--metadata`): every clause must hold; `A,B` is either; a leading `!` negates;
+    /// a specialisation counts.
+    metadata: Option<Vec<String>>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
@@ -93,9 +97,24 @@ struct SearchArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct ListByTypeArgs {
     r#type: String,
+    /// Custom-field or stereotype predicate, as for `search`.
+    r#where: Option<String>,
+    /// Stereotype clauses, as for `search`.
+    metadata: Option<Vec<String>>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct MetaArgs {
+    /// The stereotype (a qualified name or last segment); omit for the applications of every stereotype.
+    def: Option<String>,
+    /// Group the elements by this tagged value.
+    group_by: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct GatesArgs {}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TreeArgs {
@@ -156,6 +175,9 @@ struct DescribeTypeArgs {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct TemplateArgs {
     r#type: String,
+    /// Requirement only: id prefix (`REQ` or one configured in `[ids.prefixes]`).
+    #[serde(default)]
+    prefix: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -175,6 +197,56 @@ struct NextIdArgs {
 
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 struct CoverageArgs {}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct LinkTypesArgs {}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct ExecEvidenceArgs {
+    /// Configuration id to project the model onto first (needed when machines use feature parameters).
+    config: Option<String>,
+    /// Restrict the report to these requirement ids/qnames (requirement_coverage) or element qnames (exec_coverage).
+    only: Option<Vec<String>>,
+    /// Thresholds (percent) below which executable evidence is weak.
+    min_states: Option<f64>,
+    min_transitions: Option<f64>,
+    min_guards: Option<f64>,
+    min_score: Option<f64>,
+    /// Compute mutation scores now (slower) instead of reading those `mutate --record` kept.
+    mutate: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct SysmlSubmodelsArgs {}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct ServerStatsArgs {}
+
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct ExportSysmlArgs {
+    /// Optional package (or element) qualified name; only its subtree is exported.
+    #[serde(default)]
+    package: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct FollowArgs {
+    /// Start element (stable id or qualified name).
+    element: String,
+    /// Link to follow: a declared link type (forward), its inverse (reverse), or a
+    /// built-in link / reverse-index name (satisfies, verifies, derivedFrom,
+    /// refines, supertype, typedBy, allocatedTo, satisfiedBy, verifiedBy,
+    /// derivedChildren, refinedBy, specializedBy, allocatedFrom).
+    link: String,
+    /// Flip the direction.
+    #[serde(default)]
+    reverse: bool,
+    /// Follow to a fixed point instead of one hop.
+    #[serde(default)]
+    transitive: bool,
+    /// Bound the traversal to this many hops (implies transitive).
+    depth: Option<u32>,
+}
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct FeaturesArgs {
@@ -220,7 +292,13 @@ struct RunReportArgs {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct CreateElementArgs {
-    qname: String,
+    /// Qualified name. For id-identified types it may end in the id
+    /// (`Requirements::REQ-X-001` -> `Requirements/REQ-X-001.md`); `Package` writes
+    /// `<qname>/_index.md`. Optional when `parent` is given.
+    qname: Option<String>,
+    /// Parent package for an id-identified type (`""` = model root): writes
+    /// `<parent>/<id>.md`, the id being `fields.id` or auto-allocated.
+    parent: Option<String>,
     r#type: String,
     #[schemars(schema_with = "fields_schema")]
     fields: Option<Value>,
@@ -237,6 +315,29 @@ struct UpdateElementArgs {
     doc: Option<String>,
     #[serde(default = "default_true")]
     dry_run: bool,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct EditFeatureArgs {
+    /// One edit: `{"op": "add", "parent"?, "name", "groupKind"?, "mandatory"?}`,
+    /// `{"op": "remove", "feature", "subtree"?}`, `{"op": "rename", "feature", "name"}`,
+    /// `{"op": "setGroup", "feature", "groupKind"}`, `{"op": "setMandatory", "feature", "mandatory"}`, `{"op": "setAbstract", "feature", "isAbstract"}`,
+    /// `{"op": "move", "feature", "newParent"?}`, `{"op": "addConstraint"|"removeConstraint", "feature", "kind", "target"}`,
+    /// `{"op": "setParameter", "feature", "parameter"}`, `{"op": "removeParameter", "feature", "name"}` (refused while a configuration binds it), `{"op": "removeBinding", "configuration", "feature", "name"}` or a returned `undo` (`{"op": "restore", "files"}`).
+    #[schemars(schema_with = "edit_schema")]
+    edit: Value,
+    #[serde(default = "default_true")]
+    dry_run: bool,
+    /// Apply even though the edit makes the feature model worse (a feature dead or forced, the model void, a configuration invalid).
+    #[serde(default)]
+    accept_worse: bool,
+}
+
+fn edit_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "object",
+        "description": "A feature-model edit: an object with an `op` and that operation's fields."
+    })
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -276,6 +377,18 @@ struct SuspectAcceptArgs {
 #[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 struct BaselineListArgs {}
 
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
+struct TraceExportArgs {
+    /// Optional configuration lens: a stored Configuration id/qname or an ad-hoc
+    /// `Features::A,Features::B` set (same as `trace-export --config`).
+    #[serde(default)]
+    config: Option<String>,
+    /// Order of the requirement list and every nested list: `directory`
+    /// (default, the walker's file order), `asc` or `desc` by qualified name.
+    #[serde(default)]
+    sort: Option<String>,
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct BaselineDiffArgs {
     /// The earlier baseline id.
@@ -297,6 +410,8 @@ struct BaselineVerifyArgs {
 struct BatchOp {
     op: String,
     qname: Option<String>,
+    /// create: parent package for an id-identified type (see `create_element`).
+    parent: Option<String>,
     r#type: Option<String>,
     #[schemars(schema_with = "fields_schema")]
     fields: Option<Value>,
@@ -392,7 +507,7 @@ struct SummarizeArgs {
     depth: Option<u32>,
     /// Project onto this Configuration before summarising.
     config: Option<String>,
-    /// Bypass and rewrite the content-hash cache.
+    /// Recompute everything; neither read nor write the content-hash cache.
     no_cache: Option<bool>,
 }
 
@@ -472,6 +587,7 @@ fn tc_verdict_str(v: TcVerdict) -> &'static str {
     match v {
         TcVerdict::Pass => "pass",
         TcVerdict::Fail => "fail",
+        TcVerdict::Waived => "waived",
         TcVerdict::Unknown => "unknown",
     }
 }
@@ -481,12 +597,41 @@ fn fn_verdict_str(v: FnVerdict) -> &'static str {
         FnVerdict::Pass => "pass",
         FnVerdict::Fail => "fail",
         FnVerdict::Ignored => "ignored",
+        FnVerdict::Flaky => "flaky",
+        FnVerdict::Waived => "waived",
         FnVerdict::Missing => "missing",
     }
 }
 
 fn ok(v: Value) -> Result<CallToolResult, ErrorData> {
     Ok(CallToolResult::success(vec![Content::json(v)?]))
+}
+
+/// `only` names resolved to qualified names (ids and qnames alike), unresolved ones kept as written.
+fn resolve_only(store: &store::McpStore, only: Option<&[String]>) -> Vec<String> {
+    only.unwrap_or_default().iter().map(|o| store.resolver.resolve_ref(&store.elements, o).map(|e| e.qualified_name.clone()).unwrap_or_else(|| o.clone())).collect()
+}
+
+/// The executable evidence of `requirement_coverage`/`exec_coverage`, on the model projected onto `config` if given.
+fn exec_evidence_of(store: &store::McpStore, args: &ExecEvidenceArgs) -> Result<syscribe_model::exec_evidence::Evidence, ErrorData> {
+    for (name, v) in [("min_states", args.min_states), ("min_transitions", args.min_transitions), ("min_guards", args.min_guards), ("min_score", args.min_score)] {
+        if v.is_some_and(|p| !(0.0..=100.0).contains(&p)) {
+            return Err(ErrorData::invalid_params(format!("{name} must be a percentage between 0 and 100"), None));
+        }
+    }
+    use syscribe_model::projection::{project, resolve_config_flag, SelectionOutcome};
+    let projected = match args.config.as_deref() {
+        None => None,
+        Some(c) => match resolve_config_flag(&store.elements, c) {
+            SelectionOutcome::Dormant => None,
+            SelectionOutcome::Resolved(sel) => Some(project(&store.elements, &sel)),
+            SelectionOutcome::Error(m) => return Err(ErrorData::invalid_params(m, None)),
+        },
+    };
+    let view = projected.as_deref().unwrap_or(&store.elements);
+    let thresholds = syscribe_model::exec_evidence::Thresholds { min_states: args.min_states, min_transitions: args.min_transitions, min_guards: args.min_guards, min_score: args.min_score };
+    let req = syscribe_model::exec_evidence::Request { model_root: &store.model_root, configuration: args.config.clone(), mutate: args.mutate.unwrap_or(false), thresholds };
+    Ok(syscribe_model::exec_evidence::compute(view, &req))
 }
 
 fn tool_error(msg: impl Into<String>) -> Result<CallToolResult, ErrorData> {
@@ -673,7 +818,7 @@ pub(crate) fn known_type_names() -> Vec<&'static str> {
     let mut names: Vec<&'static str> = vec![
         "PartDef", "Part", "ItemDef", "Item", "PortDef", "Port", "ConnectionDef",
         "Connection", "InterfaceDef", "Interface", "ActionDef", "Action", "ConstraintDef",
-        "Constraint", "CalculationDef", "Calculation", "StateDef", "State", "FlowDef",
+        "Constraint", "CalculationDef", "Calculation", "StateDef", "State", "PlantDef", "FlowDef",
         "EnumerationDef", "Enumeration", "AttributeDef", "RequirementDef", "UseCaseDef",
         "UseCase", "ViewDef", "View", "ViewpointDef", "MetadataDef", "Metadata",
         "VerificationCaseDef", "VerificationCase", "AnalysisCaseDef", "AnalysisCase",
@@ -690,24 +835,71 @@ pub(crate) fn known_type_names() -> Vec<&'static str> {
 }
 
 /// Look up a finding code's human explanation from the embedded `validation` spec
-/// section. Rows look like `| `W001` | Native Requirement … |`.
-fn explain_code(code: &str) -> Option<String> {
+/// section (GH #128). See [`explain_code_in`].
+pub(crate) fn explain_code(code: &str) -> Option<String> {
     let (_, text) = spec::SECTIONS.iter().find(|(n, _)| *n == "validation")?;
+    explain_code_in(text, code)
+}
+
+/// `true` for a cell that holds only a severity word (`error`, `Warning`, …) —
+/// never an acceptable explanation.
+fn is_severity_word(cell: &str) -> bool {
+    matches!(
+        cell.trim().trim_matches('*').to_ascii_lowercase().as_str(),
+        "error" | "warning" | "info" | "information" | "informational"
+    )
+}
+
+/// Find `code`'s explanation in a Markdown catalogue whose tables look like
+/// `| Code | Condition |` or `| Code | Severity | Condition |`. The explanation
+/// column is chosen by the most recent header row (`Condition`/`Description`/
+/// `Meaning`/`Explanation`), falling back to the last column; a bare severity
+/// word is never returned.
+pub(crate) fn explain_code_in(text: &str, code: &str) -> Option<String> {
+    let split = |line: &str| -> Vec<String> {
+        line.trim().trim_matches('|').split('|').map(|c| c.trim().to_string()).collect()
+    };
+    let mut expl_col: Option<usize> = None;
+    let mut prev_was_table = false;
     for line in text.lines() {
         let line = line.trim();
         if !line.starts_with('|') {
+            prev_was_table = false;
             continue;
         }
-        let cells: Vec<&str> = line.trim_matches('|').split('|').collect();
+        let cells = split(line);
+        // A header row is the first row of a table: remember its explanation column.
+        if !prev_was_table {
+            prev_was_table = true;
+            expl_col = cells.iter().position(|c| {
+                matches!(
+                    c.to_ascii_lowercase().as_str(),
+                    "condition" | "description" | "meaning" | "explanation"
+                )
+            });
+            continue;
+        }
         if cells.len() < 2 {
             continue;
         }
-        let cell_code = cells[0].trim().trim_matches('`').trim();
-        if cell_code.eq_ignore_ascii_case(code) {
-            let explanation = cells[1].trim();
-            if !explanation.is_empty() {
-                return Some(explanation.to_string());
-            }
+        let cell_code = cells[0].trim_matches('`').trim();
+        if !cell_code.eq_ignore_ascii_case(code) {
+            continue;
+        }
+        let pick = expl_col
+            .filter(|&i| i > 0 && i < cells.len())
+            .unwrap_or(cells.len() - 1);
+        let mut candidate = cells[pick].as_str();
+        if candidate.is_empty() || is_severity_word(candidate) {
+            // Header didn't help: take the first non-empty, non-severity cell.
+            candidate = cells[1..]
+                .iter()
+                .map(String::as_str)
+                .find(|c| !c.is_empty() && !is_severity_word(c))
+                .unwrap_or("");
+        }
+        if !candidate.is_empty() {
+            return Some(candidate.to_string());
         }
     }
     None
@@ -718,6 +910,33 @@ fn explain_code(code: &str) -> Option<String> {
 /// `syscribe_model::mutate::apply_update_fields` (also used by
 /// `syscribe-server`'s `PUT /api/elements/{*qname}` handler) — this function
 /// is now just the file I/O wrapper around it.
+/// `out` with the element's resolved stereotype applications as `stereotypes` (REQ-TRS-META-060): the written
+/// values plus declared defaults, specialisations and derived applications; absent when it applies none.
+fn with_stereotypes(store: &McpStore, e: &syscribe_model::element::RawElement, mut out: Value) -> Value {
+    if let (Some(apps), Some(obj)) = (syscribe_model::tagged_values::applications_json(&store.elements, &store.resolver, e), out.as_object_mut()) {
+        obj.insert("stereotypes".into(), apps);
+    }
+    out
+}
+
+/// A stereotype name in a `metadata` clause that is no `MetadataDef` and that no element applies is an error,
+/// not a silently empty result (REQ-TRS-META-061).
+fn check_metadata_clauses(elements: &[syscribe_model::element::RawElement], clauses: &[&str]) -> Result<(), String> {
+    let unknown = crate::query::unknown_metadata_names(elements, clauses);
+    if unknown.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("metadata names no MetadataDef of the model: {}", unknown.join(", ")))
+    }
+}
+
+/// The message for a write to an element built into the tool (REQ-TRS-META-064).
+fn builtin_refusal(e: &syscribe_model::element::RawElement) -> Option<String> {
+    e.file_path.starts_with(syscribe_model::tagged_values::BUILTIN_PREFIX).then(|| {
+        format!("'{}' is built into the tool and read-only; specialise it in a package of your own project instead", e.qualified_name)
+    })
+}
+
 fn apply_update(path: &Path, fields: Option<&Value>, doc: Option<&str>) -> Result<(), String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let new_content = syscribe_model::mutate::apply_update_fields(&content, fields, doc)
@@ -726,15 +945,30 @@ fn apply_update(path: &Path, fields: Option<&Value>, doc: Option<&str>) -> Resul
     Ok(())
 }
 
+/// The batch path must refuse what `update_element`/`delete_element` refuse: an entry synthesized
+/// from a shared sheet file has no file of its own, so writing "it" writes the whole sheet.
+fn refuse_synthesized(root: &Path, target: &syscribe_model::element::RawElement, r: &str, why: &str) -> Result<(), String> {
+    if let Some(m) = builtin_refusal(target) {
+        return Err(m);
+    }
+    let rel = Path::new(&target.file_path).strip_prefix(root).unwrap_or(Path::new(&target.file_path)).to_path_buf();
+    if syscribe_model::walker::is_synthesized(target, &rel) {
+        return Err(format!("'{r}' is synthesized from a shared sheet file ({}) — {why}; edit the sheet directly instead", target.file_path));
+    }
+    Ok(())
+}
+
 /// Apply one batch operation against the working model root `root`, re-reading
 /// the current on-disk state so a later op can depend on an earlier one.
 fn apply_op(root: &Path, op: &BatchOp) -> Result<(), String> {
     match op.op.as_str() {
         "create" => {
-            let qname = op.qname.as_deref().ok_or("create op missing `qname`")?;
+            if op.qname.is_none() && op.parent.is_none() {
+                return Err("create op needs `qname` or `parent`".to_string());
+            }
             let ty = op.r#type.as_deref().ok_or("create op missing `type`")?;
             let elems = walk_model(root).map_err(|e| e.to_string())?;
-            let plan = plan_create(&elems, qname, ty, op.fields.as_ref(), op.doc.as_deref())
+            let plan = plan_create_in(&elems, op.parent.as_deref(), op.qname.as_deref(), ty, op.fields.as_ref(), op.doc.as_deref())
                 .map_err(|e| e.to_string())?;
             write_confined(root, &plan.rel, &plan.content).map_err(|e| e.to_string())
         }
@@ -742,17 +976,16 @@ fn apply_op(root: &Path, op: &BatchOp) -> Result<(), String> {
             let r = op.r#ref.as_deref().ok_or("update op missing `ref`")?;
             let elems = walk_model(root).map_err(|e| e.to_string())?;
             let resolver = Resolver::new(&elems);
-            let file = resolver
-                .resolve_ref(&elems, r)
-                .map(|e| e.file_path.clone())
-                .ok_or_else(|| format!("unresolved reference: {r}"))?;
+            let target = resolver.resolve_ref(&elems, r).ok_or_else(|| format!("unresolved reference: {r}"))?;
+            refuse_synthesized(root, target, r, "a field update here would patch the sheet's own top-level frontmatter, not this entry")?;
+            let file = target.file_path.clone();
             apply_update(Path::new(&file), op.fields.as_ref(), op.doc.as_deref())
         }
         "move" => {
             let r = op.r#ref.as_deref().ok_or("move op missing `ref`")?;
             let dest = op.dest.as_deref().ok_or("move op missing `dest`")?;
             let dest_n = dest.replace('/', "::");
-            if !mv::valid_qname(&dest_n) {
+            if !mv::valid_move_dest(&dest_n) {
                 return Err(format!("invalid destination qualified name: {dest}"));
             }
             let elems = walk_model(root).map_err(|e| e.to_string())?;
@@ -763,10 +996,9 @@ fn apply_op(root: &Path, op: &BatchOp) -> Result<(), String> {
             let r = op.r#ref.as_deref().ok_or("delete op missing `ref`")?;
             let elems = walk_model(root).map_err(|e| e.to_string())?;
             let resolver = Resolver::new(&elems);
-            let file = resolver
-                .resolve_ref(&elems, r)
-                .map(|e| e.file_path.clone())
-                .ok_or_else(|| format!("unresolved reference: {r}"))?;
+            let target = resolver.resolve_ref(&elems, r).ok_or_else(|| format!("unresolved reference: {r}"))?;
+            refuse_synthesized(root, target, r, "deleting it would delete every sibling entry in that file")?;
+            let file = target.file_path.clone();
             std::fs::remove_file(&file).map_err(|e| e.to_string())
         }
         other => Err(format!("unknown op: {other}")),
@@ -782,6 +1014,7 @@ const WRITE_TOOLS: &[&str] = &[
     "apply_changes",
     "ingest_results",
     "suspect_accept",
+    "edit_feature",
 ];
 
 fn is_write_tool(name: &str) -> bool {
@@ -810,6 +1043,7 @@ const REPORT_ALLOWLIST: &[&str] = &[
     "conduits",
     "n2",
     "fmea",
+    "hara",
     "fault-tree",
     "impact",
     "lint-docs",
@@ -886,11 +1120,11 @@ impl SyscribeMcp {
                     if let Some(obj) = out.as_object_mut() {
                         obj.insert("frontmatter".into(), Value::Object(fm));
                     }
-                    ok(out)
+                    ok(with_stereotypes(&store, e, out))
                 } else if args.detail {
-                    ok(elem_detail(e))
+                    ok(with_stereotypes(&store, e, elem_detail(e)))
                 } else {
-                    ok(elem_summary(e))
+                    ok(with_stereotypes(&store, e, elem_summary(e)))
                 }
             }
             None => tool_error(format!("unresolved reference: {}", args.r#ref)),
@@ -922,6 +1156,11 @@ impl SyscribeMcp {
             },
             None => None,
         };
+
+        let clauses: Vec<&str> = args.metadata.iter().flatten().map(String::as_str).collect();
+        if let Err(m) = check_metadata_clauses(&store.elements, &clauses) {
+            return tool_error(m);
+        }
 
         let mut scored: Vec<(u32, &RawElement)> = Vec::new();
         for e in &store.elements {
@@ -959,9 +1198,12 @@ impl SyscribeMcp {
                 }
             }
             if let Some(pred) = &where_pred {
-                if !crate::query::custom_or_extra_matches(e, pred) {
+                if !crate::query::where_matches(&store.elements, e, pred, true) {
                     continue;
                 }
+            }
+            if !clauses.is_empty() && !crate::query::metadata_clauses_hold(&store.elements, e, &clauses) {
+                continue;
             }
             scored.push((score, e));
         }
@@ -995,10 +1237,23 @@ impl SyscribeMcp {
         let store = self.store.read().await;
         let limit = args.limit.unwrap_or(100) as usize;
         let offset = args.offset.unwrap_or(0) as usize;
+        let where_pred = match args.r#where.as_deref() {
+            Some(w) => match crate::query::parse_custom_where(w) {
+                Ok(p) => Some(p),
+                Err(e) => return tool_error(e),
+            },
+            None => None,
+        };
+        let clauses: Vec<&str> = args.metadata.iter().flatten().map(String::as_str).collect();
+        if let Err(m) = check_metadata_clauses(&store.elements, &clauses) {
+            return tool_error(m);
+        }
         let matching: Vec<&RawElement> = store
             .elements
             .iter()
             .filter(|e| e.frontmatter.element_type.as_ref().map(type_label) == Some(args.r#type.as_str()))
+            .filter(|e| where_pred.as_ref().is_none_or(|p| crate::query::where_matches(&store.elements, e, p, true)))
+            .filter(|e| clauses.is_empty() || crate::query::metadata_clauses_hold(&store.elements, e, &clauses))
             .collect();
         let total = matching.len();
         let items: Vec<Value> = matching
@@ -1130,7 +1385,19 @@ impl SyscribeMcp {
             "type": elem.frontmatter.element_type.as_ref().map(type_label),
             "name": elem.frontmatter.name,
         });
-        let derived_from_keys = elem.frontmatter.derived_from.clone().unwrap_or_default();
+        // REQ-TRS-LINKTYPE-006 — a `coverage = true` user-defined link extending
+        // derivedFrom counts as a parent here (reporting view, as `trace`).
+        let cov = syscribe_model::link_types::coverage_view(&store.elements, &store.config.link_types);
+        let derived_from_keys = store
+            .resolver
+            .by_qname
+            .get(&elem.qualified_name)
+            .and_then(|&i| cov.get(i))
+            .unwrap_or(elem)
+            .frontmatter
+            .derived_from
+            .clone()
+            .unwrap_or_default();
 
         let kind = args.kind.as_deref().unwrap_or("verification");
         let include_ver = kind == "verification" || kind == "all";
@@ -1285,7 +1552,9 @@ impl SyscribeMcp {
     }
 
     #[tool(
-        description = "Re-read the model from disk. Returns the element count.",
+        description = "Re-read the model from disk now. Returns the element count. Normally \
+        unnecessary: the server reloads automatically when model files change (unless started \
+        with --no-watch).",
         annotations(read_only_hint = true)
     )]
     async fn reload(&self, peer: Peer<RoleServer>) -> Result<CallToolResult, ErrorData> {
@@ -1325,16 +1594,18 @@ impl SyscribeMcp {
     }
 
     #[tool(
-        description = "Return a starter frontmatter+body skeleton for an element type.",
+        description = "Return a starter frontmatter+body skeleton for an element type. For Requirement the id uses the first configured [ids.prefixes] prefix, or the optional `prefix`.",
         annotations(read_only_hint = true)
     )]
     async fn template(
         &self,
         Parameters(args): Parameters<TemplateArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        match template_str(&args.r#type) {
-            Some(content) => ok(json!({ "content": content })),
-            None => tool_error(format!("unknown element type: {}", args.r#type)),
+        let root = self.store.read().await.model_root.clone();
+        match crate::query::template_for_model(&args.r#type, &root, args.prefix.as_deref()) {
+            Ok(Some(content)) => ok(json!({ "content": content })),
+            Ok(None) => tool_error(format!("unknown element type: {}", args.r#type)),
+            Err(msg) => tool_error(msg),
         }
     }
 
@@ -1394,8 +1665,11 @@ impl SyscribeMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let store = self.store.read().await;
         let result = validate_with_config(&store.elements, &store.config);
-        let summary =
-            crate::coverage::coverage_summary(&store.elements, &result, store.config.results.as_ref());
+        // REQ-TRS-LINKTYPE-006 — coverage over the reporting view (a `coverage =
+        // true` extending link counts as its base); validation stays on the
+        // authored elements.
+        let cov = syscribe_model::link_types::coverage_view(&store.elements, &store.config.link_types);
+        let summary = crate::coverage::coverage_summary(&cov, &result, store.config.results.as_ref());
 
         let entries = |v: &[crate::coverage::CoverageEntry]| -> Vec<Value> {
             v.iter().map(|e| json!({ "qname": e.qname, "id": e.id, "name": e.name })).collect()
@@ -1510,7 +1784,7 @@ impl SyscribeMcp {
         // Apply the optional --config projection lens before searching.
         let projected = match args.config.as_deref() {
             None => None,
-            Some(c) => match syscribe_model::projection::resolve_selection(&store.elements, c) {
+            Some(c) => match syscribe_model::projection::resolve_config_flag(&store.elements, c) {
                 syscribe_model::projection::SelectionOutcome::Dormant => None,
                 syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
                     Some(syscribe_model::projection::project(&store.elements, &sel))
@@ -1614,8 +1888,10 @@ impl SyscribeMcp {
         Parameters(args): Parameters<CoverageMatrixArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let store = self.store.read().await;
+        // REQ-TRS-LINKTYPE-006 — same reporting view as `matrix --json`.
+        let cov = syscribe_model::link_types::coverage_view(&store.elements, &store.config.link_types);
         let mut v = matrix_json(
-            &store.elements,
+            &cov,
             args.tag.as_deref(),
             args.status.as_deref(),
             args.gaps_only.unwrap_or(false),
@@ -1668,7 +1944,9 @@ impl SyscribeMcp {
 
         // uncovered: requirement active in a configuration with no verifying TestCase (gap cell).
         if want("uncovered") {
-            let mj = matrix_json(&store.elements, None, args.status.as_deref(), false, results, false);
+            // REQ-TRS-LINKTYPE-006 — same reporting view as `matrix --json`.
+            let cov = syscribe_model::link_types::coverage_view(&store.elements, &store.config.link_types);
+            let mj = matrix_json(&cov, None, args.status.as_deref(), false, results, false);
             if let Some(rows) = mj.get("rows").and_then(|r| r.as_array()) {
                 for row in rows {
                     let id = row.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
@@ -1797,7 +2075,8 @@ impl SyscribeMcp {
 
     #[tool(
         description = "Ingest an external test report (cargo-json | junit) into the results \
-        sidecar. dry_run defaults to true (returns the verdict delta without writing).",
+        sidecar. Merges: replaces only the function-level verdicts, keeping any session-log \
+        verdicts. dry_run defaults to true (returns the verdict delta without writing).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn ingest_results(
@@ -1828,13 +2107,16 @@ impl SyscribeMcp {
             return tool_error("no test records parsed from report (malformed or unrecognised for the given format)");
         }
         let mut store = self.store.write().await;
+        // The sidecar is merged, not replaced (REQ-TRS-INGEST-001): the delta is
+        // computed against what the merged sidecar will hold.
+        let merged = parsed.merged_over(store.config.results.as_ref());
         let mut delta: Vec<Value> = Vec::new();
         for e in &store.elements {
             if e.frontmatter.element_type != Some(ElementType::TestCase) {
                 continue;
             }
             let from = tc_verdict(e, store.config.results.as_ref());
-            let to = tc_verdict(e, Some(&parsed));
+            let to = tc_verdict(e, Some(&merged));
             if from != to {
                 delta.push(json!({
                     "testCase": e.frontmatter.id,
@@ -1847,7 +2129,7 @@ impl SyscribeMcp {
         let extra = extra_map(json!({ "format": fmt, "count": parsed.count, "delta": delta }));
         let apply = move |root: &Path| -> Result<(), String> {
             parsed
-                .write_sidecar(root)
+                .merge_into_sidecar(root)
                 .map(|_| ())
                 .map_err(|e| format!("cannot write results sidecar: {e}"))
         };
@@ -1859,7 +2141,9 @@ impl SyscribeMcp {
 
     #[tool(
         description = "Scan .md/.svg files or directories for unresolvable model references \
-        (W099 prose ids, W100 mermaid qnames, W101 SVG sysml:ref, W102 missing local embeds).",
+        (W099 prose ids, W100 mermaid qnames, W101 SVG sysml:ref, W102 missing local embeds), \
+        plus the advisory W103 (a package _index.md hand-enumerating 3+ of its own members — \
+        membership is generated; see `show <package>`).",
         annotations(read_only_hint = true)
     )]
     async fn lint_docs(
@@ -1868,13 +2152,25 @@ impl SyscribeMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let store = self.store.read().await;
         let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
+        // A nonexistent path is an error, not a clean scan (issue #130).
+        let missing = crate::lint_docs::missing_paths(&paths);
+        if !missing.is_empty() {
+            return Err(ErrorData::invalid_params(
+                format!("lint_docs: path(s) do not exist: {}", missing.join(", ")),
+                None,
+            ));
+        }
         let findings = lint_docs_findings(&store.elements, &paths, args.codes.as_deref());
         ok(json!({ "findings": findings }))
     }
 
     #[tool(
-        description = "Return a Diagram element's SOURCE (PlantUML by default, or the Mermaid \
-        source) plus its W400-W415 structural findings. Does not render an image.",
+        description = "Return a Diagram element's SOURCE plus its W400-W415 structural findings. \
+        `format` is `plantuml` (default), `mermaid` (generated from the Diagram IR, with `%% ref:` \
+        per node) or `svg` (a static SVG per spec 8.16.5, drawn from the diagram's pins when it is \
+        fully pinned and laid out by the embedded ELK otherwise; a diagram with no shapes is a tool \
+        error). A hand-authored `diagramKind: Mermaid` diagram always returns its own Mermaid body. \
+        Does not render an image.",
         annotations(read_only_hint = true)
     )]
     async fn render_diagram(
@@ -1900,8 +2196,21 @@ impl SyscribeMcp {
         let (format, source) = if elem.frontmatter.diagram_kind.as_deref() == Some("Mermaid") {
             ("mermaid".to_string(), extract_mermaid(&elem.doc).unwrap_or_default())
         } else {
-            let src = render_plantuml(elem, &store.elements, None).unwrap_or_default();
-            (args.format.clone().unwrap_or_else(|| "plantuml".to_string()), src)
+            // REQ-TRS-VIS-009/010/016: every format is a pure function of the
+            // Diagram IR; `svg` lays an unpinned diagram out with the embedded
+            // ELK, and fails with the CLI's exact message only for an empty one.
+            let format = args.format.clone().unwrap_or_else(|| "plantuml".to_string());
+            match crate::diagram_export::export_diagram(
+                elem,
+                &store.elements,
+                &store.resolver,
+                &store.model_root,
+                &store.config,
+                &format,
+            ) {
+                Ok(src) => (format, src),
+                Err(msg) => return tool_error(msg),
+            }
         };
         ok(json!({ "format": format, "source": source, "findings": findings }))
     }
@@ -2204,7 +2513,7 @@ impl SyscribeMcp {
     }
 
     #[tool(
-        description = "Create a new element file. dry_run defaults to true (preview only).",
+        description = "Create a new element file. Id-identified types (Requirement, TestCase, ADR, PlanningItem, ...) are written as <parent>/<id>.md: give `parent` (+ optional fields.id, else auto-allocated) or a `qname` ending in the id. Package writes <qname>/_index.md; other types <qname>.md. dry_run defaults to true (preview only).",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
     async fn create_element(
@@ -2213,12 +2522,15 @@ impl SyscribeMcp {
         peer: Peer<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let mut store = self.store.write().await;
-        let qname = args.qname.replace('/', "::");
-        let mut extra = extra_map(json!({ "qname": qname }));
+        let mut extra = extra_map(json!({
+            "qname": args.qname.as_deref().map(|q| q.replace('/', "::")),
+            "parent": args.parent,
+        }));
 
-        let plan = match plan_create(
+        let plan = match plan_create_in(
             &store.elements,
-            &args.qname,
+            args.parent.as_deref(),
+            args.qname.as_deref(),
             &args.r#type,
             args.fields.as_ref(),
             args.doc.as_deref(),
@@ -2227,6 +2539,8 @@ impl SyscribeMcp {
             Err(e) => return ok(refuse(extra, &e.to_string())),
         };
         extra.insert("id".into(), plan.id.clone());
+        extra.insert("qname".into(), Value::String(plan.qname.clone()));
+        extra.insert("path".into(), Value::String(plan.rel.clone()));
 
         let rel = plan.rel.clone();
         let content = plan.content.clone();
@@ -2254,6 +2568,9 @@ impl SyscribeMcp {
             Some(e) => e.clone(),
             None => return tool_error(format!("unresolved reference: {}", args.r#ref)),
         };
+        if let Some(m) = builtin_refusal(&target) {
+            return tool_error(m);
+        }
         let rel = rel_file(&target.file_path, &store.model_root);
         if syscribe_model::walker::is_synthesized(&target, Path::new(&rel)) {
             return tool_error(format!(
@@ -2274,6 +2591,33 @@ impl SyscribeMcp {
     }
 
     #[tool(
+        description = "Edit the feature model with one semantic operation (add, remove, rename, \
+        setGroup, setMandatory, setAbstract, move, addConstraint, removeConstraint, setParameter, removeParameter) through the \
+        guarded write, with its effect on the model's validity: `featureDelta` names the features \
+        that become dead or false-optional, whether the model becomes void and which configurations \
+        become invalid. An edit that makes things worse is not written unless accept_worse is true \
+        (`needsConfirmation`). A commit returns `undo`, the edit that reverses it. dry_run defaults \
+        to true.",
+        annotations(read_only_hint = false, destructive_hint = false)
+    )]
+    async fn edit_feature(
+        &self,
+        Parameters(args): Parameters<EditFeatureArgs>,
+        peer: Peer<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let op: syscribe_model::feature_edit::EditOp = match serde_json::from_value(args.edit.clone()) {
+            Ok(op) => op,
+            Err(e) => return tool_error(format!("not a feature edit: {e}")),
+        };
+        let mut store = self.store.write().await;
+        let extra = extra_map(json!({ "edit": args.edit }));
+        let res = write::feature_edit(&mut store, op, args.dry_run, args.accept_worse, extra);
+        drop(store);
+        notify_committed(&peer, &res).await;
+        ok(res)
+    }
+
+    #[tool(
         description = "Move/rename an element, rewriting inbound references. dry_run defaults to true.",
         annotations(read_only_hint = false, destructive_hint = false)
     )]
@@ -2285,7 +2629,7 @@ impl SyscribeMcp {
         let mut store = self.store.write().await;
         let dest = args.dest.replace('/', "::");
         let extra = extra_map(json!({ "ref": args.r#ref, "dest": dest }));
-        if !mv::valid_qname(&dest) {
+        if !mv::valid_move_dest(&dest) {
             return ok(refuse(extra, "not a valid basic destination qualified name"));
         }
         // `mv::move_element` itself refuses a synthesized source (an FMEA/TARA
@@ -2320,6 +2664,9 @@ impl SyscribeMcp {
             Some(e) => e.clone(),
             None => return tool_error(format!("unresolved reference: {}", args.r#ref)),
         };
+        if let Some(m) = builtin_refusal(&target) {
+            return tool_error(m);
+        }
         let target_qname = target.qualified_name.clone();
         let rel = rel_file(&target.file_path, &store.model_root);
         if syscribe_model::walker::is_synthesized(&target, Path::new(&rel)) {
@@ -2380,6 +2727,211 @@ impl SyscribeMcp {
         drop(store);
         notify_committed(&peer, &res).await;
         ok(res)
+    }
+
+    #[tool(
+        description = "List the project's user-defined link types (declared in [linkTypes] of \
+        .syscribe.toml): name, description, inverse, sourceTypes/targetTypes, cardinality, \
+        acyclic, suspect, the built-in link it extends with its relaxed codes and coverage, \
+        and the instance count. Call this before authoring a `links:` field — an undeclared \
+        key is E630. Same data as `link-types --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn link_types(
+        &self,
+        Parameters(_args): Parameters<LinkTypesArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        ok(syscribe_model::link_types::link_types_json(&store.elements, &store.config.link_types))
+    }
+
+    #[tool(
+        description = "The stereotype report (REQ-TRS-META-052): with no `def`, the applications of every \
+        stereotype; with `def`, the elements that apply it (or a specialisation); with `group_by` too, \
+        grouped by that tagged value (defaults included), largest group first. Same data as \
+        `meta --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn meta(&self, Parameters(args): Parameters<MetaArgs>) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        match crate::metacmd::report(&store.elements, args.def.as_deref(), args.group_by.as_deref()) {
+            Ok(r) => ok(r.json()),
+            Err(m) => tool_error(m),
+        }
+    }
+
+    #[tool(
+        description = "Evaluate the project's stereotype gates (REQ-TRS-META-051, -053): `[gates] deny_meta` \
+        conditions and `[[gates.coverage]]` thresholds, the same ones `validate` gates on. Returns \
+        {tripped, denyMeta: [{condition, element}], coverage: [line]}. Read-only.",
+        annotations(read_only_hint = true)
+    )]
+    async fn gates(&self, Parameters(_args): Parameters<GatesArgs>) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let conds = syscribe_model::tagged_values::load_gate_conditions(&store.model_root);
+        let deny = match crate::query::meta_gate_hits(&store.elements, store.elements.iter(), &conds) {
+            Ok(h) => h,
+            Err(m) => return tool_error(m),
+        };
+        let coverage = match crate::covtree::coverage_gates(&store.elements, &store.config, &store.model_root) {
+            Ok(l) => l,
+            Err(m) => return tool_error(m),
+        };
+        ok(json!({
+            "tripped": !deny.is_empty() || !coverage.is_empty(),
+            "denyMeta": deny.iter().map(|(c, q)| json!({"condition": c, "element": q})).collect::<Vec<_>>(),
+            "coverage": coverage,
+        }))
+    }
+
+    #[tool(
+        description = "Executable evidence per requirement (GH #344): runs the scenarios of the \
+        active TestCases whose subject is a state machine, action or composite, in-process, and \
+        grades each requirement executable | executable-weak | descriptive-only | unverified | \
+        not-applicable, with its scenarios, the coverage of the machines that carry it, mutation \
+        scores and scenarios that claim it without exercising what satisfies it. Same data as \
+        `requirement-coverage --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn requirement_coverage(
+        &self,
+        Parameters(args): Parameters<ExecEvidenceArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let ev = exec_evidence_of(&store, &args)?;
+        let only = resolve_only(&store, args.only.as_deref());
+        let reqs: Vec<_> = ev.requirements.iter().filter(|r| only.is_empty() || only.iter().any(|o| *o == r.id || *o == r.qualified_name)).collect();
+        use syscribe_model::exec_evidence::ReqVerdict as V;
+        let count = |v: V| reqs.iter().filter(|r| r.verdict == v).count();
+        let applicable = reqs.len() - count(V::NotApplicable);
+        let pct = if applicable == 0 { 100.0 } else { 100.0 * count(V::Executable) as f64 / applicable as f64 };
+        ok(json!({
+            "configuration": ev.configuration,
+            "summary": {
+                "requirements": reqs.len(),
+                "executable": count(V::Executable),
+                "executableWeak": count(V::ExecutableWeak),
+                "descriptiveOnly": count(V::DescriptiveOnly),
+                "unverified": count(V::Unverified),
+                "notApplicable": count(V::NotApplicable),
+                "executablePercent": pct,
+            },
+            "requirements": reqs,
+            "scenarios": ev.scenarios,
+            "errors": ev.errors,
+        }))
+    }
+
+    #[tool(
+        description = "Executable evidence per architecture element (GH #333): for each software or \
+        hardware part, whether it is executable itself, which executable parts model it, the \
+        models: correspondence findings naming it, how many executable scenarios exercise it, \
+        mutation scores, and how the requirements it satisfies are verified. Same data as \
+        `exec-coverage --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn exec_coverage(
+        &self,
+        Parameters(args): Parameters<ExecEvidenceArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let ev = exec_evidence_of(&store, &args)?;
+        let only = resolve_only(&store, args.only.as_deref());
+        let elems: Vec<_> = ev.elements.iter().filter(|e| only.is_empty() || only.contains(&e.qualified_name)).collect();
+        let modelled = elems.iter().filter(|e| e.modelled()).count();
+        ok(json!({ "configuration": ev.configuration, "summary": { "elements": elems.len(), "modelled": modelled }, "elements": elems, "errors": ev.errors }))
+    }
+
+    #[tool(
+        description = "Memory and size of the loaded model: element count, total Markdown \
+        body bytes, the in-memory size of one element record, and this server's resident and \
+        peak resident memory in KiB (Linux only; null elsewhere). Use it to watch growth on \
+        large models.",
+        annotations(read_only_hint = true)
+    )]
+    async fn server_stats(
+        &self,
+        Parameters(_args): Parameters<ServerStatsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let usage = memory::usage_kb();
+        ok(json!({
+            "elements": store.elements.len(),
+            "bodyBytes": store.elements.iter().map(|e| e.doc.len()).sum::<usize>(),
+            "elementRecordBytes": std::mem::size_of::<syscribe_model::element::RawElement>(),
+            "residentKb": usage.map(|u| u.0),
+            "peakResidentKb": usage.map(|u| u.1),
+        }))
+    }
+
+    #[tool(
+        description = "Inspect the SysMLv2 submodels (packages declaring `sysmlSubmodel: true`): \
+        per package the .sysml/.kerml files parsed, ingested element counts per kind, \
+        unmapped-construct counts (the data behind W543) and the W540-W543 findings. \
+        Same data as `sysml --json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn sysml_submodels(
+        &self,
+        Parameters(_args): Parameters<SysmlSubmodelsArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        ok(syscribe_model::sysmlv2::report::submodels_json(&store.elements))
+    }
+
+    #[tool(
+        description = "Export the model (or the subtree of `package`) as SysML v2 textual \
+        notation: one-way, lossy, export-only (ADR-SYS-SYSMLV2-002). Returns the SysML text \
+        (unsupported elements appear as `// skipped:` comments, fields with no SysML v2 text form as `// dropped:` comments, and a trailing summary); \
+        same text as `export-sysml [<package>]`. Never writes to disk.",
+        annotations(read_only_hint = true)
+    )]
+    async fn export_sysml(
+        &self,
+        Parameters(args): Parameters<ExportSysmlArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        match syscribe_model::sysmlv2::export::export_sysml(&store.elements, args.package.as_deref()) {
+            Ok(e) => Ok(CallToolResult::success(vec![Content::text(e.text)])),
+            Err(e) => tool_error(e.to_string()),
+        }
+    }
+
+    #[tool(
+        description = "Follow one named link from an element: a declared link type (forward), \
+        its inverse (reverse), or a built-in link/reverse-index name. One hop by default; \
+        transitive=true follows to a fixed point, depth=N bounds the hops. Returns \
+        {start, link, direction, results:[{qname,id,type,name,depth,from}]} — same data as \
+        `follow --format json`.",
+        annotations(read_only_hint = true)
+    )]
+    async fn follow(
+        &self,
+        Parameters(args): Parameters<FollowArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let store = self.store.read().await;
+        let Some(start) =
+            syscribe_model::suspect::resolve_target(&store.elements, &store.resolver, &args.element)
+        else {
+            return tool_error(format!("unresolved reference: {}", args.element));
+        };
+        let max_depth = match (args.depth, args.transitive) {
+            (Some(n), _) => Some(n as usize),
+            (None, true) => None,
+            (None, false) => Some(1),
+        };
+        match syscribe_model::link_types::follow(
+            &store.elements,
+            &store.resolver,
+            &store.config.link_types,
+            start,
+            &args.link,
+            args.reverse,
+            max_depth,
+        ) {
+            Ok(r) => ok(syscribe_model::link_types::follow_json(&r)),
+            Err(msg) => tool_error(msg),
+        }
     }
 
     #[tool(
@@ -2504,6 +3056,49 @@ impl SyscribeMcp {
     }
 
     #[tool(
+        description = "Single-document traceability export (ADR-SYS-TREX-001): every \
+        requirement (native Requirement and SysML RequirementDef/Requirement) with its \
+        identity, derivedFrom/derivedChildren, breakdownAdr, satisfiedBy, verifiedBy (with \
+        ingested verdicts), refinedBy and a computed coverage block (leaf, satisfied, \
+        verified, integrationVerified — the W300/W002/W305 rules), plus a summary. Every \
+        reference is a full qualified name + id; a dangling one is {qname, unresolved: true}. \
+        Optional `config` projects onto a Configuration (inactive elements omitted, the \
+        configuration recorded); `sort` is directory (default) | asc | desc. Same document as \
+        `syscribe trace-export`. Read-only.",
+        annotations(read_only_hint = true)
+    )]
+    async fn trace_export(
+        &self,
+        Parameters(args): Parameters<TraceExportArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let sort = match args.sort.as_deref() {
+            None => crate::trace_export::Sort::Directory,
+            Some(s) => match crate::trace_export::Sort::parse(s) {
+                Some(sort) => sort,
+                None => {
+                    return tool_error(format!(
+                        "invalid value '{s}' for sort; valid values: {}",
+                        crate::trace_export::SORT_VALUES.join(", ")
+                    ))
+                }
+            },
+        };
+        let store = self.store.read().await;
+        match crate::trace_export::build_document(
+            &store.model_root,
+            &store.elements,
+            &store.config,
+            args.config.as_deref(),
+            sort,
+        ) {
+            // Pre-serialised so the field order REQ-TRS-TREX-001 fixes survives
+            // (a `Value` object would re-sort its keys).
+            Ok(doc) => Ok(CallToolResult::success(vec![Content::text(crate::trace_export::to_json(&doc))])),
+            Err(m) => tool_error(m),
+        }
+    }
+
+    #[tool(
         description = "Diff two release baselines by id: element-level added / removed / \
         changed (keyed by stable id, grouped by type) from their manifests, plus whether the \
         aggregates are identical. Read-only.",
@@ -2590,7 +3185,13 @@ impl ServerHandler for SyscribeMcp {
         .with_instructions(
             "Query and guard-write a Syscribe systems model over MCP. Read tools are \
              token-efficient; write tools default to dry_run and refuse commits that \
-             introduce new validation errors."
+             leave a dangling reference or link-type error; every other new error is \
+             listed in the delta with gating:false, so read newErrors. Relationship vocabulary is per-project: call \
+             the `link_types` tool to discover the project's declared link types before \
+             authoring a `links:` field, and never invent an undeclared one (E630); use \
+             `follow` to traverse any link. The server watches the model files and \
+             reloads automatically when they change on disk (unless started with \
+             --no-watch); call `reload` only to force a re-read."
                 .to_string(),
         )
     }
@@ -2851,16 +3452,197 @@ impl ServerHandler for SyscribeMcp {
 }
 
 /// `syscribe mcp` entry point: build a runtime, load the store, serve over stdio.
-/// `read_only` hides and rejects the write tools (`--read-only`).
-pub fn cmd_mcp(model_root: &Path, read_only: bool) -> anyhow::Result<()> {
+/// `read_only` hides and rejects the write tools (`--read-only`); `watch`
+/// enables the file-watch auto-reload (off with `--no-watch`, REQ-TRS-MCP-048).
+pub fn cmd_mcp(model_root: &Path, read_only: bool, watch: bool) -> anyhow::Result<()> {
+    memory::tune_allocator();
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     rt.block_on(async move {
         let store = McpStore::load(model_root)?;
-        let handler = SyscribeMcp::new(Arc::new(RwLock::new(store)), read_only);
+        // Register the file watches before serving so no edit made after the
+        // client connects is missed (REQ-TRS-MCP-048).
+        let armed = watch.then(|| watch::arm(&store.inputs.roots));
+        let store = Arc::new(RwLock::new(store));
+        let handler = SyscribeMcp::new(store.clone(), read_only);
         let service = handler.serve(rmcp::transport::stdio()).await?;
+        if let Some(armed) = armed {
+            // A background task: dropped with the runtime once stdin closes.
+            watch::spawn(armed, store, service.peer().clone());
+        }
         service.waiting().await?;
         Ok::<(), anyhow::Error>(())
     })
+}
+
+#[cfg(test)]
+mod catalogue_tests {
+    //! GH #128 — the validation-code catalogue (`prompts/spec/validation.md`)
+    //! must explain every code the implementation can emit, and
+    //! `explain_finding` must return that explanation, never a severity word.
+    use super::{explain_code, explain_code_in, is_severity_word};
+    use std::collections::BTreeSet;
+    use std::path::Path;
+
+    /// Codes excluded from the completeness gate. Empty: every emitted code must
+    /// carry an explanation (the derive/Allocation and structural-reference
+    /// codes landed with #125/#127).
+    const EXCLUDED: &[&str] = &[];
+
+    /// `text` with every `#[cfg(test)]`-annotated item (the attribute through
+    /// the item's matching closing brace) removed. Brace matching is naive —
+    /// braces inside string literals are assumed balanced (`{}`/`{:?}`), which
+    /// holds for this codebase's format strings.
+    fn strip_test_items(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(at) = rest.find("#[cfg(test)]") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at..];
+            let Some(open) = after.find('{') else { return out };
+            let mut depth = 0usize;
+            let mut end = after.len();
+            for (i, ch) in after[open..].char_indices() {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = open + i + 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            rest = &after[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// Every `"E###"`/`"W###"`/`"I###"` string literal in non-test Rust source
+    /// under `crates/` (files under a `tests/` directory and `#[cfg(test)]`
+    /// items are skipped).
+    fn emitted_codes() -> BTreeSet<String> {
+        let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut out = BTreeSet::new();
+        for entry in walkdir::WalkDir::new(&crates_dir).into_iter().filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("rs")
+                || p.components()
+                    .any(|c| matches!(c.as_os_str().to_str(), Some("tests") | Some("target")))
+            {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(p) else { continue };
+            let text = strip_test_items(&text);
+            let b = text.as_bytes();
+            for i in 0..b.len().saturating_sub(5) {
+                if b[i] == b'"'
+                    && matches!(b[i + 1], b'E' | b'W' | b'I')
+                    && b[i + 2..i + 5].iter().all(u8::is_ascii_digit)
+                    && b[i + 5] == b'"'
+                {
+                    out.insert(text[i + 1..i + 5].to_string());
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn source_scan_finds_codes() {
+        let codes = emitted_codes();
+        // Sanity: the scan must actually see the validator and the CLI.
+        for c in ["E101", "W001", "W047", "I010", "W103"] {
+            assert!(codes.contains(c), "source scan missed {c}; scanned {} codes", codes.len());
+        }
+    }
+
+    #[test]
+    fn every_emitted_code_has_a_catalogue_explanation() {
+        let mut missing = Vec::new();
+        for code in emitted_codes() {
+            if EXCLUDED.contains(&code.as_str()) {
+                continue;
+            }
+            match explain_code(&code) {
+                Some(e) if !is_severity_word(&e) && !e.trim().is_empty() => {}
+                other => missing.push(format!("{code} -> {other:?}")),
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "prompts/spec/validation.md lacks a (non-severity) explanation for: {missing:#?}"
+        );
+    }
+
+    #[test]
+    fn three_column_tables_explain_the_condition_not_the_severity() {
+        for code in ["E600", "W610", "W041", "W042", "E317", "E318", "W045"] {
+            let e = explain_code(code).unwrap_or_default();
+            assert!(!e.is_empty() && !is_severity_word(&e), "{code} -> {e:?}");
+        }
+    }
+
+    #[test]
+    fn header_selects_the_explanation_column() {
+        let md = "| Code | Severity | Condition |\n|---|---|---|\n| `X001` | error | the thing broke |\n\n\
+                  | Code | Condition |\n|---|---|\n| `X002` | two-col row |\n";
+        assert_eq!(explain_code_in(md, "X001").as_deref(), Some("the thing broke"));
+        assert_eq!(explain_code_in(md, "X002").as_deref(), Some("two-col row"));
+        assert_eq!(explain_code_in(md, "X003"), None);
+    }
+
+    #[test]
+    fn stale_rows_are_corrected() {
+        let w7 = explain_code("W007").unwrap_or_default();
+        assert!(w7.contains("supertype") && !w7.contains("Unrecognised frontmatter key ("), "{w7}");
+        let w10 = explain_code("W010").unwrap_or_default();
+        assert!(w10.contains("test results") && !w10.starts_with("`Configuration`"), "{w10}");
+        let e3 = explain_code("E003").unwrap_or_default();
+        assert!(e3.contains("RETIRED"), "{e3}");
+    }
+}
+
+#[cfg(test)]
+mod help_page_tests {
+    //! `prompts/help/mcp.md` (`syscribe help mcp`) documents the live tool surface:
+    //! every advertised tool, every write tool in the guarded-write section, and every
+    //! `run_report` allowlisted command.
+    use super::{SyscribeMcp, REPORT_ALLOWLIST, WRITE_TOOLS};
+
+    const PAGE: &str = include_str!("../../../../prompts/help/mcp.md");
+
+    #[test]
+    fn every_advertised_tool_is_documented() {
+        let tools = SyscribeMcp::tool_router().list_all();
+        assert!(tools.len() > 40, "unexpectedly small tool surface: {}", tools.len());
+        let missing: Vec<String> = tools
+            .iter()
+            .map(|t| t.name.to_string())
+            .filter(|n| !PAGE.contains(&format!("`{n} {{")) && !PAGE.contains(&format!("`{n}`")))
+            .collect();
+        assert!(missing.is_empty(), "MCP tools missing from prompts/help/mcp.md: {missing:?}");
+    }
+
+    #[test]
+    fn write_tools_are_listed_under_guarded_writes() {
+        let section = PAGE.split("## Guarded-write tools").nth(1).expect("guarded-write section");
+        let section = section.split("\n## ").next().unwrap_or("");
+        for w in WRITE_TOOLS {
+            assert!(section.contains(&format!("`{w} {{")), "write tool {w} not listed under Guarded-write tools");
+        }
+    }
+
+    #[test]
+    fn run_report_allowlist_is_documented() {
+        let para = PAGE.split("`run_report {").nth(1).expect("run_report entry");
+        let para = para.split("\n## ").next().unwrap_or("");
+        for c in REPORT_ALLOWLIST {
+            assert!(para.contains(&format!("`{c}`")), "run_report allowlist entry {c} not documented");
+        }
+    }
 }

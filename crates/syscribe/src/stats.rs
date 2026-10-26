@@ -76,7 +76,7 @@ fn keys(e: &RawElement) -> Vec<String> {
 }
 
 /// Does this requirement pass the scoping filters (`--status`, `--tag`, `--where`)?
-fn passes_filters(e: &RawElement, opts: &StatsOptions) -> bool {
+fn passes_filters(elements: &[RawElement], e: &RawElement, opts: &StatsOptions) -> bool {
     if let Some(s) = opts.status {
         if e.frontmatter.status.as_deref() != Some(s) {
             return false;
@@ -89,7 +89,7 @@ fn passes_filters(e: &RawElement, opts: &StatsOptions) -> bool {
         }
     }
     for pred in opts.wheres {
-        if !query::custom_or_extra_matches(e, pred) {
+        if !query::where_matches(elements, e, pred, true) {
             return false;
         }
     }
@@ -133,6 +133,9 @@ fn facet_values(e: &RawElement, facet: &str) -> Vec<String> {
     match facet {
         "status" => vec![e.frontmatter.status.clone().unwrap_or_else(|| "unset".to_string())],
         "reqDomain" => vec![e.frontmatter.req_domain.clone().unwrap_or_else(|| "unset".to_string())],
+        "silLevel" | "asilLevel" if e.frontmatter.integrity_pending() && e.frontmatter.sil_level.is_none() && e.frontmatter.asil_level.is_none() => {
+            vec!["(per configuration)".to_string()]
+        }
         "silLevel" => {
             let neither =
                 e.frontmatter.sil_level.is_none() && e.frontmatter.asil_level.is_none();
@@ -178,7 +181,7 @@ pub fn compute_stats(
     // Requirements in scope: native Requirements passing the scoping filters.
     let reqs: Vec<&RawElement> = view
         .iter()
-        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(e, opts))
+        .filter(|e| is_type(e, ElementType::Requirement) && passes_filters(&view, e, opts))
         .collect();
     let total = reqs.len() as u64;
 
@@ -269,7 +272,7 @@ pub fn compute_stats(
             if !is_verified(r) {
                 unverified.push(disp_id(r));
             }
-            if !is_satisfied(r) {
+            if !is_satisfied(r) && !r.frontmatter.is_non_allocatable_requirement() {
                 unsatisfied.push(disp_id(r));
             }
         }
@@ -371,11 +374,11 @@ pub fn stats_document(
     config: Option<&str>,
     opts: &StatsOptions,
 ) -> Result<Value, String> {
-    use syscribe_model::projection::{project, resolve_selection, SelectionOutcome};
+    use syscribe_model::projection::{project, resolve_config_flag, SelectionOutcome};
 
     let projected: Option<Vec<RawElement>> = match config {
         None => None,
-        Some(c) => match resolve_selection(elements, c) {
+        Some(c) => match resolve_config_flag(elements, c) {
             SelectionOutcome::Dormant => None, // no feature model → whole-model view
             SelectionOutcome::Resolved(sel) => Some(project(elements, &sel)),
             SelectionOutcome::Error(m) => return Err(m),
@@ -383,7 +386,10 @@ pub fn stats_document(
     };
     let view: &[RawElement] = projected.as_deref().unwrap_or(elements);
     let result = syscribe_model::validator::validate_with_config(view, vcfg);
-    compute_stats(view, &result, vcfg.results.as_ref(), opts)
+    // REQ-TRS-LINKTYPE-006 — count `coverage = true` extending links as their base
+    // link in the digest; validated above on the authored elements.
+    let cov_view = syscribe_model::link_types::coverage_view(view, &vcfg.link_types);
+    compute_stats(&cov_view, &result, vcfg.results.as_ref(), opts)
 }
 
 /// The `stats` command. Computes the digest, prints it (text or `--json`), and

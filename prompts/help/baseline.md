@@ -4,8 +4,10 @@
     syscribe -m <root> baseline create --tag <tag> [--name <n>] [--approver <a>]
                                        [--frozen-scope <sel>] [--id <BL-id>]
                                        [--allow-dirty] [--require-reviewed]
-    syscribe -m <root> baseline verify <BL-id> | --all
+                                       [--date <YYYY-MM-DD>]
+    syscribe -m <root> baseline verify <BL-id> | --all [--detail]
     syscribe -m <root> baseline diff <BL-A> <BL-B> [--detail]
+    syscribe -m <root> baseline diff <BL> --current [--detail]
     syscribe -m <root> baseline list
     syscribe -m <root> baseline show <BL-id>
 
@@ -20,6 +22,12 @@ Validation recomputes the in-scope aggregate and compares it to the seal, with
 status-graded severity: `released` drift is **E520** (error), `approved` drift **W520**
 (warning), `draft` silent, `superseded` skipped. A seal that disagrees with its manifest is
 **E521**; an unresolved `supersedes:` is **E522**.
+
+`--tag` names the release; the baseline id defaults to `BL-<tag without a REL- prefix>`
+and must match `^BL(-[A-Z0-9]{2,12})+$`, so `--tag REL-2026-07` gives `BL-2026-07` while
+`--tag REL-1` fails (give `--id BL-REL-01` or similar). A new baseline is created with status
+`draft` (drift is silent until promoted). `create` prints a stderr warning when in-scope trace
+links are suspect or unbaselined (see `suspect`).
 
 ## SCOPE SELECTOR
 `--frozen-scope` (and the `frozenScope:` field) select what is frozen. On the CLI it is a
@@ -57,13 +65,22 @@ resolve it wherever it lives.
 `create` records the current `HEAD` as `gitCommit` and expects a **clean** working tree
 (`--allow-dirty` to override). It does **not** create the git tag — tag the release
 yourself; `verify` checks that `gitTag` resolves to `gitCommit` when the tag exists.
-`diff --detail` reconstructs field/body changes via `git show`.
+`--date <YYYY-MM-DD>` sets the baseline's `date:`; by default it is the date of the `HEAD`
+commit (outside a git repository there is no default and `date:` is left unset).
+`diff --detail` reconstructs field/body changes via `git show` (manifest paths are stored
+relative to the git root; older absolute paths still resolve). `verify` reports a
+`superseded` baseline as `skipped` and ignores it for the exit code. `diff <BL> --current`
+(and `verify <BL> --detail` on drift) list the added / removed / changed elements between the
+sealed baseline and the working tree.
 
 ## EXAMPLES
-    syscribe -m model/ baseline create --tag REL-2026-07 --approver "J. Roe"
+    # the bundled models carry no Baseline yet; create one, then compare two
+    syscribe -m <root> baseline create --tag REL-2026-07 --approver "J. Roe"
+    syscribe -m <root> baseline diff BL-2026-06 BL-2026-07 --detail
+    syscribe -m <root> baseline show BL-2026-07
+    syscribe -m model/ baseline list
     syscribe -m model/ baseline verify --all
-    syscribe -m model/ baseline diff BL-2026-06 BL-2026-07 --detail
-    syscribe -m model/ validate --deny E520   # already fatal; gates released drift
+    syscribe -m model/ validate --deny W520   # E520 is already fatal; gate approved drift too
 
 ## SEE ALSO
     suspect, validate, trace

@@ -10,6 +10,12 @@ on:
       - "model_sil/**"
       - "model_auto/**"
       - "model_mg/**"
+      - "model_gti/**"
+      - "prompts/**"
+      - "spec/**"
+      - "docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
       - ".github/workflows/qual.yml"
   pull_request:
     paths:
@@ -19,6 +25,13 @@ on:
       - "model_sil/**"
       - "model_auto/**"
       - "model_mg/**"
+      - "model_gti/**"
+      - "prompts/**"
+      - "spec/**"
+      - "docs/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/qual.yml"
   workflow_dispatch:
 
 jobs:
@@ -35,6 +48,20 @@ jobs:
 
       - name: Build syscribe
         run: cargo build --package syscribe
+
+      # All Rust unit and integration tests across the workspace (#179).
+      # Includes the guard tests: every documented YAML example validates
+      # (doc_examples), the validation-code catalogue and rules page match the
+      # emitted codes, the CLI reference / help pages / MCP and LSP pages cover
+      # the binary, and help-page examples run.
+      - name: Run workspace tests
+        run: cargo test --workspace
+
+      # FMI plant co-simulation is opt-in (GH #291): build and test it separately.
+      - name: Run FMI feature tests
+        run: |
+          cargo test --manifest-path crates/syscribe-fmi/Cargo.toml
+          cargo test -p syscribe --features fmi --test fmi_cli
 
       - name: Install Graphviz
         run: sudo apt-get install -y graphviz
@@ -65,6 +92,7 @@ jobs:
             "model_auto|"
             "model_mg|--profile magicgrid"
             "model_sil|"
+            "model_gti|"
             "qual|"
           )
           fail=0
@@ -88,6 +116,12 @@ jobs:
           # Keep the full qual/ report as a self-check artifact.
           ./target/debug/syscribe -m qual/ > qual-self-check.md || true
           exit $fail
+
+      - name: Check the committed grid-tie diagram renders (gating, GH #339)
+        run: |
+          # model_gti/generated is what the model renders to today: an edit to a drawn element
+          # without `diagram export --all` fails here, naming the file to regenerate.
+          ./target/debug/syscribe -m model_gti diagram export --all --check
 
       - name: Run qualification test suite
         run: bash qual/tests/run_qual.sh --no-build

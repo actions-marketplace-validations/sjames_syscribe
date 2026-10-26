@@ -35,6 +35,12 @@ Syscribe supports three functional safety standards on the same `HazardousEvent`
 
 All parameters are optional and independent — use the set that matches your domain. W801 fires when a `SafetyGoal` has none of `asilLevel`, `silLevel`, or `plLevel` set.
 
+**ASIL derivation.** For ISO 26262 the ASIL is computed from `severity`/`exposure`/`controllability` with the ISO 26262-3 Table 4 (S0, E0 or C0 gives QM; otherwise the sum S+E+C of 10/9/8/7 gives D/C/B/A, lower is QM). `syscribe show` prints it as `derivedASIL` on a `HazardousEvent` and, as the maximum over its `hazardousEvents:`, on a `SafetyGoal`. A `SafetyGoal` whose `asilLevel` is lower than the derived value raises W811. A `HazardousEvent` with only some of S/E/C raises W813 (cannot derive), and one mixing ISO 26262 and IEC 61508 parameters raises W814. A `SafetyGoal` at ASIL C/D or SIL 3/4 without `safeState:` or `ftti:` raises W812; `ftti:` must be a number plus unit (`ns`, `us`, `ms`, `s`, `min`, `h`), else E880.
+
+### ASIL decomposition
+
+`asilLevel` accepts `QM`, `A`, `B`, `C`, `D`. When requirements derived from one parent form a decomposition (every child lower, a `QM` channel, or `decomposedFrom:`), the channels must be an allowed ISO 26262-9 pair: D = C+A | B+B | D+QM, C = B+A | C+QM, B = A+A | B+QM, A = A+QM (E878), must be at least two (W860) and must satisfy distinct elements (E865) — at every level, not only D. Write the ISO notation directly: `asilLevel: D(D)` and `asilLevel: QM(D)` (quote the value if your editor objects), or the explicit field `decomposedFrom: D`; E879 flags an invalid original level.
+
 ### HazardousEvent
 
 ```yaml
@@ -91,18 +97,20 @@ The brake system shall maintain hydraulic pressure on both axles at all
 times during vehicle motion unless commanded by the driver.
 ```
 
-`hazardousEvents:` must each resolve to a `HazardousEvent` element (E825). W801 fires if no integrity level field is set. W800 fires if a `HazardousEvent` is not referenced by any `SafetyGoal`.
+`hazardousEvents:` must each resolve to a `HazardousEvent` element (E825). W801 fires if no integrity level field is set. W800 fires if a `HazardousEvent` is not referenced by any `SafetyGoal`, unless its S/E/C derive QM (no goal required).
 
 ### Generating templates
 
 ```bash
-syscribe model/ template HazardousEvent > Safety/HARA/HE-BRAKE-001.md
-syscribe model/ template SafetyGoal     > Safety/HARA/SG-BRAKE-001.md
+syscribe -m model/ template HazardousEvent > Safety/HARA/HE-BRAKE-001.md
+syscribe -m model/ template SafetyGoal     > Safety/HARA/SG-BRAKE-001.md
 ```
 
 ---
 
 ## Threat Analysis and Risk Assessment (TARA)
+
+> **Sheet-level common fields.** A `TARASheet` (and an `FMEASheet`) can state `responsibility`, `appliesWhen` and `tags` once; every exploded row inherits them unless the row sets its own (TARA rows only — a row's `tags` list replaces the sheet's). FMEA entries have no per-row keys for these and always inherit. Inheriting `appliesWhen` is what gates the rows in a projected variant; the copy is not re-validated per row (only the sheet is). Upgrading note: row content now includes the inherited values, so a baseline sealed over such rows needs re-sealing.
 
 The `TARASheet` is an **exploded container** (Option B). You write one file holding four section tables; the parser synthesises a first-class element for each row at parse time, so all cross-reference checks, graph edges, and validation rules apply automatically.
 
@@ -118,6 +126,7 @@ damageTable:
     name: "Unauthorized command injection causes vehicle manoeuvre"
     damageSeverity: severe
     impactCategories: [safety, operational]
+    hazardRef: SG-SYS-001        # the SafetyGoal this damage can violate (W030 if absent)
 
 threatTable:
   - id: TS-SYS-001
@@ -129,7 +138,7 @@ threatTable:
 goalTable:
   - id: CSG-SYS-001
     name: "Ensure integrity of safety-critical CAN messages"
-    calLevel: CAL3
+    calLevel: CAL4               # severe × medium feasibility = critical risk → CAL4 (W032)
     securityProperty: integrity
     threatScenarios: [TS-SYS-001]
 
@@ -146,7 +155,7 @@ Each synthesised element (`DS-SYS-001`, `TS-SYS-001`, etc.) is visible in the mo
 ### Generating a template
 
 ```bash
-syscribe model/ template TARASheet > Safety/TARA-SYS-001.md
+syscribe -m model/ template TARASheet > Safety/TARA-SYS-001.md
 ```
 
 ---
@@ -168,6 +177,7 @@ ThreatScenario --damageScenarios--> DamageScenario --hazardRef--> HazardousEvent
 type: DamageScenario
 id: DS-SYS-001
 name: "Unauthorized command injection causes vehicle manoeuvre"
+status: draft
 damageSeverity: severe
 impactCategories: [safety, operational]
 hazardRef: SG-SYS-001          # the SafetyGoal this damage can violate
@@ -199,11 +209,15 @@ Each `ThreatScenario` has a **computed risk level** derived from the severity of
 - **feasibility rank** — `very_low`=0, `low`=1, `medium`=2, `high`=3 (from `attackFeasibility`). Unknown if missing/invalid.
 - if either rank is unknown the risk is **unknown** (listed but never gated); otherwise `score = severity + feasibility` (0..6) maps to **low** (0–1), **medium** (2–3), **high** (4) or **critical** (5–6).
 
+> **Configurable (GH #222).** The rank-sum above is the default `simple` method. A `[cyber]` table in `.syscribe.toml` can select an `annex` method (built-in *example* tables modelled on the ISO/SAE 21434 informative annexes — not normative, verify against your copy of the standard), override matrix/CAL cells, derive `attackFeasibility` from attack-potential factors (`elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment`) and rate impact per category (`safetyImpact`, `financialImpact`, `operationalImpact`, `privacyImpact`; overall = max). See the [ISO/SAE 21434 guide](../guides/iso-21434.md#74a-configuring-the-risk-and-cal-method-cyber). Codes: `W640`, `W641`, `W642`, `E640`, `E641`.
+
 Record the risk-treatment decision on the threat:
 
 ```yaml
 type: ThreatScenario
 id: TS-SYS-001
+name: "Attacker replays CAN frame via OBD-II port"
+status: draft
 attackFeasibility: high
 damageScenarios:
   - DS-SYS-001          # severe → critical risk
@@ -222,9 +236,28 @@ Validation:
 ```bash
 syscribe -m model/ cyber-risk            # Markdown table
 syscribe -m model/ cyber-risk --json     # JSON array
+syscribe -m model/ cyber-risk --format html   # TARA heat table (md|html|json)
 ```
 
 Lists each `ThreatScenario` with its `severity`, `feasibility`, computed `risk` level, `riskTreatment` (or `—`), addressed-by-goal (yes/no), and a `flag` (`untreated` when it trips W031, `unknown` when risk is not computable, else `ok`). The `--json` form is an array of `{id, severity, feasibility, risk, treatment, addressed, flag}`. With no `ThreatScenario`s the command prints a notice and exits 0.
+
+### Heat tables (FMEA, HARA, TARA)
+
+A heat table is a grid of an analysis' two axes with the elements placed in their cells, so concentrations of risk are visible at a glance. Colour is never the only signal: every cell also prints its text label (product and band, ASIL letter, or risk level).
+
+```bash
+syscribe -m model/ fmea report --format md       # severity x occurrence, RPN-banded failure modes
+syscribe -m model/ hara matrix --format html     # S/E rows x C columns -> ASIL, events and goals placed
+syscribe -m model/ cyber-risk --format json      # impact x feasibility under the configured [cyber] method
+```
+
+| View | Rows x columns | Cell | Placed elements |
+|---|---|---|---|
+| FMEA | severity 10..1 x occurrence 1..10 | severity x occurrence product, toned (>=50 critical, >=20 high, >=8 medium) | each `FMEAEntry` with its RPN, coloured by RPN band (>=200 critical, >=100 high, >=50 medium) |
+| HARA | S1-S3 x E1-E4 by C1-C3 | ASIL from ISO 26262-3 Table 4 (QM, A, B, C, D) | `HazardousEvent`s in their S/E/C cell; a `SafetyGoal` (marked `goal`) in the cell of its highest-ASIL event |
+| TARA | impact severe..negligible x feasibility very_low..high | risk level of the configured method (with the matrix value for `annex`) | each `ThreatScenario` |
+
+Elements that cannot be placed (missing or invalid axis values, `S0`/`E0`/`C0` events, threats with unknown impact or feasibility) are listed under "Not placed" instead of being dropped. `--format html` writes a standalone page (inline CSS, no scripts, no network); `--format json` emits `{title, rows, cols, legend, cells[{row, col, label, tone, elements}], unplaced}` with tones `ok|low|medium|high|critical`. `export-html` adds the three grids as `reports/heat.html`, and `syscribe-server` serves them at `/heat`. The default text output and `--json` of `fmea report` and `cyber-risk` are unchanged.
 
 ---
 
@@ -300,9 +333,44 @@ latentDiagnosticCoverage: 0.90  # DCl, 0.0–1.0 — fraction of the latent part
 ---
 ```
 
-`eventKind` values: `basic` (quantifiable leaf), `undeveloped` (not yet analysed), `house` (assumed event). The `ref:` field links the event to an architecture element.
+`eventKind` values: `basic` (quantifiable leaf), `undeveloped` (not yet analysed), `house` (assumed event).
+
+The optional `ref:` field links the event to the model element whose failure it represents — typically a `Part`/`PartDef`, written as a qualified name or a stable id. It is resolved like any other cross-reference; a `ref:` that does not resolve is **E927**. The link is shown by `show <FTE-id>`, listed by `links` in both directions (the element lists the event as an inbound `ref`), carried in the element graph as a `faultTreeEventRef` edge, and printed on a second line of the event's node in `fault-tree render`.
 
 `diagnosticCoverage` (DC) and `latentDiagnosticCoverage` (DCl) are the FMEDA inputs to the quantitative metrics roll-up below. Both are optional and must lie in `0.0`–`1.0` (else **E846**).
+
+---
+
+## Fault-tree analysis — `fault-tree analyze`
+
+A `FaultTree` is a Boolean model: the **top node** (the one gate or event no other node references) occurs when its `inputs` combine per their `gateType`. `syscribe -m model/ fault-tree analyze <FT-id>` evaluates it:
+
+```bash
+syscribe -m model/ fault-tree analyze FT-BRAKE-001            # Markdown report
+syscribe -m model/ fault-tree analyze FT-BRAKE-001 --json     # cutSets, events, topProbability, …
+syscribe -m model/ fault-tree analyze FT-BRAKE-001 --max-order 3 --no-ccf
+```
+
+It reports:
+
+- **Minimal cut sets** — the smallest sets of basic events whose joint occurrence causes the top event, with their **order** (1 = single point of failure, 2 = dual point, …) and probability. `AND` and `inhibit` gates conjoin their inputs (an `inhibit` gate's last input is the conditioning event), `OR` disjoins, `XOR` is parity, `NOT` negates its single input. `house` events are constants (TRUE only at `probability: 1`); `basic` and `undeveloped` events are variables.
+- **Top-event probability** over the tree's `missionTime` — exact (computed from a reduced ordered BDD, so shared events are handled correctly) plus the rare-event and min-cut-upper-bound approximations. An event's probability is its explicit `probability:`, otherwise `1 − e^(−λ·t)` from `failureRate` (λ, /h) and `missionTime` (`"8760 h"`, `"1e9 h"`, `"10 y"`). If an event in the analysis has neither, the probability is `n/a` and the report says which events lack one. A gate's own `probability:` is informational and ignored.
+- **Importance** per event — Fussell-Vesely (share of the top-event probability involving the event), Birnbaum (`∂P/∂p`) and RAW (risk achievement worth) — and a **role**: `single_point`, `dual_point`, `multi_point`, `irrelevant` (in no cut set), `unreachable` (not below the top node) or `house`.
+- **Common-cause failure (beta factor).** Give two or more events the same `ccfGroup:` and a `ccfBeta:` (0.0–1.0). Each member is replaced by `OR(member_independent, CCF:<group>)` with `P(independent) = (1−β)·p` and `P(CCF) = β·mean(p)`, so a redundant `AND` pair shows the common-cause event as an order-1 cut set. `--no-ccf` switches the expansion off.
+
+```yaml
+type: FaultTreeEvent
+id: FTE-BRAKE-002
+name: "Redundant valve B stuck"
+eventKind: basic
+failureRate: 1.0e-7
+ccfGroup: VALVES      # shared with FTE-BRAKE-001
+ccfBeta: 0.1
+```
+
+The same analysis is a public library API (`syscribe_model::fta`) reused by `metrics` and by diagram tooling. A tree that has events but **no gates** is treated as an implicit OR of its events (legacy flat form).
+
+**Structural checks** (`validate`): a gate cycle or self-input is **E980**; `NOT` with more than one input, `XOR` with more than two, or an `inhibit` gate without a conditioning input is **E981**; a negative `failureRate` **E982**; a `probability` outside 0–1 **E983**; a `ccfBeta` outside 0–1 **E984**; a gate/event not reachable from the top node **W980**; one outside any `FaultTree` directory **W981**; a single-input `AND`/`OR` **W982**; a one-member `ccfGroup` **W983**; a `ccfGroup` with missing or inconsistent betas **W984**; an unparsable `missionTime` **W987**.
 
 ---
 
@@ -310,33 +378,73 @@ latentDiagnosticCoverage: 0.90  # DCl, 0.0–1.0 — fraction of the latent part
 
 > **First-order approximation.** This is a first-order, FMEDA-style roll-up driven entirely by your `failureRate` and diagnostic-coverage inputs. It is **not** a substitute for a full FMEDA and **must be independently verified** before use in a hardware safety case.
 
-For each `SafetyGoal`, the tool collects the contributing `FaultTreeEvent`s — the events under the `FaultTree`(s) whose `topEvent` resolves to that goal — and computes, over the events that declare a `failureRate` (λ, /h):
+For each `SafetyGoal`, the tool analyses the `FaultTree`(s) whose `topEvent` resolves to that goal (see [Fault-tree analysis](#fault-tree-analysis-fault-tree-analyze)) and uses the **minimal cut sets**, so gate logic matters: `AND(a,b)` and `OR(a,b)` over the same events give different metrics. Only **reachable, non-`house`** events that appear in a cut set and declare a non-negative `failureRate` (λ, /h) contribute. An event in an order-1 cut set is *single-point*; an event only in larger cut sets is *multi-point*:
 
 ```
 Σλ      = Σ λ_i
-λ_RF    = Σ λ_i · (1 − DC_i)              SPFM = 1 − λ_RF / Σλ
-λ_MPFL  = Σ λ_i · DC_i · (1 − DCl_i)      LFM  = 1 − λ_MPFL / (Σλ − λ_RF)
-PMHF    = λ_RF + λ_MPFL  (/h)
+λ_RF    = Σ_single λ_i · (1 − DC_i)                       SPFM = 1 − λ_RF / Σλ
+λ_MPFL  = Σ_single λ_i · DC_i · (1 − DCl_i)
+        + Σ_multi  λ_i · (1 − DCl_i)                      LFM  = 1 − λ_MPFL / (Σλ − λ_RF)
+λ_DPF   = Σ over order-2 cut sets {a,b}, both orders (x,y):
+              λ_x · (1 − DCl_x) · λ_y · (1 − DC_y) · T     T = the tree's missionTime (hours)
+PMHF    = λ_RF + λ_DPF  (/h)
 ```
 
-DC defaults to 0 when absent; LFM is reported only when at least one contributing event declares `latentDiagnosticCoverage`.
+Cut sets of order ≥ 3 do not enter `λ_DPF`. Without a `missionTime`, `T` defaults to 10000 h and **W986** is raised.
 
-**Targets** by ASIL: SPFM ≥ {B 0.90, C 0.97, D 0.99}; LFM ≥ {B 0.60, C 0.80, D 0.90}; PMHF < {B/C 1e-7, D 1e-8} /h (ASIL A: not gated). SIL-only goals gate PMHF/PFH < {SIL2 1e-6, SIL3 1e-7, SIL4 1e-8} /h; SPFM/LFM are reported but not gated.
+**Missing diagnostic data is conservative, not optimistic.** A contributing event with no `diagnosticCoverage`, or — once any event of the goal declares `latentDiagnosticCoverage` — no `latentDiagnosticCoverage`, is treated as coverage `0` and raises **W985** (one finding per event and field). LFM is reported only when at least one contributing event declares `latentDiagnosticCoverage`. A DC/DCl outside 0–1 (**E846**) is clamped, never extrapolated.
 
-**Opt-in.** A goal's metrics are computed and gated **only** if at least one contributing event declares `diagnosticCoverage`. Goals without DC data are reported as `n/a` and never gated. A goal that misses its target raises **W033** (warning; gate with `--deny W033`, promote via `[profiles]`).
+**Targets** by ASIL: SPFM ≥ {B 0.90, C 0.97, D 0.99}; LFM ≥ {B 0.60, C 0.80, D 0.90}; PMHF < {B/C 1e-7, D 1e-8} /h (ASIL A: not gated). SIL-only goals gate PMHF/PFH < {SIL1 1e-5, SIL2 1e-6, SIL3 1e-7, SIL4 1e-8} /h; SPFM/LFM are reported but not gated.
+
+**Opt-in.** The SPFM/LFM/PMHF roll-up is computed only if at least one contributing event declares `diagnosticCoverage`, and a goal whose roll-up misses its target raises **W033** (warning; gate with `--deny W033`, promote via `[profiles]`). A goal without coverage data is judged on a rate-only figure instead (below), which raises W033 only when the goal declares its own `target:` or `.syscribe.toml` sets the limit.
 
 ```bash
 syscribe -m model/ metrics            # table: per-goal SPFM / LFM / PMHF + pass/fail
-syscribe -m model/ metrics --json     # [{id, asil, sil, spfm, lfm, pmhf, pass}]
+syscribe -m model/ metrics --json     # [{id, asil, sil, spfm, lfm, pmhf, lambdaDpf, pass, verdict}]
 ```
+
+The verdict is `pass`, `fail`, `not credible`, `no target` (a figure but no recognised `asilLevel`/`silLevel` and no `target:`) or `n/a` (not computed). **`metrics` exits 2 when a goal fails on a gating figure** (usage errors exit 1), so it can be used as a CI gate without `validate --deny W033`. The first-order roll-up always gates; a rate-only or PFDavg figure gates once the goal declares `target:` or `.syscribe.toml` sets the limit, and is advisory before that.
+
+### Safety targets: rate-only and demand-mode verdicts (GH #343)
+
+Every goal with a quantified tree gets a figure, even without coverage data:
+
+| Goal | Figure |
+|---|---|
+| continuous, with `diagnosticCoverage` | PMHF/PFH from the first-order roll-up above (unchanged) |
+| continuous, no coverage data | PFH = exact top-event probability over `missionTime` ÷ `missionTime`, labelled *rate only* |
+| `target: {mode: demand, proofTestInterval: …}` | PFDavg = Σ over the minimal cut sets of Π λ·(1−DC)·TI^k/(k+1) |
+
+```yaml
+# on the SafetyGoal
+target:
+  mode: demand              # continuous (default) | demand
+  value: 1.0e-3             # optional: overrides the table
+  unit: probability         # optional: /h | probability
+  proofTestInterval: 1 year
+```
+
+The limit is the goal's own `target.value`, else `[reliability.targets]` in `.syscribe.toml`, else the built-in ISO 26262 / IEC 61508 table; every report says which, because the values are your compliance decision:
+
+```toml
+[reliability]
+plausibleProbability = 0.1        # default: no event should fail with p > 0.1 over the mission
+
+[reliability.targets.sil.2]
+pfh = 1.0e-6                      # pmhf/pfh (/h), pfd, spfm, lfm
+```
+
+A figure is **not credible** when an event (or the top event) fails with a probability above the plausibility bound over the mission time: λ·T is no longer small, so the figure is no longer a rate. In demand mode the test is each event's λ·(1−DC)·TI and the PFDavg itself, and a level with no PFDavg limit (the ASIL table) is `no target` until you give one. `metrics` names the largest contributor (Fussell-Vesely), the rate to check first. Record where a rate comes from with `rateSource:` and `rateStatus: verified | secondary | unverified` on the event or FMEA row (E986 otherwise); a verdict that rests on rates that are not verified or secondary says *unverified rates*, `list FaultTreeEvent --rate-status unverified` finds them, and a claimed rate above the bound is **W988**. `metrics --sensitivity` shows each event's figure and verdict with its λ ÷10 and ×10, marking those that move the verdict. `audit` shows the figure; `safety-case` adds a "quantitative target" solution node under the goal. A malformed `target:` is **E985**, a malformed `[reliability]` entry **W989**.
+
+**Tree versus campaign.** `inject <TestCase> --ft <FT> --consistency` compares the tree with the executable model: every minimal cut set gets its executable verdict (`confirmed`, or `conservative or a model gap` when the model survives it), and the search over combinations of the composite's faults (order 2 by default, `--consistency-order`, at most `--max-runs` 500) reports every defeating set that contains no minimal cut set as **missing from the tree**. An FMEA row counts as the event its `ftaRef` names; a row without `ftaRef` is not in the tree. The comparison uses every minimal cut set, whatever `--max-order` is. Combinations the invariants cannot judge (no applicable `Except under` clause) are counted, make `inject` exit 2, and can hide a missing set. See `syscribe help inject`.
 
 ### Generating templates
 
 ```bash
-syscribe model/ template FaultTree      > Safety/FTA/FT-BRAKE-001.md
+syscribe -m model/ template FaultTree      > Safety/FTA/FT-BRAKE-001.md
 mkdir -p Safety/FTA/FT-BRAKE-001
-syscribe model/ template FaultTreeGate  > Safety/FTA/FT-BRAKE-001/FTG-BRAKE-001.md
-syscribe model/ template FaultTreeEvent > Safety/FTA/FT-BRAKE-001/FTE-BRAKE-001.md
+syscribe -m model/ template FaultTreeGate  > Safety/FTA/FT-BRAKE-001/FTG-BRAKE-001.md
+syscribe -m model/ template FaultTreeEvent > Safety/FTA/FT-BRAKE-001/FTE-BRAKE-001.md
 ```
 
 ---
@@ -415,7 +523,9 @@ Feasibility rank: `very_low`=0, `low`=1, `medium`=2, `high`=3.
   **MIN** of its children (a chain is only as feasible as its hardest step).
 - An `AttackTreeGate` `OR` (alternatives) is the **MAX** of its children (the
   attacker takes the easiest path).
-- The `AttackTree`'s feasibility is the value of its single root child, mapped
+- The `AttackTree`'s feasibility is the value of its root node — the one gate/step
+  of the tree that no other gate lists in its `inputs:` (file order does not
+  matter; with no unique root the roll-up is not computed), mapped
   back to a label.
 
 If the computed feasibility differs from the linked
@@ -488,23 +598,23 @@ responsibility: OEM
 type: ConfirmationMeasure
 id: CM-BRK-001
 name: "Independent functional-safety assessment of the braking goal"
-status: completed                 # planned | in_progress | completed
+status: completed                 # planned | in_progress | completed  (else E924)
 measureType: functional_safety_assessment
 #   confirmation_review | functional_safety_audit |
 #   functional_safety_assessment | cybersecurity_assessment   (else E849)
 independenceLevel: I3             # I1 | I2 | I3                (else E850)
-confirms:                         # work product ref(s), resolved via the Resolver (else E851)
+confirms:                         # work product ref(s) (else E851); goals, hazards, requirements, FaultTree, FMEASheet, TARASheet, ADR, Argument, TestPlan, Allocation (else E860)
   - SG-BRK-001
 ```
 
-Structural errors: E847 (missing `id`/`name`/`status`), E848 (`id` not `CM-*`), E849/E850
-(invalid enum), E851 (unresolved `confirms:`).
+Structural errors: E847 (missing `id`/`name`/`status`), E848 (`id` not `CM-*`), E849/E850/E924
+(invalid `measureType`/`independenceLevel`/`status`), E851 (unresolved `confirms:`).
 
 **W039** flags a high-integrity item that lacks its required independent assessment: an
-`asilLevel: D` `SafetyGoal`/native `Requirement` with no I3 `functional_safety_assessment`
-confirming it, or a `calLevel: CAL4` `CybersecurityGoal` with no I3 `cybersecurity_assessment`.
-The mapping is minimal — only ASIL D → I3 FS assessment and CAL4 → I3 cybersecurity assessment
-are gated; lower levels are future tightening. **Opt-in:** W039 is dormant unless at least one
+`asilLevel: D` or `silLevel: 3`/`4` `SafetyGoal`/native `Requirement` with no I3
+`functional_safety_assessment` confirming it, a `calLevel: CAL4` `CybersecurityGoal` with no I3
+`cybersecurity_assessment`, or a `calLevel: CAL3` `CybersecurityGoal` with no I2-or-I3
+`cybersecurity_assessment`. Lower levels are not gated. **Opt-in:** W039 is dormant unless at least one
 `ConfirmationMeasure` exists, so bundled models stay silent. Both W038 and W039 are warnings,
 gateable (`--deny W038` / `--deny W039`) and profile-promotable.
 
@@ -569,9 +679,14 @@ For each `SafetyGoal` the view renders the GSN tree: the goal → the `Argument`
 results sidecar is present) → any `AssumptionOfUse` that `appliesTo` the goal/argument.
 
 It **also folds in the implicit chain** that already exists without explicit Argument
-nodes: `SafetyGoal ← Requirement` (`derivedFromSafetyGoal`) `← TestCase` (`verifies`).
-That makes the view immediately useful on models that have goals + requirements + tests
-but no `Argument` nodes yet. The view is read-only and exits 0 (a notice when there is
+nodes: `SafetyGoal ← Requirement` (`derivedFromSafetyGoal`) `← derivedChildren` (transitively)
+`← TestCase` (`verifies`) — for every goal, including goals that have Arguments (a requirement
+an Argument cites is shown once). That makes the view immediately useful on models that have
+goals + requirements + tests but no `Argument` nodes yet, and stops a partial argument from
+looking complete. Nodes with no supporting evidence are marked `[UNDEVELOPED]`, every goal
+shows a `SUPPORTED`/`INCOMPLETE`/`FAILING` verdict, and a `Completeness:` summary counts goals,
+requirements without tests, test verdicts and undeveloped nodes. An `Argument` cycle is `E881`;
+a `solution` with no `evidence:` is `W861`. The view is read-only and exits 0 (a notice when there is
 no `SafetyGoal`).
 
 ```
@@ -617,10 +732,123 @@ entries:
 
 RPN is computed automatically from `fmeaSeverity × occurrence × detection` if all three are present. W903 fires when RPN > 100 and no `recommendedAction` is set.
 
+Two row-integrity checks keep a sheet honest:
+
+- **Every row needs an `id:`** (`FM-*`). A row without one cannot become an `FMEAEntry`, so it is dropped from validation and `fmea report` — and reported as error **E923** on the sheet, naming the row's position in `entries:` and its `failureMode:`.
+- **The computed RPN wins.** When `fmeaSeverity`, `occurrence` and `detection` are all present, an explicit `rpn:` is ignored in favour of `S × O × D`; if it disagrees, warning **W928** names the row and both values so the stale number can be corrected or removed. An explicit `rpn:` on a row missing a factor is used as-is.
+
+### Injectable failure modes — `injection:`
+
+A failure mode can carry a machine-readable **fault model** so that scenarios of an executable composite ([System composition](system-composition.md)) can inject it. `injection:` is a list on an FMEA row (and on a `FaultTreeEvent`); the row's `ref:` names the part definition that fails, and the element's id is the fault's id:
+
+```yaml
+entries:
+  - id: FM-LINK-001
+    ref: Link::Transmitter
+    failureMode: "command lost"
+    injection: [{kind: drop, port: out}]
+  - id: FM-LINK-002
+    ref: Link::Transmitter
+    failureMode: "level sensor stuck"
+    injection: [{kind: stuck, variable: level, value: "3"}]
+```
+
+| `kind` | Fields | Effect while injected |
+|---|---|---|
+| `stuck` | `variable`, `value` | writes to the variable are discarded; it holds `value` |
+| `offset` | `variable`, `by` | every written value is increased by `by` (same dimension) |
+| `silent` | — | the part fails silent: no event, timer or message; cannot be cleared |
+| `drop` | `port`, optional `event` | messages through the port are lost |
+| `delay` | `port`, `by`, optional `event` | messages through the port arrive `by` later |
+| `corrupt` | `port`, `field`, `value`, optional `event` | the payload field is replaced |
+| `parameter` | `parameter`, `value` | an in-process plant's parameter takes `value` until the fault is cleared (GH #340) |
+
+On an in-process plant part (`plant:`, see [In-process plants](plant-models.md)) `stuck` and `offset` name one of its outputs and act on every read from the moment of injection, and `silent` freezes the plant: it is no longer stepped or read, so the machines keep its last outputs.
+
+A row may be gated like any element with its own `appliesWhen:` (`- {id: FM-X-001, ref: Pkg::Part, appliesWhen: Features::Opt, …}`); it is then absent from products without the feature, so a `ref` to a gated element raises no `W904` there. A fault value may be a feature-parameter placeholder, `value: "{{Features::Grid.nominalHz}}"`; a run with `--config` uses the Configuration's binding, `validate` the parameter's default.
+
+`part:` names an instance of the composite; without it the fault applies to every part whose definition is, or specialises, `ref`. A malformed list is **`E936`**. Scenarios use `Given|When fault FM-LINK-001 is injected` and `When fault FM-LINK-001 is cleared` (`E937` for an unknown id); see `docs/design/fault-injection.md`.
+
+### Fault-injection campaign — `inject`
+
+`syscribe -m model/ inject <composite|TestCase> [--ft <FT-id>] [--max-order N] [--fmea <sheet>]` runs the **`@invariant`** scenarios of a composite under every single fault and (with `--ft`) every minimal cut set of a fault tree up to the given order, and says which fault sets the design survives:
+
+```gherkin
+@invariant
+Scenario: the receiver never sees more than the nominal value
+  When tx receives Tick
+  Then rx.got <= 7
+```
+
+An invariant can state the safe state precisely and over time (GH #342, spec §8.12.8): `Where <name> is <expression>` names it once, `Except under <fault> [and <fault>…]: <expression>` gives the degraded safe state for the faults that make part of it impossible (a welded relay cannot open), and `Then within 2 s the safe state holds`, `Then always …` and `Then never …` check it at every settled instant rather than once:
+
+```gherkin
+Feature: protection
+  Where the safe state is pwm.on == 0 and relayA.closed == 0 and relayB.closed == 0
+  Except under FM-RLY-001: pwm.on == 0 and relayB.closed == 0
+  Except under FM-RLY-002: pwm.on == 0 and relayA.closed == 0
+  Except under FM-RLY-001 and FM-RLY-002: pwm.on == 0
+
+  @invariant
+  Scenario: after a grid loss the safe state is reached within 2 s and kept
+    When grid receives Lost
+    Then within 2 s the safe state holds
+    When 10 s elapses
+```
+
+A fault no clause names keeps the full property. A set to which several clauses apply needs a clause that covers them all; without one the run is an error, "no applicable degraded clause", not a defeat. A set whose invariants held only in a degraded clause is reported **survived (degraded)**.
+
+The invariants must pass without faults first; each fault set is then injected at time 0 and the invariants run unchanged. `survived` / `defeated` / `error` are reported per set with the failing invariant and step; the report also lists the FMEA rows of the composite's parts that were exercised, those with a fault model that were not, and those with none (prose only). Exit status 2 on a defeat unless `--report-only`. `--config <C>` runs it on one Configuration, `--record` keeps it as evidence and `--report <file>` writes it for an assessor (see below). See `syscribe help inject` and `docs/design/fault-injection.md`.
+
+### Residual-risk decisions — `ResidualRisk`
+
+A defeated fault set is the most important result of a campaign: a combination of failures under which a stated safety property is violated. Record the campaign and the decision on each defeat in the model, so an assessor can ask "which defeats are accepted, by whom, why and with what rate" and get an answer, and so a new defeat stands out from the known ones (GH #341).
+
+```bash
+syscribe -m model/ inject TC-PROT-001 --ft FT-001 --max-order 3 --record --report-only   # keep the campaign in .syscribe/campaigns.json
+syscribe -m model/ inject TC-PROT-001 --ft FT-001 --record --run rc1 --report campaign.md # a named run, plus a report for the assessor
+syscribe -m model/ results campaigns                                                     # the recorded histories
+syscribe -m model/ results campaigns diff TC-PROT-001                                    # what changed between the two latest
+```
+
+Every defeat in the latest record then needs a decision, one `ResidualRisk` per fault set:
+
+```yaml
+---
+type: ResidualRisk
+id: RISK-BRAKE-001
+name: Both wheel-speed sensors lost together
+status: accepted              # proposed | accepted | mitigated | rejected
+faultSet: [FTE-BRAKE-003, FTE-BRAKE-004]
+goal: SG-BRAKE-001
+rationale: "Independent harnesses; only a connector failure loses both, covered by REQ-BRAKE-077."
+mitigatedBy: [REQ-BRAKE-077]
+approvedBy: jane
+reviewDate: 2026-10-12
+expires: 2027-10-12
+campaignHash: 3f9a1c0be2d4   # the hash `inject` printed
+---
+```
+
+`validate` reads the latest record of each campaign (made without `--config`; `validate --config C` reads those made with `C`):
+
+| Code | When |
+|---|---|
+| `W940` | a defeated set has no proposed or accepted decision explaining it (on the composite) |
+| `W941` | a decision the campaign contradicts: accepted but the design now survives the set, or mitigated but it still defeats |
+| `W942` | `campaignHash` is not the current hash of the composite: review the decision |
+| `W943` | an accepted or proposed decision past its `expires` |
+| `W944` | the recorded campaign ran on an older composite (or the composite no longer builds): run the recorded command again |
+| `W945` | `.syscribe/campaigns.json` cannot be read; nothing is judged and `--record` refuses to overwrite it |
+| `W946` | a decision names a set the latest record did not run (a narrower re-record dropped it) |
+| `E942` / `E943` / `E944` | a malformed decision / a `faultSet`, `goal` or `mitigatedBy` that resolves to nothing / one of the wrong kind |
+
+Gate CI on new defeats with `validate --deny W940`. The rate of a set comes from the fault-tree events' `failureRate`, not from the decision; `inject --report` shows it next to the decision. `safety-case` shows a solution node per campaign under the `--ft` tree's top-event goal and the goals the decisions name, undeveloped while a defeat is unexplained; `audit --config C` lists the unexplained defeats, and plain `audit` counts them per configuration. See spec §12.14.
+
 ### Generating a template
 
 ```bash
-syscribe model/ template FMEASheet > Safety/FMEA-BRAKE-001.md
+syscribe -m model/ template FMEASheet > Safety/FMEA-BRAKE-001.md
 ```
 
 ---
@@ -660,7 +888,7 @@ Once a `SafetyGoal` carries an integrity level (`asilLevel`, `silLevel`, or `plL
 
 **Lower level** — valid only when the architecture applies redundancy or independence arguments (ASIL decomposition per ISO 26262-9 or SIL decomposition per IEC 61508-2 §7.4.9). Set `breakdownAdr:` to an `accepted` ADR that documents the decomposition rationale.
 
-### Security requirements — `derivedFromSecurityGoal`
+### Security requirements — `derivedFromCybersecurityGoal`
 
 ```yaml
 type: Requirement
@@ -668,12 +896,14 @@ id: REQ-SEC-CAN-001
 name: "ECU shall authenticate all CAN frames on the safety bus using CMAC"
 reqDomain: software
 status: draft
-derivedFromSecurityGoal: CSG-SYS-001  # the CybersecurityGoal that motivated this requirement
+verificationMethod: test
+derivedFromCybersecurityGoal: CSG-SYS-001  # the CybersecurityGoal that motivated this requirement
 breakdownAdr: ADR-SEC-CAN-001
 ```
 
-- **E831** — `derivedFromSecurityGoal` must resolve to a `CybersecurityGoal` element.
+- **E831** — `derivedFromCybersecurityGoal` must resolve to a `CybersecurityGoal` element.
 - **W804** — fires on a `CybersecurityGoal` that has no `Requirement` pointing back to it.
+- `derivedFromSecurityGoal:` is a legacy alias for `derivedFromCybersecurityGoal:`, still honored for backward compatibility — use the current name in new models.
 
 ---
 
@@ -695,7 +925,7 @@ The full trace from a threat or hazard identification through to a verified impl
 ┌─────────────────────────────────────────────────────────────────── │ ┐
 │ Security (ISO/SAE 21434)                                           │  │
 │                                                                    │  │
-│  TARASheet → CybersecurityGoal ←── derivedFromSecurityGoal ───┐   │  │
+│  TARASheet → CybersecurityGoal ←── derivedFromCybersecurityGoal ───┐   │  │
 │               (CSG-*)                                          │   │  │
 │                  │ implementsGoals ←── SecurityControl         │   │  │
 └─────────────────────────────────────────────────────────────────── │ ┘
@@ -719,22 +949,22 @@ The full trace from a threat or hazard identification through to a verified impl
 
 ```bash
 # Show a safety goal and its integrity level
-syscribe model/ show SG-BRAKE-001
+syscribe -m model/ show SG-BRAKE-001
 
 # What requirements were derived from this goal?
-syscribe model/ refs SG-BRAKE-001
+syscribe -m model/ refs SG-BRAKE-001
 
 # Full trace from a safety requirement upward and downward
-syscribe model/ trace REQ-BRAKE-HYD-001
+syscribe -m model/ trace REQ-BRAKE-HYD-001
 
 # What architecture elements satisfy a requirement?
-syscribe model/ why REQ-BRAKE-HYD-001
+syscribe -m model/ why REQ-BRAKE-HYD-001
 
 # Which test cases cover a requirement?
-syscribe model/ who-verifies REQ-BRAKE-HYD-001
+syscribe -m model/ who-verifies REQ-BRAKE-HYD-001
 
 # All elements that reference a cybersecurity goal
-syscribe model/ refs CSG-SYS-001
+syscribe -m model/ refs CSG-SYS-001
 ```
 
 ### Validation rules summary
@@ -749,7 +979,7 @@ syscribe model/ refs CSG-SYS-001
 | E833–E836 | Error | IEC 61508 risk parameter out of valid range |
 | E837 | Error | SafetyGoal `plLevel` not in `a`–`e` |
 | E825 | Error | `hazardousEvents` ref does not resolve to a HazardousEvent |
-| E831 | Error | `derivedFromSecurityGoal` does not resolve to a CybersecurityGoal |
+| E831 | Error | `derivedFromCybersecurityGoal` does not resolve to a CybersecurityGoal |
 | E832 | Error | `derivedFromSafetyGoal` does not resolve to a SafetyGoal |
 | E841 | Error | Element linked via `derivedFromSafetyGoal` is missing `asilLevel`/`silLevel` when the SafetyGoal has one |
 | E842 | Error | Element linked via `derivedFrom` is missing `asilLevel`/`silLevel` when the parent carries one |
@@ -757,9 +987,90 @@ syscribe model/ refs CSG-SYS-001
 | E902 | Error | `FaultTree.topEvent` does not resolve to a SafetyGoal |
 | E906 | Error | `FaultTreeGate.inputs` ref is not a gate or event |
 | W006 | Warning | `silLevel` and `asilLevel` both set on the same element — incompatible standards |
-| W800 | Warning | HazardousEvent not referenced by any SafetyGoal |
+| W800 | Warning | HazardousEvent not referenced by any SafetyGoal (not raised for QM-rated events) |
 | W801 | Warning | SafetyGoal has no integrity level (`asilLevel`, `silLevel`, or `plLevel`) |
 | W806 | Warning | SafetyGoal has no `hazardousEvents` — not grounded in any hazard analysis |
-| W804 | Warning | CybersecurityGoal has no `Requirement` with `derivedFromSecurityGoal` |
+| W804 | Warning | CybersecurityGoal has no `Requirement` with `derivedFromCybersecurityGoal` |
 | W805 | Warning | SafetyGoal has no `Requirement` with `derivedFromSafetyGoal` |
 | W808 | Warning | Element's integrity level is lower than its source (`derivedFromSafetyGoal`, `derivedFrom`, or `satisfies`) but no `breakdownAdr` is set |
+| E878 | Error | Decomposition children are not an allowed ISO 26262-9 ASIL pair |
+| E879 | Error | `decomposedFrom:` is not A–D or is lower than the element's own `asilLevel` |
+| E880 | Error | `ftti:` is not a number with unit ns/us/ms/s/min/h |
+| W811 | Warning | SafetyGoal `asilLevel` is lower than the ASIL derived from its HazardousEvents |
+| W812 | Warning | SafetyGoal at ASIL C/D or SIL 3/4 lacks `safeState:` or `ftti:` |
+| W813 | Warning | HazardousEvent has a partial S/E/C set |
+| W814 | Warning | HazardousEvent mixes ISO 26262 and IEC 61508 parameters |
+
+
+---
+
+## Safety diagrams — fault tree, attack tree and GSN
+
+Three `Diagram` kinds draw the safety analyses above straight from the model (GH #223). They are
+derive-only: give a `diagramKind:` and a `subject:` and nothing else.
+
+```yaml
+---
+type: Diagram
+name: FaultTreeEngine
+diagramKind: FaultTree          # FaultTree | AttackTree | SafetyCase (alias GSN)
+subject: Safety::FTA::FT-ENG-001
+---
+```
+
+| Kind | Subject | What it shows |
+|---|---|---|
+| `FaultTree` | a `FaultTree`, or the `SafetyGoal` it analyses | IEC 61025 gate symbols (AND, OR, XOR, NOT, inhibit), events by `eventKind` (basic circle, undeveloped diamond, house), λ and probability on every event, single points of failure (red) and dual-point cut-set members (amber), the minimal-cut-set count as a badge and the exact top-event probability on the root — the numbers of `fault-tree analyze`. A gate cycle still draws the structure, the root saying the analysis is unavailable. |
+| `AttackTree` | an `AttackTree`, or the `ThreatScenario` it substantiates | gates and steps coloured by rolled-up feasibility (high red, medium amber, low green, unscored grey), the easiest path drawn heavier, the root saying whether it matches the threat's declared feasibility (`W035` badge when not). |
+| `SafetyCase` | a `SafetyGoal`, an `Argument`, or a package of goals | the GSN argument of `safety-case`: goals, strategies, solutions (test cases), context, justification and assumption nodes, a diamond under every undeveloped claim, status tones, the goal verdict on the root. |
+
+A wrong subject type is `W418`; an `include:`/`exclude:` entry naming nothing is `W417`. Each node links to its
+element: in the web UI the detail panel of a `FaultTree`, `AttackTree`, `SafetyGoal`, `Argument` or `ThreatScenario`
+embeds the diagram itself (no `Diagram` element needed) and a click on a node opens that element. The *New diagram*
+dialog offers the three kinds.
+
+From the command line:
+
+```bash
+syscribe -m model/ diagram export Diagrams::FaultTreeEngine --format svg|mermaid|plantuml|dot
+syscribe -m model/ fault-tree render FT-ENG-001 --format mermaid|dot|svg|plantuml
+syscribe -m model/ safety-case SG-ENG-001 --format dot|mermaid     # with the ingested test verdicts
+```
+
+`fault-tree render` without `--format` and `safety-case` without `--format` keep their original text output.
+
+### Hazard-to-test traceability, zones and the threat graph
+
+Three more derive-only kinds draw how the analyses connect (GH #223). Same two lines of frontmatter, same
+node overlay, same writers.
+
+```yaml
+---
+type: Diagram
+name: TraceabilityEngine
+diagramKind: Traceability       # Traceability | ZoneConduit | ThreatGraph
+subject: Safety::HARA::SG-ENG-001
+---
+```
+
+| Kind | Subject | What it shows |
+|---|---|---|
+| `Traceability` | a `SafetyGoal`, `HazardousEvent`, `Requirement` or package | `HazardousEvent ← SafetyGoal ← Requirement ← … ← TestCase`, with each goal's fault tree and arguments alongside. Colour is the roll-up of what is below a node (a failing test or a gap red, an unverified branch amber, a passing one green), the label shows its `ASIL` and status, and **gaps are red badges** that name the finding: `W002`/`W003 no test`, `W305 no integration test`, `W300 unsatisfied`, `no requirement`, `no goal`. |
+| `ZoneConduit` | a package of zones, a `Zone` or a `Conduit` | each IEC 62443 zone a compound node holding its parts and the security controls allocated to them, labelled `SL target / achieved` (red with an `SL gap` badge when short, `W950`); each conduit an edge labelled `CD-… · SL achieved/required`, red, heavy and dashed when weak (`W951`). |
+| `ThreatGraph` | a package or `TARASheet`, or one threat, damage scenario, asset, goal or control | `ThreatScenario → DamageScenario → Asset → CybersecurityGoal → SecurityControl`. Threats are coloured by their risk under the configured `[cyber]` method; a goal no control implements carries `W802`, a threat no goal treats `no goal`. |
+
+The detail panel of a hazardous event, goal, zone, conduit, threat, damage scenario, asset, cybersecurity goal or
+control embeds the diagram, and the *New diagram* dialog offers all three. From the command line:
+
+```bash
+syscribe -m model/ hara trace [SG-ENG-001] --format dot|mermaid|plantuml|svg   # with the ingested test verdicts
+syscribe -m model/ zones --format dot|mermaid|plantuml|svg                     # the whole model's zones and conduits
+syscribe -m model/ cyber-risk --format dot|mermaid|plantuml|svg                # the threat graph (md|html|json keep the heat table)
+syscribe -m model/ diagram export Diagrams::ZoneConduitEngine --format svg|mermaid|plantuml|dot
+syscribe -m model/ connectivity SG-ENG-001                                     # walks hazardousEvents, topEvent, threatRef, gate inputs, ...
+```
+
+`zones --coverage` lists a control against a zone when the control is allocated (an `Allocation` element,
+`allocatedTo:`) to one of the zone's parts, to the zone or to a conduit touching it, or a touching conduit names it in
+`implementedBy:`. A zone's `members:` can only be parts (`E955`), so the earlier rule that looked for a
+`SecurityControl` among the members never matched and every control column read `—`.

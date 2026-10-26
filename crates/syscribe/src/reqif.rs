@@ -36,6 +36,55 @@ fn ident(s: &str) -> String {
     s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect()
 }
 
+/// Inline Markdown (`**bold**`, `` `code` ``) → well-formed XHTML. Works on the raw
+/// text and escapes as it goes, so elements are always properly nested: code spans
+/// are literal (no bold inside), bold wraps recursively-converted content, and an
+/// unmatched marker is emitted as escaped text.
+fn inline_xhtml(s: &str) -> String {
+    // Index of the next `needle` in `s` that is not inside a code span.
+    fn find_outside_code(s: &str, needle: &str) -> Option<usize> {
+        let mut i = 0;
+        while i < s.len() {
+            if s[i..].starts_with('`') {
+                match s[i + 1..].find('`') {
+                    Some(c) => {
+                        i += c + 2;
+                        continue;
+                    }
+                    None => return None,
+                }
+            }
+            if s[i..].starts_with(needle) {
+                return Some(i);
+            }
+            i += s[i..].chars().next().map_or(1, char::len_utf8);
+        }
+        None
+    }
+    let mut out = String::new();
+    let mut i = 0;
+    while i < s.len() {
+        let rest = &s[i..];
+        if rest.starts_with('`') {
+            if let Some(c) = rest[1..].find('`') {
+                out.push_str(&format!("<xhtml:code>{}</xhtml:code>", esc(&rest[1..1 + c])));
+                i += c + 2;
+                continue;
+            }
+        } else if rest.starts_with("**") {
+            if let Some(c) = find_outside_code(&rest[2..], "**").filter(|c| *c > 0) {
+                out.push_str(&format!("<xhtml:strong>{}</xhtml:strong>", inline_xhtml(&rest[2..2 + c])));
+                i += c + 4;
+                continue;
+            }
+        }
+        let ch = rest.chars().next().unwrap_or(' ');
+        out.push_str(&esc(&ch.to_string()));
+        i += ch.len_utf8();
+    }
+    out
+}
+
 /// Best-effort Markdown → XHTML for the requirement body. Gherkin blocks are dropped.
 fn md_to_xhtml(body: &str) -> String {
     let mut out = String::new();
@@ -47,19 +96,7 @@ fn md_to_xhtml(body: &str) -> String {
             out.push_str(&format!("</xhtml:{}>", t));
         }
     };
-    let inline = |s: &str| -> String {
-        let mut t = esc(s);
-        // crude inline: **bold**, `code`, *italic*
-        while let (Some(a), Some(b)) = (t.find("**"), t.rfind("**")) {
-            if a == b { break; }
-            t = format!("{}<xhtml:strong>{}</xhtml:strong>{}", &t[..a], &t[a + 2..b], &t[b + 2..]);
-        }
-        while let (Some(a), Some(b)) = (t.find('`'), t.rfind('`')) {
-            if a == b { break; }
-            t = format!("{}<xhtml:code>{}</xhtml:code>{}", &t[..a], &t[a + 1..b], &t[b + 1..]);
-        }
-        t
-    };
+    let inline = |s: &str| -> String { inline_xhtml(s) };
     for line in body.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("```") {
@@ -200,8 +237,20 @@ struct Pkg {
 }
 
 pub fn cmd_export_reqif(elements: &[RawElement], opts: &ReqifOptions) {
+    // REQ-TRS-LINKTYPE-006 — REL_DERIVED/REL_VERIFIED are semantic relations, so
+    // they come from the reporting view: a `coverage = true` user-defined link
+    // extending derivedFrom/verifies is exported as that relation (as `trace`
+    // counts it). Only base-link fields differ in the view; the exported
+    // attributes (name, status, domain, description) are the authored ones.
+    // Free-standing (non-extending) links have no ReqIF relation type and are
+    // not exported.
+    let cov = syscribe_model::link_types::coverage_view(elements, &syscribe_model::link_types::active());
+    let elements: &[RawElement] = &cov;
     let resolver = Resolver::new(elements);
     let scope_prefix = opts.scope.and_then(|q| resolver.resolve_ref(elements, q)).map(|e| e.qualified_name.clone());
+    if let (Some(q), None) = (opts.scope, &scope_prefix) {
+        crate::cliargs::usage_exit(&format!("export-reqif: --scope '{q}' does not resolve to any element"));
+    }
     let in_scope = |e: &RawElement| match &scope_prefix {
         None => true,
         Some(p) => e.qualified_name == *p || e.qualified_name.starts_with(&format!("{}::", p)),
@@ -391,5 +440,50 @@ pub fn cmd_export_reqif(elements: &[RawElement], opts: &ReqifOptions) {
             eprintln!("Wrote {} requirement(s) to {}", reqs.len(), file);
         }
         None => print!("{}", x),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// True when every `<xhtml:..>` open tag is closed in LIFO order.
+    fn well_nested(x: &str) -> bool {
+        let mut stack: Vec<String> = Vec::new();
+        let mut rest = x;
+        while let Some(i) = rest.find('<') {
+            let Some(j) = rest[i..].find('>') else { return false };
+            let tag = &rest[i + 1..i + j];
+            if let Some(name) = tag.strip_prefix('/') {
+                if stack.pop().as_deref() != Some(name) {
+                    return false;
+                }
+            } else if !tag.ends_with('/') {
+                stack.push(tag.split_whitespace().next().unwrap_or("").to_string());
+            }
+            rest = &rest[i + j + 1..];
+        }
+        stack.is_empty()
+    }
+
+    #[test]
+    fn inline_bold_and_code_mixes_are_well_formed() {
+        for src in [
+            "**`Baseline` BL**",
+            "`Baseline` and **bold `BL` inside** tail",
+            "**bold with `code ** star` inside**",
+            "`code with **stars** inside`",
+            "unmatched ** marker and ` tick",
+            "a < b & c > d **x<y**",
+            "`a` `b` **c** **d**",
+            "****",
+            "** `x",
+        ] {
+            let out = inline_xhtml(src);
+            assert!(well_nested(&out), "{src:?} -> {out}");
+        }
+        assert_eq!(inline_xhtml("**`BL` x**"), "<xhtml:strong><xhtml:code>BL</xhtml:code> x</xhtml:strong>");
+        assert_eq!(inline_xhtml("`a<b`"), "<xhtml:code>a&lt;b</xhtml:code>");
+        assert_eq!(md_to_xhtml("A `Baseline` is **a `BL` element**."), "<xhtml:p>A <xhtml:code>Baseline</xhtml:code> is <xhtml:strong>a <xhtml:code>BL</xhtml:code> element</xhtml:strong>.</xhtml:p>");
     }
 }

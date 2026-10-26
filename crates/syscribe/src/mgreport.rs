@@ -19,8 +19,8 @@ use syscribe_model::{
     validator::{allocation_edges, Finding, Severity, ValidationResult},
 };
 
-use crate::diagram::layout::metrics::load_metrics;
-use crate::diagram::layout::theme::theme_for;
+use crate::svgkit::metrics::{load_metrics, TextMetrics};
+use crate::svgkit::theme::theme_for;
 use crate::export::SCHEMA_VERSION;
 use svg::node::element::{Group, Rectangle, Text, Title};
 use svg::Document;
@@ -229,7 +229,7 @@ pub fn cmd_magicgrid_svg(elems: &[RawElement], output_file: Option<&str>) {
 }
 
 /// Hard-break a single word that is wider than `max_w` into character chunks.
-fn hard_break(word: &str, max_w: f64, fs: f64, m: &dyn crate::diagram::layout::metrics::TextMetrics) -> Vec<String> {
+fn hard_break(word: &str, max_w: f64, fs: f64, m: &dyn TextMetrics) -> Vec<String> {
     if m.advance_width(word, fs, false) <= max_w {
         return vec![word.to_string()];
     }
@@ -253,7 +253,7 @@ fn hard_break(word: &str, max_w: f64, fs: f64, m: &dyn crate::diagram::layout::m
 /// Greedy word-wrap `s` to `max_w` pixels at font size `fs`, measured with the shared
 /// font metrics (REQ-TRS-MG-016). Breaks on word boundaries; a single over-wide word is
 /// hard-broken by character.
-fn wrap_text(s: &str, max_w: f64, fs: f64, m: &dyn crate::diagram::layout::metrics::TextMetrics) -> Vec<String> {
+fn wrap_text(s: &str, max_w: f64, fs: f64, m: &dyn TextMetrics) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut cur = String::new();
     for word in s.split_whitespace() {
@@ -1003,6 +1003,14 @@ fn score_moe(moe: &Moe, value: f64) -> (f64, bool) {
 }
 
 pub fn cmd_trade_study(elems: &[RawElement], json: bool, config_filter: &[String]) {
+    for c in config_filter {
+        let known = elems.iter().any(|e| {
+            is_type(e, ElementType::Configuration) && (e.frontmatter.id.as_deref() == Some(c.as_str()) || e.qualified_name == *c)
+        });
+        if !known {
+            crate::cliargs::usage_exit(&format!("trade-study: --config '{c}' does not resolve to a Configuration"));
+        }
+    }
     // Rows: mg_moe == true.
     let moes: Vec<Moe> = elems
         .iter()
@@ -1035,7 +1043,7 @@ pub fn cmd_trade_study(elems: &[RawElement], json: bool, config_filter: &[String
             }
         }
         let mut bindings = BTreeMap::new();
-        if let Some(serde_yaml::Value::Mapping(m)) = &e.frontmatter.parameter_bindings {
+        if let Some(serde_yaml::Value::Mapping(m)) = e.frontmatter.effective_parameter_bindings() {
             for (k, v) in m {
                 if let (Some(ks), Some(vn)) = (k.as_str(), v.as_f64()) {
                     bindings.insert(ks.to_string(), vn);

@@ -377,6 +377,8 @@ fn convert_block(pkg_qname: &str, file_path: &str, text: &str) -> Result<RawElem
         parse_issue: None,
         derived: Default::default(),
         derive_findings: Vec::new(),
+        locale_docs: Default::default(),
+        about_notes: Default::default(),
     })
 }
 
@@ -524,16 +526,21 @@ mod tests {
             parse_issue: None,
             derived: Default::default(),
             derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
         }
     }
 
     fn pkg_fm(label: &str, marker: &str, include: &[&str]) -> RawFrontmatter {
-        RawFrontmatter {
+        {
+            let mut fm = RawFrontmatter {
             element_type: Some(ET::Package),
-            annotation_format: Some(label.to_string()),
-            marker: Some(marker.to_string()),
-            include: Some(include.iter().map(|s| s.to_string()).collect()),
             ..Default::default()
+            };
+            fm.annotation_format = Some(label.to_string());
+            fm.marker = Some(marker.to_string());
+            fm.include = Some(include.iter().map(|s| s.to_string()).collect());
+            fm
         }
     }
 
@@ -556,13 +563,16 @@ mod tests {
         let mut elements = vec![index_elem(
             "Pkg",
             &root.join("Pkg/_index.md").display().to_string(),
-            RawFrontmatter {
+            {
+                let mut fm = RawFrontmatter {
                 element_type: Some(ET::Package),
-                annotation_format: Some("c".to_string()),
-                marker: Some(r"//\s*@syscribe".to_string()),
-                include: Some(vec!["**/*.c".to_string()]),
-                foreign_format: Some("toydsl".to_string()),
                 ..Default::default()
+                };
+                fm.annotation_format = Some("c".to_string());
+                fm.marker = Some(r"//\s*@syscribe".to_string());
+                fm.include = Some(vec!["**/*.c".to_string()]);
+                fm.foreign_format = Some("toydsl".to_string());
+                fm
             },
         )];
         apply_annotation_scans(&mut elements, &root);
@@ -577,10 +587,13 @@ mod tests {
         let mut elements = vec![index_elem(
             "Pkg",
             &root.join("Pkg/_index.md").display().to_string(),
-            RawFrontmatter {
+            {
+                let mut fm = RawFrontmatter {
                 element_type: Some(ET::Package),
-                annotation_format: Some("c".to_string()),
                 ..Default::default()
+                };
+                fm.annotation_format = Some("c".to_string());
+                fm
             },
         )];
         apply_annotation_scans(&mut elements, &root);
@@ -619,6 +632,8 @@ mod tests {
                 parse_issue: None,
                 derived: Default::default(),
                 derive_findings: Vec::new(),
+                locale_docs: Default::default(),
+                about_notes: Default::default(),
             },
         ];
         apply_annotation_scans(&mut elements, &root);
@@ -725,9 +740,12 @@ mod tests {
         let mut elements = vec![index_elem(
             "Firmware",
             &root.join("Firmware/_index.md").display().to_string(),
-            RawFrontmatter {
-                exclude: Some(vec!["vendor/**".to_string()]),
+            {
+                let mut fm = RawFrontmatter {
                 ..pkg_fm("c", r"//\s*@syscribe\b", &["**/*.c"])
+                };
+                fm.exclude = Some(vec!["vendor/**".to_string()]);
+                fm
             },
         )];
         apply_annotation_scans(&mut elements, &root);

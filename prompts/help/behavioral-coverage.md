@@ -5,7 +5,7 @@
                                            [--uncovered-only] [--include-planned]
 
 ## DESCRIPTION
-Reports how completely the **active** `TestCase` elements exercise the behavioral elements
+Reports how completely the **active** `TestCase` elements (draft/approved/retired ones are not counted) exercise the behavioral elements
 (`ActionDef`, `Action`, `StateDef`, `State`) in scope (§20). A behavioral element B is
 covered by a TestCase TC when any of four paths holds:
 
@@ -20,6 +20,11 @@ covered by a TestCase TC when any of four paths holds:
     --format F          text (default) | json ({scope, covered, total, coverage_pct, elements}).
     --uncovered-only    Show only uncovered elements.
     --include-planned   Count draft/review/approved TestCases in a separate "planned" column.
+
+## EXIT CODES
+    0  report printed
+    1  usage error: a --format outside text|json, a non-integer --depth, or an unknown
+       option (message on stderr, nothing on stdout)
 
 ## SEE ALSO
     impact, safety-case, testplan

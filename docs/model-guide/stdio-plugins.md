@@ -19,6 +19,7 @@ native tooling — Syscribe never writes into it.
 
 ## 1. Marking a package foreign — `foreignFormat:`
 
+<!-- syscribe-example: config="toydsl-plugin.toml" -->
 ```yaml
 ---
 type: Package
@@ -30,6 +31,9 @@ foreignFormat: toydsl
 Only the `_index.md` itself stays a native element (name, doc body, containment tree entry); every
 other file under that directory is excluded from native parsing and supplied instead by the plugin.
 
+> This page also covers **results plugins**, which convert a test report instead of a package: see
+> [section 10](#10-results-plugins-kind-results). A plugin's `kind` says which it is.
+
 ## 2. Declaring the plugin — `[plugins.<alias>]`
 
 ```toml
@@ -37,6 +41,7 @@ other file under that directory is excluded from native parsing and supplied ins
 command = "python3"                 # PATH-resolved name, or a path relative to the model root
 args = ["plugins/toydsl_plugin.py"] # optional, default []
 timeout_ms = 10000                  # optional, default 10000
+kind = "foreign"                    # optional: "foreign" (the default) or "results" (section 10)
 ```
 
 The table key is the alias `foreignFormat:` refers to. Plugin execution happens inside the normal
@@ -159,6 +164,56 @@ when it doesn't parse.
 See [`examples/stdio-plugins/toy-python/`](https://github.com/sjames/syscribe/tree/main/examples/stdio-plugins/toy-python)
 for a complete, dependency-free example: a stdlib-only Python script recognising a tiny made-up DSL.
 No build step, no toolchain — any language capable of reading stdin and writing stdout works.
+
+## 10. Results plugins (`kind = "results"`)
+
+A results plugin converts a test report — a rig log, TAP, a vendor's HIL export — into the normalised result
+records of `ingest-results --format records`, so system and integration results join the traceability graph
+without a change to Syscribe (`REQ-TRS-RESPLUG-001`).
+
+```toml
+[plugins.rig]
+command = "python3"
+args = ["../rig_plugin.py"]
+kind = "results"          # without it, `--format plugin:rig` is refused (E552)
+timeout_ms = 10000
+```
+
+```bash
+syscribe -m model/ ingest-results --format plugin:rig --environment TE-HIL-01 rig.log
+syscribe -m model/ plugins run rig --report rig.log --dry-run      # the raw envelope, nothing merged
+```
+
+**Protocol.** Syscribe writes one JSON request to the plugin's stdin and closes it, then reads one JSON object
+from stdout:
+
+```json
+{"protocolVersion": 1, "alias": "rig", "reportPath": "/abs/rig.log", "modelRoot": "/abs/model",
+ "run": "r7", "config": "CONF-X", "environment": "TE-HIL-01"}
+{"records": [{"testCase": "RIG:BRK-1", "scenario": "…", "verdict": "pass"}], "diagnostics": ["converted 3 cases"]}
+```
+
+`run`, `config` and `environment` are sent only when given on the command line. `diagnostics` are strings (or
+objects with a `message`) and are shown to the user. The envelope must be one object whose `records` is an
+array; unknown top-level fields are rejected so a typo is not silently ignored.
+
+**Same validator.** What comes back goes through exactly the record validator, the join (id, qualified name,
+`extRef`) and the environment resolution of the built-in format, so a plugin cannot store anything the
+built-in format could not. Hashes it supplies are discarded. A waived record without a rationale, an unknown
+verdict, an unknown environment, a measurement that violates its own limit: each rejects the whole ingest.
+
+**Failure.** A missing entry, an unreadable report, a command that is not found, cannot start, times out,
+exits non-zero (its stderr tail is shown), writes something that is not an envelope, or writes no records, is
+`E553` naming the alias and the cause. Nothing is written. A `kind` that does not match its use is `E552`.
+
+**Command-line values.** `--environment` and `--build-commit` fill provenance a record leaves empty. A value in
+the record is kept.
+
+**Trust.** A results plugin is a plain OS subprocess with the user's rights, exactly like a foreign-format
+plugin (section 5). `timeout_ms` is the only enforced limit. It receives a path, not the model's contents.
+
+**Authoring.** See [`examples/stdio-plugins/results-python/`](https://github.com/sjames/syscribe/tree/main/examples/stdio-plugins/results-python):
+a converter for a made-up rig log and one for TAP, both standard-library Python, with sample reports.
 
 ## 9. What's not built yet
 

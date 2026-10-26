@@ -27,6 +27,7 @@
   var RECONNECT_MAX_MS = 10000;
   var reconnectDelay = RECONNECT_MIN_MS;
   var socket = null;
+  var wasConnected = false;
 
   function wsUrl() {
     var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -34,6 +35,7 @@
   }
 
   function handleReload() {
+    document.dispatchEvent(new CustomEvent('syscribe:reload'));
     if (window.htmx) {
       htmx.ajax('GET', '/ui/tree', { target: '#tree-root', swap: 'innerHTML' });
     } else {
@@ -52,6 +54,13 @@
 
     socket.addEventListener('open', function () {
       reconnectDelay = RECONNECT_MIN_MS;
+      // Changes made while the socket was down (a server restart, a dropped connection) sent no event:
+      // catch up once on reconnecting.
+      if (wasConnected) {
+        handleReload();
+      }
+      wasConnected = true;
+      window.dispatchEvent(new CustomEvent('syscribe:socket', { detail: { open: true } }));
     });
 
     socket.addEventListener('message', function (event) {
@@ -69,6 +78,7 @@
 
     socket.addEventListener('close', function () {
       socket = null;
+      window.dispatchEvent(new CustomEvent('syscribe:socket', { detail: { open: false } }));
       window.setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
     });

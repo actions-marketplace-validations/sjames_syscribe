@@ -236,11 +236,15 @@ pub fn cmd_features(elements: &[RawElement], json: bool) {
 // ── feature <q>: single-feature card ────────────────────────────────────────
 
 pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
+    let by_id = variability::feature_id_to_qname(elements);
+    let id_qname = by_id.get(arg);
     let Some(fd) = elements.iter().find(|e| {
         is_type(e, ElementType::FeatureDef)
-            && (e.qualified_name == arg || e.frontmatter.name.as_deref() == Some(arg))
+            && (e.qualified_name == arg
+                || e.frontmatter.name.as_deref() == Some(arg)
+                || id_qname.is_some_and(|q| *q == e.qualified_name))
     }) else {
-        eprintln!("Error: '{}' is not a known FeatureDef", arg);
+        eprintln!("Error: '{}' is not a known FeatureDef (give a qualified name, a name or a FEAT-* id)", arg);
         std::process::exit(1);
     };
     let q = &fd.qualified_name;
@@ -270,6 +274,35 @@ pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
     let exc = excludes_of(fd);
     let gk = fd.frontmatter.group_kind.as_deref().unwrap_or("optional");
 
+    // Placeholder consumers and per-configuration parameter values (GH #267).
+    let resolver = syscribe_model::resolver::Resolver::new(elements);
+    let consumers = syscribe_model::placeholders::consumers(elements, &resolver, q);
+    let selecting_cfgs: Vec<&RawElement> = elements
+        .iter()
+        .filter(|e| is_type(e, ElementType::Configuration))
+        .filter(|c| {
+            syscribe_model::projection::canonical_selection(elements, c).get(q.as_str()).copied() == Some(true)
+        })
+        .collect();
+    let cfg_id = |c: &RawElement| c.frontmatter.id.clone().unwrap_or_else(|| c.qualified_name.clone());
+    let values: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Option<String>>> = params
+        .iter()
+        .map(|p| {
+            let per: std::collections::BTreeMap<String, Option<String>> = selecting_cfgs
+                .iter()
+                .map(|c| {
+                    let v = if syscribe_model::placeholders::is_derived(elements, &resolver, q, p) {
+                        Some("(derived)".to_string())
+                    } else {
+                        syscribe_model::placeholders::value_in_config(elements, &resolver, c, q, p)
+                    };
+                    (cfg_id(c), v)
+                })
+                .collect();
+            (p.clone(), per)
+        })
+        .collect();
+
     if json {
         let gate_items: Vec<_> = gates
             .iter()
@@ -284,6 +317,8 @@ pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
             "parameters": params,
             "gates": gate_items,
             "selectedIn": selecting,
+            "parameterConsumers": consumers,
+            "parameterValues": values,
         });
         println!("{}", serde_json::to_string_pretty(&doc).unwrap());
         return;
@@ -312,6 +347,23 @@ pub fn cmd_feature(elements: &[RawElement], arg: &str, json: bool) {
     } else {
         for (qn, ty) in &gates {
             println!("- {} ({})", qn, ty);
+        }
+    }
+    if !params.is_empty() {
+        println!();
+        println!("## Consumers");
+        if consumers.is_empty() {
+            println!("(no element references a parameter of this feature)");
+        }
+        for (p, els) in &consumers {
+            println!("- {p}: {}", els.join(", "));
+        }
+        println!();
+        println!("## Parameter values");
+        for (p, per) in &values {
+            let cells: Vec<String> =
+                per.iter().map(|(c, v)| format!("{c} = {}", v.as_deref().unwrap_or("(unbound)"))).collect();
+            println!("- {p}: {}", if cells.is_empty() { "(no configuration selects this feature)".to_string() } else { cells.join("; ") });
         }
     }
     println!();
@@ -343,7 +395,7 @@ pub fn cmd_why_active(elements: &[RawElement], key: &str, config: Option<&str>, 
 
     // Resolve the configuration selection. With no feature model the element is
     // always active.
-    let sel = match projection::resolve_selection(elements, cfg_arg) {
+    let sel = match projection::resolve_config_flag(elements, cfg_arg) {
         SelectionOutcome::Dormant => None,
         SelectionOutcome::Resolved(s) => Some(s),
         SelectionOutcome::Error(m) => {

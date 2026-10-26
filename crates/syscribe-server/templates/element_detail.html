@@ -18,6 +18,11 @@
   {% else %}
   <p class="detail-empty">No documentation.</p>
   {% endif %}
+  {% if has_safety_diagram %}
+  <div class="detail-diagram" hx-get="/ui/diagram/{{ qualified_name }}" hx-trigger="load" hx-swap="innerHTML">
+    <p class="detail-empty">Loading diagram&hellip;</p>
+  </div>
+  {% endif %}
   {% if !custom_fields.is_empty() %}
   <div class="detail-custom-fields">
     <div class="detail-section-label">Custom Fields</div>
@@ -26,6 +31,29 @@
       <tr><th>{{ kv.0 }}</th><td>{{ kv.1 }}</td></tr>
       {% endfor %}
     </table>
+  </div>
+  {% endif %}
+  {% if show_members %}
+  <div class="detail-members">
+    <div class="detail-section-label">Members ({{ members.len() }})</div>
+    {% if members.is_empty() %}
+    <p class="detail-empty">No members.</p>
+    {% else %}
+    <table class="custom-fields-table">
+      {% for m in members %}
+      <tr>
+        <th><a class="tree-item"
+               href="#"
+               hx-get="/ui/detail/{{ m.qualified_name }}"
+               hx-target="#modal-content"
+               hx-swap="innerHTML">{{ m.label }}</a></th>
+        <td><span class="type-badge">{{ m.element_type }}</span></td>
+        <td>{{ m.name }}</td>
+        <td>{{ m.status }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
   </div>
   {% endif %}
   <div class="detail-actions">

@@ -8,6 +8,7 @@ static TP_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CONF_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ADR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static RR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static AR_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TRD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static ZN_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static CD_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -29,6 +30,10 @@ static ATS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 // GSN argument-layer stable-ID patterns (issue #20)
 static ARG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static AOU_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static DFA_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static TE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static RISK_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+static SM_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static SG_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static DS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
 static TS_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -62,12 +67,19 @@ fn tp_re() -> &'static regex::Regex {
 }
 
 fn conf_re() -> &'static regex::Regex {
-    CONF_RE.get_or_init(|| regex::Regex::new(r"^CONF(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+    // Like FEAT-*/BL-*, a Configuration id names a product variant and need not end
+    // in a number (`CONF-GTI-US-M3`); the numeric form `CONF-GTI-US-001` still
+    // matches, since a 3+ digit segment is a valid segment (GH #327, REQ-TRS-ID-008).
+    CONF_RE.get_or_init(|| regex::Regex::new(r"^CONF(-[A-Z0-9]{2,12})+$").unwrap())
 }
 
 fn adr_re() -> &'static regex::Regex {
     // Same relaxation as `req_re` — see its comment.
     ADR_RE.get_or_init(|| regex::Regex::new(r"^ADR(-[A-Z0-9]{2,12})*-[0-9]{3,}$").unwrap())
+}
+
+fn ar_re() -> &'static regex::Regex {
+    AR_RE.get_or_init(|| regex::Regex::new(r"^AR(-[A-Z0-9]{2,12})*-[0-9]{3,8}$").unwrap())
 }
 
 fn rr_re() -> &'static regex::Regex {
@@ -172,16 +184,17 @@ pub fn is_pi_id(s: &str) -> bool {
 
 /// The id-identified element types, each paired with its built-in stable-ID prefix and
 /// whether its ids require a trailing numeric suffix (every type except `FeatureDef`,
-/// REQ-TRS-ID-006). Single source of truth: the type name is the `[ids.prefixes]` key,
+/// REQ-TRS-ID-006, `Baseline` and `Configuration`, REQ-TRS-ID-008). Single source of truth: the type name is the `[ids.prefixes]` key,
 /// the built-in prefix keys the runtime registry, and the suffix flag selects the
 /// grammar used to compile an additional prefix.
 pub const STABLE_ID_KINDS: &[(&str, &str, bool)] = &[
     ("Requirement", "REQ", true),
     ("TestCase", "TC", true),
     ("TestPlan", "TP", true),
-    ("Configuration", "CONF", true),
+    ("Configuration", "CONF", false),
     ("ADR", "ADR", true),
     ("ReviewRecord", "RR", true),
+    ("ArchitectureRule", "AR", true),
     ("TradeStudy", "TRD", true),
     ("Zone", "ZN", true),
     ("Conduit", "CD", true),
@@ -205,6 +218,10 @@ pub const STABLE_ID_KINDS: &[(&str, &str, bool)] = &[
     ("AttackStep", "ATS", true),
     ("Argument", "ARG", true),
     ("AssumptionOfUse", "AOU", true),
+    ("DependentFailureAnalysis", "DFA", true),
+    ("TestEnvironment", "TE", true),
+    ("ResidualRisk", "RISK", true),
+    ("SafetyMechanism", "SM", true),
     ("FeatureDef", "FEAT", false),
     ("Baseline", "BL", false),
     ("PlanningItem", "PI", true),
@@ -301,8 +318,21 @@ fn any_extra_matches(s: &str) -> bool {
 /// (REQ-TRS-LIB-001). Import-only packages (`SI`, `ISQ`, …) are intentionally absent —
 /// their membership is not enumerated, so they stay lenient.
 pub const BUILTIN_TYPE_PACKAGES: &[(&str, &[&str])] = &[
-    ("ScalarValues", &["Integer", "Real", "Natural", "Boolean", "String"]),
-    ("Base", &["Anything", "DataValue"]),
+    // The KerML `ScalarValues` primitives (REQ-TRS-LIB-001, completed by REQ-TRS-SYSMLV2-064).
+    (
+        "ScalarValues",
+        &[
+            "Integer", "Real", "Natural", "Boolean", "String", "Rational", "Complex", "Number",
+            "NumericalValue", "ScalarValue", "Positive",
+        ],
+    ),
+    (
+        "Base",
+        &[
+            "Anything", "DataValue", "things", "dataValues", "naturals", "exactlyOne",
+            "zeroOrOne", "oneToMany", "zeroToMany",
+        ],
+    ),
 ];
 
 /// Classification of a reference against the built-in type inventory.
@@ -366,6 +396,7 @@ pub fn is_stable_id(s: &str) -> bool {
         || conf_re().is_match(s)
         || adr_re().is_match(s)
         || rr_re().is_match(s)
+        || ar_re().is_match(s)
         || trd_re().is_match(s)
         || zn_re().is_match(s)
         || cd_re().is_match(s)
@@ -388,6 +419,10 @@ pub fn is_stable_id(s: &str) -> bool {
         || ats_re().is_match(s)
         || arg_re().is_match(s)
         || aou_re().is_match(s)
+        || dfa_re().is_match(s)
+        || te_re().is_match(s)
+        || risk_re().is_match(s)
+        || sm_re().is_match(s)
         || feat_re().is_match(s)
         || bl_re().is_match(s)
         || pi_re().is_match(s)
@@ -456,12 +491,36 @@ fn ats_re() -> &'static regex::Regex {
 fn arg_re() -> &'static regex::Regex {
     ARG_RE.get_or_init(|| regex::Regex::new(r"^ARG(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
+fn sm_re() -> &'static regex::Regex {
+    SM_RE.get_or_init(|| regex::Regex::new(r"^SM(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn te_re() -> &'static regex::Regex {
+    TE_RE.get_or_init(|| regex::Regex::new(r"^TE(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn risk_re() -> &'static regex::Regex {
+    RISK_RE.get_or_init(|| regex::Regex::new(r"^RISK(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
+fn dfa_re() -> &'static regex::Regex {
+    DFA_RE.get_or_init(|| regex::Regex::new(r"^DFA(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
+}
+
 fn aou_re() -> &'static regex::Regex {
     AOU_RE.get_or_init(|| regex::Regex::new(r"^AOU(-[A-Z0-9]{2,12})+-[0-9]{3,}$").unwrap())
 }
 
 /// Returns true for ARG-* IDs (Argument).
 pub fn is_arg_id(s: &str) -> bool { arg_re().is_match(s) || extra_matches("ARG", s) }
+/// Returns true for SM-* IDs (SafetyMechanism).
+pub fn is_sm_id(s: &str) -> bool { sm_re().is_match(s) || extra_matches("SM", s) }
+/// Returns true for TE-* IDs (TestEnvironment).
+pub fn is_te_id(s: &str) -> bool { te_re().is_match(s) || extra_matches("TE", s) }
+/// Returns true for RISK-* IDs (ResidualRisk, GH #341).
+pub fn is_risk_id(s: &str) -> bool { risk_re().is_match(s) || extra_matches("RISK", s) }
+/// Returns true for DFA-* IDs (DependentFailureAnalysis).
+pub fn is_dfa_id(s: &str) -> bool { dfa_re().is_match(s) || extra_matches("DFA", s) }
 /// Returns true for AOU-* IDs (AssumptionOfUse).
 pub fn is_aou_id(s: &str) -> bool { aou_re().is_match(s) || extra_matches("AOU", s) }
 
@@ -475,6 +534,11 @@ pub fn is_ats_id(s: &str) -> bool { ats_re().is_match(s) || extra_matches("ATS",
 /// Returns true for ADR-* IDs.
 pub fn is_adr_id(s: &str) -> bool {
     adr_re().is_match(s) || extra_matches("ADR", s)
+}
+
+/// Returns true for AR-* IDs (ArchitectureRule).
+pub fn is_ar_id(s: &str) -> bool {
+    ar_re().is_match(s) || extra_matches("AR", s)
 }
 
 /// Returns true for RR-* IDs (ReviewRecord).
@@ -579,6 +643,26 @@ impl Resolver {
         self.by_name.get(r).map(|&i| &elements[i])
     }
 
+    /// The diagram shape-reference rule (`W402`, and `lint-docs` `W101`, GH #172):
+    /// `r` is accepted when it resolves via [`Self::resolve_ref`] **or** when any
+    /// `::`-ancestor of it does. Diagram refs routinely name an inline feature of a
+    /// resolvable element — a port, part usage, sub-state or action step at any
+    /// depth (`System::part::port::subport`) — that is not a model element of its
+    /// own, so only a ref with no resolvable prefix at all is dangling.
+    pub fn resolves_shape_ref(&self, elements: &[RawElement], r: &str) -> bool {
+        if self.resolve_ref(elements, r).is_some() {
+            return true;
+        }
+        let mut seg = r;
+        while let Some(pos) = seg.rfind("::") {
+            seg = &seg[..pos];
+            if self.resolve_ref(elements, seg).is_some() {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Resolve `r` relative to the enclosing-package scope chain of
     /// `from_qname`, walking outward — the namespace-lookup order a
     /// SysML v2-authored `typedBy:`/`supertype:` value needs when it was
@@ -627,6 +711,23 @@ impl Resolver {
             }
         }
         self.resolve_ref(elements, r)
+    }
+
+    /// True if a `PlanningItem.achieves:` may name `elem`: a native Requirement or one of the
+    /// work products a plan can deliver without a requirement (GH #240).
+    pub fn is_achievable_target(elem: &RawElement) -> bool {
+        Self::is_native_requirement(elem)
+            || matches!(
+                elem.frontmatter.element_type,
+                Some(
+                    ElementType::SafetyGoal
+                        | ElementType::CybersecurityGoal
+                        | ElementType::ADR
+                        | ElementType::Argument
+                        | ElementType::TestPlan
+                        | ElementType::Baseline
+                )
+            )
     }
 
     /// True if `elem` is a native Requirement (type: Requirement with a REQ-* id).
@@ -837,6 +938,8 @@ mod resolve_scoped_ref_tests {
             parse_issue: None::<ParseIssue>,
             derived: Default::default(),
             derive_findings: vec![],
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
         }
     }
 
@@ -912,5 +1015,26 @@ mod resolve_scoped_ref_tests {
         // resolve_ref delegates to at the end finds it.
         let found = resolver.resolve_scoped_ref(&elements, "A::C::Usage", "HwBase");
         assert_eq!(found.map(|e| e.qualified_name.as_str()), Some("A::B::HwBase"));
+    }
+
+    #[test]
+    fn configuration_ids_need_no_numeric_suffix() {
+        // GH #327 / REQ-TRS-ID-008: like FEAT-*/BL-*, a variant id may be descriptive.
+        for ok in ["CONF-GTI-US-M3", "CONF-GTI-IN-M2", "CONF-GTI-US-001", "CONF-UAV-DELIVERY-001", "CONF-AB", "CONF-001"] {
+            assert!(is_conf_id(ok), "{ok}");
+        }
+        for bad in ["CONF", "CONF-", "CONF-gti-US", "CONF-G", "CONF-GTI-ABCDEFGHIJKLM", "CONF_GTI", "XCONF-GTI"] {
+            assert!(!is_conf_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_extra_configuration_prefix_needs_no_numeric_suffix_either() {
+        let mut by_type = HashMap::new();
+        by_type.insert("Configuration".to_string(), vec!["VAR".to_string()]);
+        set_extra_id_prefixes_by_type(&by_type);
+        let (named, numeric) = (is_conf_id("VAR-GTI-US-M3"), is_conf_id("VAR-GTI-001"));
+        set_extra_id_prefixes_by_type(&HashMap::new());
+        assert!(named && numeric);
     }
 }

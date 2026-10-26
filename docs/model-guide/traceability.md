@@ -37,8 +37,9 @@ An allocation can be authored two ways, sharing one edge model and a derived
   both endpoints is its purpose, not redundancy.
 
 Both forms feed `MG041`/`MG081`, `matrix --allocations`, and the derived index identically. A
-`features:` entry is an edge when it has both `allocatedFrom` and `allocatedTo`, with or
-without a per-entry `type: Allocation`. Declaring the **same** edge in *both* forms is
+`features:` entry of an `Allocation` element is an edge when it has both `allocatedFrom` and
+`allocatedTo`, with or without a per-entry `type: Allocation`; the same entry on any other
+element type is **not** an allocation (warning **`W930`**). Declaring the **same** edge in *both* forms is
 redundant — warning **`W503`**. Guidance: `allocatedTo` by default; promote to an `Allocation`
 element only when the allocation needs its own documentation.
 
@@ -56,11 +57,20 @@ breakdownAdr: Decisions::SafetyDecompositionADR   # must be status: accepted
 - **E311** — `breakdownAdr:` does not resolve, or does not resolve to an ADR element
 - **W303** — `breakdownAdr:` resolves to a `proposed` ADR but the requirement is `approved` or higher
 
+A project that does not want an ADR for every breakdown can switch `E310` off in `.syscribe.toml`:
+
+```toml
+[traceability]
+require_breakdown_adr = false   # default true
+```
+
+A `breakdownAdr:` that is present is still checked (`E311`, `W303`). A malformed entry is `W632` and the default stays.
+
 ## Rule 3 — Leaf assignment (§12.3)
 
-Requirements must be decomposed until each leaf can be assigned to a single architecture element. Leaf requirements at `approved` or `implemented` status with no `satisfies:` link fire **W300**.
+Requirements are decomposed until each leaf can be assigned to the architecture that fulfils it. Leaf requirements at `approved` or `implemented` status with no `satisfies:` link fire **W300**.
 
-A leaf requirement should have exactly one satisfying element. More than one fires **W301**.
+A leaf requirement may be satisfied by more than one element — for example a `PartDef` and the `StateDef` that gives it its behaviour, or redundant channels. That is not a finding (`W301` is retired, GH #121): decompose a requirement only when the children add requirement content, never just to reach one satisfier per leaf. Satisfying a *parent* requirement is still **E312** (below).
 
 ## Rule 4 — No parent assignment (§12.4)
 
@@ -111,7 +121,7 @@ implementedBy:
   - repo:src/scheduler/bitmap.rs
 ```
 
-The field accepts a single string or a list. Path resolution is identical to a TestCase's `sourceFile`: model-/repo-relative, `model:`/`repo:` prefixes, absolute, and `file://` paths are checked on disk; remote URIs (`scheme://`) are accepted as external pointers and not verified locally.
+The field accepts a single string or a list. Path resolution is identical to a TestCase's `sourceFile`: model-/repo-relative, `model:`/`repo:` prefixes, absolute, and `file://` paths are checked on disk; remote URIs (`scheme://`) and package-registry references (`crates.io:tokio@1.38.0`, `npm:lodash@4.17.21`, `github:org/repo@v1`, … — the forms `sbom` emits as package components) are accepted as external pointers and not verified locally.
 
 - **W023** — a non-`draft` `Part`/`PartDef`/`Interface`/`InterfaceDef` has an `implementedBy:` path that does not exist on disk
 
@@ -124,7 +134,7 @@ Discoverability:
 
 ## Integration test coverage for parent requirements (W305)
 
-Leaf-level TestCases (L1/L2) verify individual derived requirements but do not cover the emergent, composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3` (system), `L4` (system integration), or `L5` (hardware-in-the-loop).
+Leaf-level TestCases (L1/L2) verify individual derived requirements but do not cover the emergent, composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3` (formal proof), `L4` (integration on an emulator) or `L5` (hardware-in-the-loop).
 
 ```yaml
 # TC-UAV-PERF-001.md — system test covering the parent requirement
@@ -151,6 +161,8 @@ The validation report (section 4) prints a matrix of all leaf requirements again
 | REQ-UAV-FC-001    | ✓             |                | 1          |
 | REQ-UAV-NAV-001   |               | ✓              | 1          |
 ```
+
+A `✓` says a TestCase claims the requirement, not that anything ran. `requirement-coverage` says which requirements have *executable* evidence (scenarios that ran and exercised what satisfies the requirement) and which only descriptive tests; see [Executable evidence](executable-evidence.md).
 
 ## Suspect links — has a reviewed link gone stale? (`ADR-SYS-SUSLINK-001`)
 
@@ -193,3 +205,22 @@ clear every suspect link at once). Propagation is **implicit, one hop per review
 direct link goes suspect; a link *into* the source flips only once the source's own
 projection actually changes. The same operations are exposed over MCP as `suspect_list` and
 the guarded `suspect_accept`.
+
+Custom links declared under `[linkTypes]` take part in suspect-link detection too, unless a
+type opts out with `suspect = false` (see below).
+
+## Project-defined relationships — user-defined link types (`ADR-SYS-LINKTYPE-001`)
+
+When a relationship the format does not name is needed — `mitigates`, `conflictsWith`,
+`partiallySatisfies` — declare it as a link type in `.syscribe.toml` and author it under
+`links:` rather than bending a built-in field or hiding it in `custom_fields:`. Custom links
+follow Rule 1 (the source holds the link), resolve like `satisfies:`, can extend a built-in
+trace link with named rules relaxed (for example a `satisfies` variant that relaxes `E313`),
+and are traversed by `follow`, `links`, `refs`, `impact` and `trace`:
+
+```bash
+syscribe -m model/ link-types                                  # the project's vocabulary
+syscribe -m model/ follow REQ-BRK-003 mitigatedBy              # walk one link type
+```
+
+See [User-Defined Link Types](link-types.md) for the full guide.

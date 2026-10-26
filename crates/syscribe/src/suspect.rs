@@ -111,6 +111,9 @@ pub fn plan_accept(
             )
         })?;
 
+    if is_sheet_row(source) {
+        return Err(format!("cannot baseline links of `{source_ref}`: {ROW_SOURCE_MSG}"));
+    }
     let tgt = suspect::resolve_target(elems, resolver, &authored_key)
         .ok_or_else(|| format!("target `{authored_key}` does not resolve to any element"))?;
     let hash = suspect::projection_hash(tgt);
@@ -168,6 +171,38 @@ fn cmd_accept(
     }
 }
 
+/// True when `elem` is a row exploded from a sheet (TARA/FMEA/...) rather than the
+/// element the file itself declares: its stable id differs from the file's own
+/// frontmatter `id`. A `traceBaselines` entry written to that file lands on the
+/// sheet, which no row reads, so such a link can never be baselined this way.
+pub fn is_sheet_row(elem: &RawElement) -> bool {
+    let Some(id) = elem.frontmatter.id.as_deref() else { return false };
+    let Ok(content) = std::fs::read_to_string(&elem.file_path) else { return false };
+    let (fm_opt, _) = split_frontmatter(&content);
+    match fm_opt.and_then(|fm| parse_frontmatter(fm).ok()) {
+        Some(fm) => fm.id.as_deref().is_some_and(|fid| fid != id),
+        None => false,
+    }
+}
+
+const ROW_SOURCE_MSG: &str = "the source is a row exploded from a sheet (e.g. a TARA/FMEA row), which cannot carry a `traceBaselines:` entry";
+
+/// Drop links whose source is a sheet row, reporting them on stderr.
+fn without_sheet_rows<'a>(elems: &[RawElement], links: Vec<&'a SuspectLink>) -> Vec<&'a SuspectLink> {
+    let by_qname: std::collections::HashMap<&str, &RawElement> =
+        elems.iter().map(|e| (e.qualified_name.as_str(), e)).collect();
+    let (rows, ok): (Vec<_>, Vec<_>) = links
+        .into_iter()
+        .partition(|l| by_qname.get(l.source_qname.as_str()).is_some_and(|e| is_sheet_row(e)));
+    if !rows.is_empty() {
+        eprintln!("skipped {} link(s) — {ROW_SOURCE_MSG}:", rows.len());
+        for l in &rows {
+            eprintln!("  {} {} {}", l.source_label(), l.kind, l.target_ref);
+        }
+    }
+    ok
+}
+
 /// `suspect accept --all` — re-baseline every currently-suspect link. Groups the
 /// writes per source file so a source with several suspect links is written once.
 fn accept_all(elems: &[RawElement], resolver: &Resolver) -> i32 {
@@ -175,6 +210,7 @@ fn accept_all(elems: &[RawElement], resolver: &Resolver) -> i32 {
     let suspect: Vec<&SuspectLink> =
         links.iter().filter(|l| l.state == LinkState::Suspect).collect();
 
+    let suspect = without_sheet_rows(elems, suspect);
     if suspect.is_empty() {
         println!("no suspect links to accept");
         return 0;
@@ -217,6 +253,7 @@ fn accept_all_unbaselined(elems: &[RawElement], resolver: &Resolver) -> i32 {
         .iter()
         .filter(|l| l.state == LinkState::Unbaselined && l.current.is_some())
         .collect();
+    let onboard = without_sheet_rows(elems, onboard);
 
     if onboard.is_empty() {
         println!("no unbaselined links to onboard");

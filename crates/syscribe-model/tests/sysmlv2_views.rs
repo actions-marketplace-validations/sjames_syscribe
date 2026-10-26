@@ -199,16 +199,12 @@ fn a_view_nested_inside_a_part_def_becomes_a_real_element() {
 }
 
 #[test]
-fn a_view_nested_inside_a_part_usage_stays_invisible() {
+fn a_view_nested_inside_a_part_usage_is_its_own_element() {
     let root = tempdir();
     base_model(&root);
-    // `PartUsageBodyElement` carries no variant for the whole
-    // view/viewpoint/rendering family at all per this grammar
-    // (`REQ-TRS-SYSMLV2-020`/`-021`/`-022`'s documented gap) -- stronger
-    // than a silent per-element skip, this is an outright parser rejection:
-    // a `view` declared directly inside a `part` usage body fails to parse
-    // at all, gracefully degrading to a `W541` finding
-    // (`REQ-TRS-SYSMLV2-006`) rather than a crash or a synthesized element.
+    // 0.54 rejected a `view` declared directly inside a `part` usage body outright (a `W541`
+    // for the whole file); 0.55 parsed the file but left the view invisible. The 0.57 grammar
+    // reaches it, so it is a native `View` under the part usage (`REQ-TRS-SYSMLV2-080`).
     write(
         &root,
         "SysML2Legacy/Nested.sysml",
@@ -222,13 +218,17 @@ fn a_view_nested_inside_a_part_usage_stays_invisible() {
     );
 
     let elements = walk_model(&root).unwrap();
-    assert!(
-        !elements.iter().any(|e| e.qualified_name.ends_with("::innerView")),
-        "a view nested inside a part usage body should stay invisible: {:#?}",
-        elements.iter().map(|e| &e.qualified_name).collect::<Vec<_>>()
-    );
+    let v = elements
+        .iter()
+        .find(|e| e.qualified_name == "SysML2Legacy::Behavior::housing::innerView")
+        .unwrap_or_else(|| panic!("nested view not ingested: {:#?}", elements.iter().map(|e| &e.qualified_name).collect::<Vec<_>>()));
+    assert_eq!(v.frontmatter.element_type, Some(syscribe_model::element::ElementType::View));
     let result = validate(&elements);
-    assert!(codes(&result.findings).contains(&"W541"), "{:#?}", result.findings);
+    assert!(!codes(&result.findings).contains(&"W541"), "{:#?}", result.findings);
+    assert!(
+        elements.iter().any(|e| e.qualified_name == "SysML2Legacy::Behavior::Housing"),
+        "the rest of the file still ingests"
+    );
 }
 
 #[test]

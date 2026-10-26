@@ -19,10 +19,13 @@ Output variables are emitted in alphabetical order for reproducible diffs.
 ## OPTIONS
     --config <id>      Named Configuration to project (id or qualified name).
     --format <fmt>     Output format: cmake | c-header | makefile | env | json | kconfig
-                       Default: json
+                       Default: json. Any other value is a usage error (exit 1); with
+                       --all-configs only json is valid (the output is always a JSON array).
     --prefix <str>     Prepend <str> to every emitted variable name.
     --no-validate      Skip SAT validation before generating output.
     --all-configs      Generate output for every Configuration (JSON array, for CI matrix).
+
+An unknown option is a usage error (exit 1, message on stderr, nothing on stdout).
 
 ## FORMATS
     cmake      set(VAR value) — include() in CMakeLists.txt
@@ -33,8 +36,8 @@ Output variables are emitted in alphabetical order for reproducible diffs.
     kconfig    CONFIG_VAR=y/n/value — Zephyr/Linux Kconfig
 
 ## EXAMPLES
-    syscribe -m model/ build-config --config CONF-PREMIUM --format cmake
-    syscribe -m model/ build-config --config CONF-PREMIUM --format c-header --prefix MY_
+    syscribe -m model/ build-config --config CONF-UAV-DELIVERY-001 --format cmake
+    syscribe -m model/ build-config --config CONF-UAV-DELIVERY-001 --format c-header --prefix UAV_
     syscribe -m model/ build-config --all-configs --format json
 
 ## SEE ALSO
@@ -43,4 +46,5 @@ Output variables are emitted in alphabetical order for reproducible diffs.
 ## DIAGNOSTICS
     E050   Two selected features export the same variable name with conflicting values.
            Resolve by adding a buildOverrides: entry on the Configuration.
-    W050   A selected feature contributes no build variable (opt-in, --deny W050).
+    W050   A selected feature contributes no build variable. Catalogued but not
+           currently emitted: no command surfaces it, so --deny W050 has no effect.

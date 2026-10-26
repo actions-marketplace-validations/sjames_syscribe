@@ -30,6 +30,10 @@ pub enum SourceLocation {
 /// Configuration threaded into [`crate::validator::validate_with_config`].
 #[derive(Debug, Clone, Default)]
 pub struct ValidateConfig {
+    /// The stored Configuration (qualified name) whose bindings state-machine placeholders take when the machines are
+    /// checked (GH #328). Set by the `--config` lens; `None` checks the base model at fixed values and defaults.
+    pub machine_config: Option<String>,
+
     /// Model root directory (the `-m` path). Bare relative `sourceFile:` values
     /// and `model:`-prefixed values resolve against it.
     pub model_root: Option<PathBuf>,
@@ -61,6 +65,10 @@ pub struct ValidateConfig {
     /// `[ids] max_digits` in `<model_root>/.syscribe.toml`; use [`Self::id_digit_max`].
     pub id_max_digits: Option<usize>,
 
+    /// `[ids] check_file_names = true` turns on `W065` (an id-identified element's
+    /// file stem differs from its `id`). Off by default (GH #185).
+    pub id_check_file_names: bool,
+
     /// REQ-TRS-MG-* — run the gated MagicGrid validation pass (actors, mg_cell,
     /// MoE, logical/physical layering). Off by default; set from a resolved
     /// `[profiles.<name>] magicgrid = true` profile by the CLI. The base-format
@@ -84,6 +92,13 @@ pub struct ValidateConfig {
     /// Empty (the default) means single-repo: the `E510`–`E515`/`W510` block and
     /// all cross-repo resolution are inert, so single-repo models are unaffected.
     pub repos: Vec<LoadedRepo>,
+
+    /// REQ-TRS-TYPE-021 (§14.3/§14.4) — the `repoImports:` mount points of the
+    /// local model: each maps a local `<package>::<as>` prefix onto a peer
+    /// repo's imported qname. Not read from `.syscribe.toml` (the declarations
+    /// live on package `_index.md` files): the validator fills it from the
+    /// loaded elements via [`repo_mounts`] whenever `[repos]` is configured.
+    pub repo_mounts: Vec<RepoMount>,
 
     /// REQ-TRS-ID-007 — additional stable-ID prefixes accepted per element type,
     /// from the `[ids.prefixes]` table of `<model_root>/.syscribe.toml`. Keyed by
@@ -114,6 +129,131 @@ pub struct ValidateConfig {
     /// but never checked against a roster — same opt-in posture as
     /// `[repos]`/`[ids.prefixes]`/every other config-gated table.
     pub users: HashMap<String, String>,
+
+    /// REQ-TRS-LINKTYPE-001 — the user-defined link-type vocabulary, from the
+    /// `[linkTypes.<name>]` tables of `<model_root>/.syscribe.toml`. Holds the
+    /// valid declarations plus the `W630` defect messages for the rest, which the
+    /// validator reports against `.syscribe.toml` (same posture as `W046`/`W309`).
+    /// Empty (the default) means the feature is dormant: no `[linkTypes]` table
+    /// and no `links:` field ⇒ no new finding. [`Self::with_model_root`] also
+    /// installs it as the process-wide active vocabulary
+    /// (`crate::link_types::install`) for graph building and suspect scanning.
+    pub link_types: crate::link_types::LinkTypeRegistry,
+
+    /// GH #216 — the `[audit]` table of `<model_root>/.syscribe.toml`: which
+    /// finding codes fail the `audit` readiness verdict. Defaults to
+    /// [`AuditConfig::default`] (W306 always; W033/W805 at ASIL C/D).
+    pub audit: AuditConfig,
+
+    /// `[coverage]` parent-requirement policy (GH #253, REQ-TRS-COVVAL-001): which rule judges W305.
+    pub coverage: CoveragePolicy,
+
+    /// `[traceability] require_breakdown_adr = false` switches `E310` off (REQ-TRS-BADR-001). Stored inverted so
+    /// the derived default (`false`) keeps the rule in force.
+    pub breakdown_adr_optional: bool,
+
+    /// Problems with the `[traceability]` table, reported as `W632`.
+    pub traceability_problems: Vec<String>,
+
+    /// GH #222 — ISO/SAE 21434 risk/CAL configuration from the `[cyber]` table of
+    /// `<model_root>/.syscribe.toml`. The default (no table) is the historical
+    /// `simple` rank-sum method, so existing models validate byte-identically.
+    /// Malformed entries are dropped and reported as `W640`.
+    pub cyber: crate::cyber_config::CyberConfig,
+}
+
+/// GH #216 — `[audit]` policy: which non-error finding codes fail the
+/// `syscribe audit` readiness verdict (error-severity findings always fail).
+///
+/// ```toml
+/// [audit]
+/// fail_on = ["W306", "W312"]              # codes that fail at any integrity level (defaults)
+/// [audit.fail_on_asil]                     # codes that fail only on a goal at these ASILs
+/// W033 = ["C", "D"]
+/// W805 = ["C", "D"]
+/// ```
+///
+/// A present key replaces the corresponding default wholesale, so
+/// `fail_on_asil = {}` (or an empty table) opts out of the ASIL-gated defaults and
+/// `fail_on = ["W306", "W800"]` extends the unconditional set. Malformed entries
+/// are ignored and reported as `W934` by the validator.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditConfig {
+    /// Codes that fail the verdict wherever they occur.
+    pub fail_on: Vec<String>,
+    /// Code → ASIL levels (`A`..`D`) at which the finding fails the verdict. The
+    /// finding's element must carry a matching `asilLevel`.
+    pub fail_on_asil: std::collections::BTreeMap<String, Vec<String>>,
+    /// Human-readable defects found while loading (`W934`).
+    pub problems: Vec<String>,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        let mut fail_on_asil = std::collections::BTreeMap::new();
+        for c in ["W033", "W805"] {
+            fail_on_asil.insert(c.to_string(), vec!["C".to_string(), "D".to_string()]);
+        }
+        Self { fail_on: vec!["W306".to_string(), "W312".to_string()], fail_on_asil, problems: Vec::new() }
+    }
+}
+
+impl AuditConfig {
+    /// Load `[audit]` from `<model_root>/.syscribe.toml`; defaults when absent.
+    pub fn load(model_root: &Path) -> Self {
+        let mut cfg = Self::default();
+        let Some(text) = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok() else {
+            return cfg;
+        };
+        let Ok(root) = toml::from_str::<toml::Value>(&text) else { return cfg };
+        let Some(tbl) = root.get("audit").and_then(|v| v.as_table()) else { return cfg };
+        let code_ok = |c: &str| {
+            c.len() == 4
+                && c.starts_with(['E', 'W', 'I'])
+                && c[1..].chars().all(|ch| ch.is_ascii_digit())
+        };
+        for (k, v) in tbl {
+            match k.as_str() {
+                "fail_on" | "failOn" => match v.as_array() {
+                    Some(arr) => {
+                        let mut out = Vec::new();
+                        for item in arr {
+                            match item.as_str() {
+                                Some(c) if code_ok(c) => out.push(c.to_string()),
+                                _ => cfg.problems.push(format!(
+                                    "[audit] fail_on entry {item} is not a finding code (e.g. \"W306\") — ignored"
+                                )),
+                            }
+                        }
+                        cfg.fail_on = out;
+                    }
+                    None => cfg.problems.push("[audit] fail_on must be an array of finding codes — ignored".into()),
+                },
+                "fail_on_asil" | "failOnAsil" => match v.as_table() {
+                    Some(t) => {
+                        let mut out = std::collections::BTreeMap::new();
+                        for (code, levels) in t {
+                            let lv: Option<Vec<String>> = levels.as_array().map(|a| {
+                                a.iter().filter_map(|x| x.as_str()).map(|x| x.trim().to_ascii_uppercase()).collect()
+                            });
+                            match lv {
+                                Some(lv) if code_ok(code) && lv.iter().all(|l| ["A", "B", "C", "D"].contains(&l.as_str())) => {
+                                    out.insert(code.clone(), lv);
+                                }
+                                _ => cfg.problems.push(format!(
+                                    "[audit.fail_on_asil] entry '{code}' must map a finding code to a list of ASIL levels A-D — ignored"
+                                )),
+                            }
+                        }
+                        cfg.fail_on_asil = out;
+                    }
+                    None => cfg.problems.push("[audit] fail_on_asil must be a table of code = [levels] — ignored".into()),
+                },
+                other => cfg.problems.push(format!("[audit] unknown key '{other}' — ignored")),
+            }
+        }
+        cfg
+    }
 }
 
 /// One entry in the `[repos]` table of `.syscribe.toml` (§14.2, REQ-TRS-TYPE-021).
@@ -180,6 +320,67 @@ pub struct LoadedRepo {
     pub qnames: HashSet<String>,
     /// Stable IDs (`REQ-*`, `TC-*`, …) exported by the peer model.
     pub stable_ids: HashSet<String>,
+}
+
+/// A `repoImports:` mount point (§14.3/§14.4, REQ-TRS-TYPE-021): the peer
+/// subtree rooted at `peer_qname` in repo `alias` is mounted in the local
+/// namespace at `mount` (`<package-qname>::<as>`, or just `<as>` on the model
+/// root package), so a reference `<mount>::X` denotes the peer's
+/// `<peer_qname>::X`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoMount {
+    /// The `[repos]` alias the subtree is imported from.
+    pub alias: String,
+    /// The local qualified-name prefix the subtree is mounted at.
+    pub mount: String,
+    /// The peer-native qualified name of the imported element/package.
+    pub peer_qname: String,
+}
+
+/// Collect the `repoImports:` mount points declared by `elements` (§14.3).
+/// `as` defaults to the last `::` segment of `qname`. The imported `qname` is
+/// taken as the peer's exact qualified name, or else as the unique trailing
+/// `::`-segment match of one (the same tolerance `E514` applies); an entry that
+/// names an unknown alias or an unresolved `qname` (`E513`/`E514`) mounts
+/// nothing. Sorted longest mount first so the most specific mount wins.
+pub fn repo_mounts(elements: &[crate::element::RawElement], repos: &[LoadedRepo]) -> Vec<RepoMount> {
+    let mut out: Vec<RepoMount> = Vec::new();
+    for elem in elements {
+        let Some(imports) = &elem.frontmatter.repo_imports else { continue };
+        for imp in imports {
+            let get = |k: &str| {
+                imp.get(serde_yaml::Value::String(k.to_string()))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            };
+            let (Some(alias), Some(qname)) = (get("repo"), get("qname")) else { continue };
+            let Some(repo) = repos.iter().find(|r| r.alias == alias) else { continue };
+            let peer_qname = if repo.qnames.contains(&qname) {
+                qname.clone()
+            } else {
+                let suffix = format!("::{qname}");
+                let mut hits: Vec<&String> = repo.qnames.iter().filter(|q| q.ends_with(&suffix)).collect();
+                hits.sort();
+                match hits.first() {
+                    Some(q) => (*q).clone(),
+                    None => continue,
+                }
+            };
+            let local_as = get("as").unwrap_or_else(|| {
+                qname.rsplit("::").next().unwrap_or(&qname).to_string()
+            });
+            let mount = if elem.qualified_name.is_empty() {
+                local_as
+            } else {
+                format!("{}::{}", elem.qualified_name, local_as)
+            };
+            out.push(RepoMount { alias, mount, peer_qname });
+        }
+    }
+    out.sort_by(|a, b| b.mount.len().cmp(&a.mount.len()).then_with(|| a.mount.cmp(&b.mount)));
+    out.dedup();
+    out
 }
 
 /// View of `.syscribe.toml` carrying only the `[repos]` table.
@@ -342,6 +543,8 @@ struct PathsToml {
 struct IdsToml {
     #[serde(default, alias = "maxDigits")]
     max_digits: Option<usize>,
+    #[serde(default, alias = "checkFileNames")]
+    check_file_names: bool,
     /// REQ-TRS-ID-007 — `[ids.prefixes]`: additional stable-ID prefixes per element
     /// type, keyed by type name (`Requirement`, `TestCase`, …).
     #[serde(default)]
@@ -493,6 +696,7 @@ impl ValidateConfig {
         let results = ResultsData::load_sidecar(&root);
         let repo_root = resolve_repo_root(&root);
         let id_max_digits = resolve_id_max_digits(&root);
+        let id_check_file_names = resolve_id_check_file_names(&root);
         let id_extra_prefixes = resolve_id_prefixes(&root);
         // REQ-TRS-ID-007 — install the well-formed additional prefixes into the
         // resolver so every `is_*_id` / `is_stable_id` check recognises them. An empty
@@ -503,7 +707,17 @@ impl ValidateConfig {
         let repos = load_repos(&root);
         let plugins = crate::plugins::config::load_plugins(&root);
         let users = load_users(&root);
+        // REQ-TRS-LINKTYPE-001 — load `[linkTypes]` and install it as the active
+        // vocabulary (an absent table installs the empty one, clearing any prior).
+        let link_types = crate::link_types::LinkTypeRegistry::load(&root);
+        crate::link_types::install(&link_types);
+        let audit = AuditConfig::load(&root);
+        let root_for_cyber = root.clone();
+        let (breakdown_adr_optional, traceability_problems) = load_traceability(&root);
         Self {
+            machine_config: None,
+            breakdown_adr_optional,
+            traceability_problems,
             model_root: Some(root),
             repo_root,
             matchers,
@@ -511,13 +725,20 @@ impl ValidateConfig {
             // Remote fetching is opt-in (CLI `--fetch-remote`); never enabled here.
             remote_hook: None,
             id_max_digits,
+            id_check_file_names,
             magicgrid: false,
             links,
             scripts_dir,
             repos,
+            // Filled by the validator from the loaded `repoImports:` (GH #138).
+            repo_mounts: Vec::new(),
             plugins,
             id_extra_prefixes,
             users,
+            link_types,
+            audit,
+            coverage: CoveragePolicy::load(&root_for_cyber),
+            cyber: crate::cyber_config::CyberConfig::load(&root_for_cyber),
         }
     }
 
@@ -542,7 +763,30 @@ impl ValidateConfig {
             repo.stable_ids.contains(r)
                 || repo.qnames.contains(r)
                 || repo.qnames.iter().any(|q| q.ends_with(&suffix))
-        })
+        }) || self
+            .unmount(r)
+            .is_some_and(|(repo, native)| repo.qnames.contains(&native))
+    }
+
+    /// §14.4 rule 1 — translate a reference written against a `repoImports:`
+    /// mount point (`<package>::<as>[::X]`) into the peer repo and its
+    /// peer-native qualified name (`<qname>[::X]`). The most specific
+    /// (longest) mount wins. `None` when `reference` lies under no mount.
+    pub fn unmount(&self, reference: &str) -> Option<(&LoadedRepo, String)> {
+        let r = reference.trim();
+        for m in &self.repo_mounts {
+            let native = if r == m.mount {
+                m.peer_qname.clone()
+            } else if let Some(rest) = r.strip_prefix(m.mount.as_str()).and_then(|t| t.strip_prefix("::")) {
+                format!("{}::{}", m.peer_qname, rest)
+            } else {
+                continue;
+            };
+            if let Some(repo) = self.repos.iter().find(|x| x.alias == m.alias) {
+                return Some((repo, native));
+            }
+        }
+        None
     }
 
     /// REQ-TRS-LINK-001 — resolve a file-backed element's hosted source URL.
@@ -620,6 +864,7 @@ impl ValidateConfig {
     /// | Form | Meaning |
     /// |---|---|
     /// | `scheme://…` (not `file`) | remote URI — not resolved locally |
+    /// | `<registry>:<pkg>@<ver>` | package-registry reference ([`PACKAGE_REGISTRIES`]) — remote |
     /// | `file://…` | local path from the file URI |
     /// | `repo:<path>` | relative to the repository root |
     /// | `model:<path>` | relative to the model root |
@@ -630,15 +875,18 @@ impl ValidateConfig {
 
         // URI with a scheme.
         if let Some(scheme_end) = v.find("://") {
-            let scheme = &v[..scheme_end];
-            let is_scheme = !scheme.is_empty()
-                && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'));
-            if is_scheme {
-                if scheme.eq_ignore_ascii_case("file") {
+            if is_remote_uri_scheme(&v[..scheme_end]) {
+                if v[..scheme_end].eq_ignore_ascii_case("file") {
                     return SourceLocation::Local(file_uri_to_path(&v[scheme_end + 3..]));
                 }
                 return SourceLocation::Remote(v.to_string());
             }
+        }
+
+        // Package-registry reference (`crates.io:tokio@1.38.0`, `npm:lodash@4.17.21`,
+        // `github:org/repo@v1`, …) — external, exactly as `sbom` recognises it (GH #134).
+        if parse_package_ref(v).is_some() {
+            return SourceLocation::Remote(v.to_string());
         }
 
         // Explicit `repo:` / `model:` prefixes.
@@ -667,6 +915,76 @@ impl ValidateConfig {
             None => SourceLocation::Local(p),
         }
     }
+}
+
+/// Package-registry prefixes recognised in `implementedBy:`/`sourceFile:`
+/// values, with the Package URL (purl) ecosystem each maps to. The single
+/// source of truth shared by [`ValidateConfig::classify_source`] (these are
+/// external, never local paths — GH #134) and the `sbom` command (§18).
+pub const PACKAGE_REGISTRIES: &[(&str, &str)] = &[
+    ("crates.io", "cargo"),
+    ("npm", "npm"),
+    ("pypi", "pypi"),
+    ("maven", "maven"),
+    ("nuget", "nuget"),
+    ("github", "github"),
+];
+
+/// A parsed `<registry>:<package>@<version>[#<path>]` package reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageRef<'a> {
+    /// The registry prefix as written (`crates.io`, `npm`, …).
+    pub registry: &'a str,
+    /// The purl ecosystem the registry maps to (`cargo`, `npm`, …).
+    pub ecosystem: &'static str,
+    /// Package name (may itself contain `/`, e.g. `org/repo` or `@scope/pkg`).
+    pub package: &'a str,
+    /// Version (non-empty).
+    pub version: &'a str,
+}
+
+impl PackageRef<'_> {
+    /// The Package URL for this reference, e.g. `pkg:cargo/tokio@1.38.0`.
+    pub fn purl(&self) -> String {
+        format!("pkg:{}/{}@{}", self.ecosystem, self.package, self.version)
+    }
+}
+
+/// Whether `scheme` (the text before `://`) is a syntactically valid URI scheme.
+fn is_remote_uri_scheme(scheme: &str) -> bool {
+    !scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+}
+
+/// Whether an `implementedBy`-style value names something outside the repository: a
+/// non-`file` URI or a package-registry reference. The same test `classify_source`
+/// applies (see `ValidateConfig::classify_source`), exposed so reports can say `external` rather than `(unresolved)` (GH #231).
+pub fn is_external_source_ref(value: &str) -> bool {
+    let v = value.trim();
+    if let Some(i) = v.find("://") {
+        if is_remote_uri_scheme(&v[..i]) {
+            return !v[..i].eq_ignore_ascii_case("file");
+        }
+    }
+    parse_package_ref(v).is_some()
+}
+
+/// Parse a package-registry reference `<registry>:<package>@<version>[#<path>]`
+/// whose registry is one of [`PACKAGE_REGISTRIES`] and whose package and
+/// version are both non-empty. Anything else — a local path, `repo:`/`model:`
+/// prefixes, a Windows drive (`C:\…`), an unknown prefix, a missing version —
+/// is `None`.
+pub fn parse_package_ref(value: &str) -> Option<PackageRef<'_>> {
+    let (registry, rest) = value.trim().split_once(':')?;
+    let ecosystem = PACKAGE_REGISTRIES
+        .iter()
+        .find(|(r, _)| *r == registry)
+        .map(|(_, eco)| *eco)?;
+    let rest = rest.split('#').next().unwrap_or(rest);
+    let (package, version) = rest.rsplit_once('@')?;
+    if package.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some(PackageRef { registry, ecosystem, package, version })
 }
 
 /// Convert the part of a `file://` URI after the scheme into a local path.
@@ -722,6 +1040,37 @@ fn resolve_id_max_digits(model_root: &Path) -> Option<usize> {
     toml::from_str::<PathsToml>(&text).ok()?.ids.max_digits
 }
 
+/// Read `[traceability]` (REQ-TRS-BADR-001): `(breakdown ADR optional, problems)`.
+fn load_traceability(model_root: &Path) -> (bool, Vec<String>) {
+    let mut problems = Vec::new();
+    let Some(root) = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok().and_then(|t| toml::from_str::<toml::Value>(&t).ok()) else {
+        return (false, problems);
+    };
+    let Some(tbl) = root.get("traceability") else { return (false, problems) };
+    let Some(tbl) = tbl.as_table() else {
+        problems.push("[traceability] must be a table".into());
+        return (false, problems);
+    };
+    let mut optional = false;
+    for (k, v) in tbl {
+        match k.as_str() {
+            "require_breakdown_adr" | "requireBreakdownAdr" => match v.as_bool() {
+                Some(b) => optional = !b,
+                None => problems.push(format!("[traceability] {k} must be true or false, got {v}")),
+            },
+            other => problems.push(format!("[traceability] unknown key '{other}'")),
+        }
+    }
+    (optional, problems)
+}
+
+/// Read `[ids] check_file_names` (GH #185); `false` when unset.
+fn resolve_id_check_file_names(model_root: &Path) -> bool {
+    std::fs::read_to_string(model_root.join(".syscribe.toml")).ok()
+        .and_then(|t| toml::from_str::<PathsToml>(&t).ok())
+        .is_some_and(|c| c.ids.check_file_names)
+}
+
 /// Read `[ids.prefixes]` from `<model_root>/.syscribe.toml` (REQ-TRS-ID-007). Returns
 /// the raw type-name → extra-prefix map (empty when unset or unparseable); the
 /// validator reports malformed entries as `W046` and the resolver compiles the
@@ -732,6 +1081,12 @@ fn resolve_id_prefixes(model_root: &Path) -> HashMap<String, Vec<String>> {
         .and_then(|text| toml::from_str::<PathsToml>(&text).ok())
         .map(|cfg| cfg.ids.prefixes)
         .unwrap_or_default()
+}
+
+/// The `[ids.prefixes]` table of `<model_root>/.syscribe.toml`, keyed by element-type
+/// name (REQ-TRS-ID-007). Empty when the file or table is absent.
+pub fn load_id_prefixes(model_root: &Path) -> HashMap<String, Vec<String>> {
+    resolve_id_prefixes(model_root)
 }
 
 /// Load the `[links]` table from `<model_root>/.syscribe.toml` (REQ-TRS-LINK-001).
@@ -757,7 +1112,7 @@ fn load_links(model_root: &Path) -> Option<LinkConfig> {
 /// exported stable IDs (so cross-repo references and `E514`/`E515` can be checked),
 /// and detect whether following its import chain leads back to this model (`E510`).
 /// Returns an empty vector when the file is absent, unparseable, or has no `[repos]`.
-fn load_repos(model_root: &Path) -> Vec<LoadedRepo> {
+pub fn load_repos(model_root: &Path) -> Vec<LoadedRepo> {
     let text = match std::fs::read_to_string(model_root.join(".syscribe.toml")) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
@@ -1012,6 +1367,54 @@ mod tests {
     }
 
     #[test]
+    fn package_registry_refs_are_remote() {
+        for v in [
+            "crates.io:tokio@1.38.0",
+            "npm:lodash@4.17.21",
+            "github:org/repo@v1",
+            "pypi:requests@2.32.0",
+            "maven:org.slf4j/slf4j-api@2.0.13",
+            "nuget:Newtonsoft.Json@13.0.3",
+            "crates.io:serde@1.0.200#src/lib.rs",
+        ] {
+            assert_eq!(cfg().classify_source(v), SourceLocation::Remote(v.to_string()), "{v}");
+        }
+    }
+
+    #[test]
+    fn non_registry_prefixes_stay_local() {
+        for v in [
+            "C:\\src\\lib.rs",
+            "C:/src/lib.rs",
+            "crates.io:tokio",   // no version
+            "npm:@1.0",          // empty package
+            "npm:lodash@",       // empty version
+            "foo:bar@1",         // unknown registry
+            "src/crates.io:x@1", // prefix not at the start
+        ] {
+            assert!(matches!(cfg().classify_source(v), SourceLocation::Local(_)), "{v} must stay local");
+        }
+        // repo:/model: are unaffected.
+        assert_eq!(
+            cfg().classify_source("repo:npm@1/lib.rs"),
+            SourceLocation::Local(PathBuf::from("/work/repo/npm@1/lib.rs"))
+        );
+        assert_eq!(
+            cfg().classify_source("model:npm:x@1"),
+            SourceLocation::Local(PathBuf::from("/models/uav/npm:x@1"))
+        );
+    }
+
+    #[test]
+    fn parse_package_ref_builds_purls() {
+        let r = parse_package_ref("github:org/repo@v1").expect("parses");
+        assert_eq!((r.registry, r.package, r.version), ("github", "org/repo", "v1"));
+        assert_eq!(r.purl(), "pkg:github/org/repo@v1");
+        assert_eq!(parse_package_ref("crates.io:tokio@1.38.0").map(|r| r.purl()).as_deref(), Some("pkg:cargo/tokio@1.38.0"));
+        assert!(parse_package_ref("C:\\x").is_none());
+    }
+
+    #[test]
     fn remote_uris() {
         assert_eq!(
             cfg().classify_source("https://example.com/a/lib.rs"),
@@ -1139,5 +1542,249 @@ mod tests {
         ));
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+}
+
+/// How a parent requirement is judged complete by `coverage tree` (GH #253).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParentRule {
+    /// A direct active test.
+    Direct,
+    /// Every leaf below verified.
+    Rollup,
+    /// Both (the strict default).
+    Both,
+}
+
+impl ParentRule {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ParentRule::Direct => "direct",
+            ParentRule::Rollup => "rollup",
+            ParentRule::Both => "both",
+        }
+    }
+    fn parse(s: &str) -> Option<Self> {
+        match s {
+            "direct" => Some(ParentRule::Direct),
+            "rollup" => Some(ParentRule::Rollup),
+            "both" => Some(ParentRule::Both),
+            _ => None,
+        }
+    }
+}
+
+/// The `requirementKind` vocabulary (E022) and the Requirement lifecycle, as accepted by rule selectors.
+const COVERAGE_REQUIREMENT_KINDS: &[&str] = &["stakeholder", "system", "software", "hardware", "process", "regulatory", "deliverable"];
+const COVERAGE_REQUIREMENT_STATUSES: &[&str] = &["draft", "review", "approved", "implemented", "verified"];
+
+/// One `[[coverage.rule]]`; every given selector must match.
+#[derive(Debug, Clone)]
+pub struct CoverageRule {
+    pub req_class: Option<Vec<String>>,
+    /// `requirementKind` (any of); a requirement without one never matches.
+    pub requirement_kind: Option<Vec<String>>,
+    /// Lifecycle `status` (any of).
+    pub status: Option<Vec<String>>,
+    pub tag: Option<Vec<String>>,
+    pub asil: Option<Vec<String>>,
+    pub cal: Option<Vec<String>>,
+    /// `"QM"` (not integrity-rated) and/or integers.
+    pub sil: Option<Vec<String>>,
+    /// Stereotype selectors (any of): the requirement applies one, or a specialisation, under its `where`
+    /// (REQ-TRS-META-053). Needs the model to evaluate, so only [`CoveragePolicy::rule_for_element`] matches it.
+    pub stereotype: Option<Vec<crate::tagged_values::Selector>>,
+    pub rule: ParentRule,
+}
+
+/// `[coverage]` from `.syscribe.toml` (REQ-TRS-COVPOL-001).
+#[derive(Debug, Clone)]
+pub struct CoveragePolicy {
+    pub default: ParentRule,
+    pub rules: Vec<CoverageRule>,
+    /// Configuration defects; any entry makes the policy unusable.
+    pub problems: Vec<String>,
+}
+
+impl Default for CoveragePolicy {
+    fn default() -> Self {
+        Self { default: ParentRule::Both, rules: Vec::new(), problems: Vec::new() }
+    }
+}
+
+/// Integrity rating of a requirement: an ASIL A–D, a CAL1–4 or a SIL ≥ 1.
+pub fn is_integrity_rated(fm: &crate::element::RawFrontmatter) -> bool {
+    let asil = fm.asil_level.as_deref().map(|a| a.trim().to_ascii_uppercase());
+    asil.is_some_and(|a| matches!(a.chars().next(), Some('A'..='D')))
+        || fm.cal_level.as_deref().is_some_and(|c| c.trim().to_ascii_uppercase().starts_with("CAL"))
+        || fm.sil_level.is_some_and(|s| s >= 1)
+}
+
+impl CoveragePolicy {
+    pub fn load(model_root: &Path) -> Self {
+        let mut p = Self::default();
+        let Some(text) = std::fs::read_to_string(model_root.join(".syscribe.toml")).ok() else { return p };
+        let root = match toml::from_str::<toml::Value>(&text) {
+            Ok(r) => r,
+            Err(e) => {
+                // A syntax error must not silently drop the policy.
+                if text.contains("coverage") {
+                    p.problems.push(format!("[coverage] .syscribe.toml does not parse: {}", e.message()));
+                }
+                return p;
+            }
+        };
+        let Some(cov) = root.get("coverage") else { return p };
+        let Some(tbl) = cov.as_table() else {
+            p.problems.push("[coverage] must be a table".into());
+            return p;
+        };
+        let strings = |v: &toml::Value| -> Option<Vec<String>> {
+            match v {
+                toml::Value::String(s) => Some(vec![s.clone()]),
+                toml::Value::Integer(i) => Some(vec![i.to_string()]),
+                toml::Value::Array(a) => a
+                    .iter()
+                    .map(|x| match x {
+                        toml::Value::String(s) => Some(s.clone()),
+                        toml::Value::Integer(i) => Some(i.to_string()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => None,
+            }
+        };
+        for (k, v) in tbl {
+            match k.as_str() {
+                "default" => match v.as_str().and_then(ParentRule::parse) {
+                    Some(r) => p.default = r,
+                    None => p.problems.push(format!("[coverage] default {v} must be \"direct\", \"rollup\" or \"both\"")),
+                },
+                "rule" => {
+                    let Some(arr) = v.as_array() else {
+                        p.problems.push("[coverage] rule must be an array of tables ([[coverage.rule]])".into());
+                        continue;
+                    };
+                    for (i, r) in arr.iter().enumerate() {
+                        let at = format!("[[coverage.rule]] #{}", i + 1);
+                        let Some(t) = r.as_table() else {
+                            p.problems.push(format!("{at} must be a table"));
+                            continue;
+                        };
+                        let mut rule = CoverageRule { req_class: None, requirement_kind: None, status: None, tag: None, asil: None, cal: None, sil: None, stereotype: None, rule: ParentRule::Both };
+                        let mut have_rule = false;
+                        for (rk, rv) in t {
+                            let list = strings(rv);
+                            if rk != "parent_rule" && list.as_ref().is_some_and(|l| l.is_empty()) {
+                                p.problems.push(format!("{at}: selector '{rk}' is empty and would never match"));
+                                continue;
+                            }
+                            match (rk.as_str(), list) {
+                                ("parent_rule", _) => match rv.as_str().and_then(ParentRule::parse) {
+                                    Some(x) => {
+                                        rule.rule = x;
+                                        have_rule = true;
+                                    }
+                                    None => p.problems.push(format!("{at}: parent_rule {rv} must be \"direct\", \"rollup\" or \"both\"")),
+                                },
+                                ("reqClass", Some(l)) => rule.req_class = Some(l),
+                                ("requirementKind", Some(l)) => {
+                                    let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_lowercase()).collect();
+                                    if l.iter().all(|x| COVERAGE_REQUIREMENT_KINDS.contains(&x.as_str())) {
+                                        rule.requirement_kind = Some(l);
+                                    } else {
+                                        p.problems.push(format!("{at}: requirementKind entries must be one of {}", COVERAGE_REQUIREMENT_KINDS.join(", ")));
+                                    }
+                                }
+                                ("status", Some(l)) => {
+                                    let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_lowercase()).collect();
+                                    if l.iter().all(|x| COVERAGE_REQUIREMENT_STATUSES.contains(&x.as_str())) {
+                                        rule.status = Some(l);
+                                    } else {
+                                        p.problems.push(format!("{at}: status entries must be one of {}", COVERAGE_REQUIREMENT_STATUSES.join(", ")));
+                                    }
+                                }
+                                ("tag", Some(l)) => rule.tag = Some(l),
+                                ("stereotype", Some(l)) => {
+                                    let all_strings = rv.as_array().map_or(rv.is_str(), |a| a.iter().all(|x| x.is_str()));
+                                    let parsed: Result<Vec<_>, String> = l.iter().map(|s| crate::tagged_values::parse_selector(&serde_yaml::Value::String(s.clone())).map_err(|e| format!("stereotype '{s}': {e}"))).collect();
+                                    match (all_strings, parsed) {
+                                        (true, Ok(sels)) => rule.stereotype = Some(sels),
+                                        (false, _) => p.problems.push(format!("{at}: stereotype entries must be strings such as \"Safety\" or \"Safety where integrity >= 2\"")),
+                                        (_, Err(e)) => p.problems.push(format!("{at}: {e}")),
+                                    }
+                                }
+                                ("asil", Some(l)) => {
+                                    let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_uppercase()).collect();
+                                    if l.iter().all(|x| ["A", "B", "C", "D"].contains(&x.as_str())) {
+                                        rule.asil = Some(l);
+                                    } else {
+                                        p.problems.push(format!("{at}: asil entries must be A-D"));
+                                    }
+                                }
+                                ("cal", Some(l)) => {
+                                    let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_uppercase()).collect();
+                                    if l.iter().all(|x| ["CAL1", "CAL2", "CAL3", "CAL4"].contains(&x.as_str())) {
+                                        rule.cal = Some(l);
+                                    } else {
+                                        p.problems.push(format!("{at}: cal entries must be CAL1-CAL4"));
+                                    }
+                                }
+                                ("sil", Some(l)) => {
+                                    let l: Vec<String> = l.iter().map(|x| x.trim().to_ascii_uppercase()).collect();
+                                    if l.iter().all(|x| x == "QM" || x.parse::<u8>().is_ok()) {
+                                        // normalise "007" -> "7" so it can match
+                                        rule.sil = Some(l.into_iter().map(|x| x.parse::<u8>().map(|n| n.to_string()).unwrap_or(x)).collect());
+                                    } else {
+                                        p.problems.push(format!("{at}: sil entries must be \"QM\" or integers"));
+                                    }
+                                }
+                                (other, _) => p.problems.push(format!("{at}: unknown or malformed selector '{other}'")),
+                            }
+                        }
+                        if !have_rule {
+                            p.problems.push(format!("{at}: parent_rule is required"));
+                        }
+                        p.rules.push(rule);
+                    }
+                }
+                other => p.problems.push(format!("[coverage] unknown key '{other}'")),
+            }
+        }
+        p
+    }
+
+    /// The rule applying to a requirement and its source (`"default"` or `"rule #N"`).
+    pub fn rule_for(&self, fm: &crate::element::RawFrontmatter) -> (ParentRule, String) {
+        self.rule_for_with(fm, &|_| false)
+    }
+
+    /// [`Self::rule_for`] for an element of `elements`: a `stereotype` selector is matched against the
+    /// element's stereotype applications, specialisations included (REQ-TRS-META-053).
+    pub fn rule_for_element(&self, elements: &[crate::element::RawElement], resolver: &crate::resolver::Resolver, elem: &crate::element::RawElement) -> (ParentRule, String) {
+        self.rule_for_with(&elem.frontmatter, &|s| crate::tagged_values::selector_matches(elements, resolver, elem, s))
+    }
+
+    fn rule_for_with(&self, fm: &crate::element::RawFrontmatter, stereo: &dyn Fn(&crate::tagged_values::Selector) -> bool) -> (ParentRule, String) {
+        let any = |sel: &Option<Vec<String>>, have: &[String]| sel.as_ref().is_none_or(|s| s.iter().any(|x| have.iter().any(|h| h.eq_ignore_ascii_case(x))));
+        let tags = fm.tags.clone().unwrap_or_default();
+        let kind: Vec<String> = fm.requirement_kind.iter().cloned().collect();
+        let status: Vec<String> = fm.status.iter().cloned().collect();
+        let class: Vec<String> = fm.req_class.iter().cloned().collect();
+        let asil: Vec<String> = fm.asil_level.as_deref().map(|a| a.trim().chars().take(1).collect::<String>().to_ascii_uppercase()).into_iter().collect();
+        let cal: Vec<String> = fm.cal_level.iter().map(|c| c.trim().to_string()).collect();
+        let mut sil: Vec<String> = Vec::new();
+        if !is_integrity_rated(fm) {
+            sil.push("QM".into());
+        }
+        if let Some(s) = fm.sil_level {
+            sil.push(s.to_string());
+        }
+        for (i, r) in self.rules.iter().enumerate() {
+            if any(&r.req_class, &class) && any(&r.requirement_kind, &kind) && any(&r.status, &status) && any(&r.tag, &tags) && any(&r.asil, &asil) && any(&r.cal, &cal) && any(&r.sil, &sil) && r.stereotype.as_ref().is_none_or(|sels| sels.iter().any(stereo)) {
+                return (r.rule, format!("rule #{}", i + 1));
+            }
+        }
+        (self.default, "default".into())
     }
 }

@@ -15,6 +15,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use crate::element::{RawElement, RawFrontmatter};
+use crate::link_types::LinkTypeRegistry;
 use crate::resolver::Resolver;
 
 /// Frontmatter fields excluded from the normative projection (v1 default,
@@ -32,6 +33,29 @@ const EXCLUDED_KEYS: &[&str] = &[
     "edges",          // diagram geometry
     "svgFile",        // rendered-artifact pointer
     "pumlFile",       // rendered-artifact pointer
+    // Workflow state (GH #251): promoting or claiming an element is not a change to
+    // the content a downstream link depends on. `status` is excluded only while it is
+    // ordinary lifecycle progress; see `RETIRING_STATUSES`.
+    "status",
+    "claimedBy",
+    "claimedAt",
+    "assignedTo",
+];
+
+/// Statuses that retire or dispose of an element rather than progress it. A link to a
+/// target in one of these states must still go suspect, so `status` stays in the
+/// projection for them (GH #251 review): a requirement or ADR being deprecated or
+/// superseded, a threat/vulnerability being closed as `wont_fix`/`false_positive`/
+/// `not_affected`.
+const RETIRING_STATUSES: &[&str] = &[
+    "deprecated",
+    "superseded",
+    "obsolete",
+    "rejected",
+    "withdrawn",
+    "wont_fix",
+    "false_positive",
+    "not_affected",
 ];
 
 /// State of a single trace link relative to its stored baseline.
@@ -87,7 +111,13 @@ impl SuspectLink {
 /// canonicalization hash identically; a change confined to an excluded field
 /// does not change the hash.
 pub fn projection_hash(elem: &RawElement) -> String {
-    element_hash(elem, EXCLUDED_KEYS)
+    match elem.frontmatter.status.as_deref() {
+        Some(st) if RETIRING_STATUSES.contains(&st) => {
+            let keys: Vec<&str> = EXCLUDED_KEYS.iter().copied().filter(|k| *k != "status").collect();
+            element_hash(elem, &keys)
+        }
+        _ => element_hash(elem, EXCLUDED_KEYS),
+    }
 }
 
 /// Full-content hash of an element for release baselines (REQ-TRS-BL-002): freezes
@@ -172,7 +202,16 @@ fn write_canonical(v: &serde_json::Value, out: &mut String) {
 /// Every trace link declared on a source frontmatter, as `(kind, target_ref)`
 /// pairs (REQ-TRS-SUS-LINKS-003). Covers all link kinds; the target ref is the
 /// string exactly as authored (the `traceBaselines` key). Deterministic order.
+/// User-defined `links:` instances are included per the process-wide active
+/// link-type vocabulary (see [`trace_links_with`]).
 pub fn trace_links(fm: &RawFrontmatter) -> Vec<(&'static str, String)> {
+    trace_links_with(fm, &crate::link_types::active())
+}
+
+/// [`trace_links`] against an explicit link-type vocabulary. Custom `links:`
+/// targets are trace links like any other (REQ-TRS-LINKTYPE-011), kind = the
+/// declared type name, unless the type declares `suspect = false`.
+pub fn trace_links_with(fm: &RawFrontmatter, link_types: &LinkTypeRegistry) -> Vec<(&'static str, String)> {
     let mut out: Vec<(&'static str, String)> = Vec::new();
 
     let mut push_list = |kind: &'static str, list: &Option<Vec<String>>| {
@@ -188,6 +227,7 @@ pub fn trace_links(fm: &RawFrontmatter) -> Vec<(&'static str, String)> {
     push_list("satisfies", &fm.satisfies);
     push_list("satisfiedBy", &fm.satisfied_by);
     push_list("refines", &fm.refines);
+    push_list("models", &fm.models);
     push_list("implementedBy", &fm.implemented_by);
     push_list("subsets", &fm.subsets);
     push_list("hazardRef", &fm.hazard_ref);
@@ -219,6 +259,18 @@ pub fn trace_links(fm: &RawFrontmatter) -> Vec<(&'static str, String)> {
     // Scalar single-target links.
     if let Some(adr) = &fm.breakdown_adr {
         out.push(("breakdownAdr", adr.clone()));
+    }
+
+    // User-defined links (REQ-TRS-LINKTYPE-011), in authored order.
+    for (ti, targets) in crate::link_types::declared_links(fm, link_types) {
+        let decl = &link_types.types()[ti];
+        if !decl.suspect {
+            continue;
+        }
+        let kind = crate::link_types::static_str(&decl.name);
+        for t in targets {
+            out.push((kind, t));
+        }
     }
 
     out
@@ -274,13 +326,19 @@ fn yaml_refs(v: &Option<serde_yaml::Value>) -> Vec<String> {
 /// occurrence is kept, since the baseline is a property of the target alone
 /// (REQ-TRS-SUS-LINKS-003). Output is sorted for stable, diffable reporting.
 pub fn scan(elements: &[RawElement], resolver: &Resolver) -> Vec<SuspectLink> {
+    scan_with(elements, resolver, &crate::link_types::active())
+}
+
+/// [`scan`] against an explicit link-type vocabulary (the validator passes its
+/// config's, REQ-TRS-LINKTYPE-011).
+pub fn scan_with(elements: &[RawElement], resolver: &Resolver, link_types: &LinkTypeRegistry) -> Vec<SuspectLink> {
     let mut out: Vec<SuspectLink> = Vec::new();
 
     for src in elements {
         let fm = &src.frontmatter;
         let mut seen: HashSet<String> = HashSet::new();
 
-        for (kind, target_ref) in trace_links(fm) {
+        for (kind, target_ref) in trace_links_with(fm, link_types) {
             // One baseline entry per target regardless of link kind.
             if !seen.insert(target_ref.clone()) {
                 continue;

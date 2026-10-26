@@ -4,6 +4,7 @@
     syscribe -m <root> suspect list
     syscribe -m <root> suspect accept <source> <target>
     syscribe -m <root> suspect accept --all
+    syscribe -m <root> suspect accept --all-unbaselined
 
 ## DESCRIPTION
 A **suspect link** is a trace link whose target changed after the link was last
@@ -17,6 +18,10 @@ The projection hashes the markdown body plus the normative frontmatter fields an
 **excludes** editorial/presentation fields (`name`, `displayOrder`, `extRef`,
 diagram layout, and `traceBaselines` itself), so cosmetic edits do not raise a
 suspect flag.
+
+User-defined links (`links:`, declared in `[linkTypes]` of `.syscribe.toml`) are
+trace links too: they are listed, baselined and flagged like any other, keyed by the
+target as authored, unless the link type declares `suspect = false`.
 
 Detection is **opt-in and additive**: a link with no baseline is never flagged
 during `validate`. `suspect list` still surfaces unbaselined links so coverage
@@ -48,9 +53,10 @@ W090 is a Warning: draft-visible, non-fatal by default, and gateable in CI with
 
 ## EXAMPLES
     syscribe -m model/ suspect list
-    syscribe -m model/ suspect accept TC-SCHED-BITMAP-001 REQ-SCHED-BITMAP-001
+    syscribe -m model/ suspect accept TC-UAV-CARGO-001 REQ-UAV-CARGO-001
     syscribe -m model/ suspect accept --all
+    syscribe -m model/ suspect accept --all-unbaselined   # one-time onboarding
     syscribe -m model/ validate --deny W090
 
 ## SEE ALSO
-    validate, trace, links, repos
+    validate, trace, links, repos, link-types

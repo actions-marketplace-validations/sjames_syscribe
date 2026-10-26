@@ -90,6 +90,8 @@ fn part_def_and_nested_part_usage_map_with_supertype_and_typed_by() {
         &root,
         "SysML2Legacy/Vehicle.sysml",
         "package Vehicle {\n\
+         part def PowerSource;\n\
+         part def Cylinder;\n\
          part def Engine :> PowerSource {\n\
          part cylinder1 : Cylinder;\n\
          }\n\
@@ -166,10 +168,9 @@ fn variation_part_def_carries_is_variation() {
 fn remaining_fixed_set_kinds_map_attribute_port_connection_interface_item_requirement_allocation() {
     // What syntax without an explicit `def` keyword resolves to (`*Def` vs.
     // `*Usage`) is the parser's own disambiguation call, confirmed against its
-    // actual AST output rather than assumed: bare `attribute`/`port`/
-    // `interface`/`item` land as `*Def` (their "def" keyword is optional to
-    // this parser), while bare `connection`/`requirement`/`allocation` land as
-    // `*Usage`. Either way, a Def's `:`/`:>` clause maps to `supertype` and a
+    // actual AST output rather than assumed: since 0.55 every bare
+    // `attribute`/`port`/`item`/`connection`/`requirement`/`allocation` is the
+    // `*Usage` it is in SysML v2 (0.54 read `attribute`/`port`/`item` as `*Def`; a bare `interface` is still an `InterfaceDef`). Either way, a Def's `:`/`:>` clause maps to `supertype` and a
     // Usage's maps to `typed_by` — this test locks in that observed mapping.
     let root = tempdir();
     write(&root, "_index.md", "---\ntype: Package\nname: Root\n---\n");
@@ -182,6 +183,12 @@ fn remaining_fixed_set_kinds_map_attribute_port_connection_interface_item_requir
         &root,
         "SysML2Legacy/Mixed.sysml",
         "package Mixed {\n\
+         port def FuelPort;\n\
+         connection def Wire;\n\
+         interface def SomeInterface;\n\
+         item def Fuel;\n\
+         requirement def EnduranceReqType;\n\
+         allocation def AllocKind;\n\
          attribute mass : Real;\n\
          port fuelPort : FuelPort;\n\
          connection wiring : Wire;\n\
@@ -220,17 +227,26 @@ fn remaining_fixed_set_kinds_map_attribute_port_connection_interface_item_requir
         );
     };
 
-    expect_supertype("SysML2Legacy::Mixed::mass", ElementType::AttributeDef, "Real");
-    expect_supertype("SysML2Legacy::Mixed::fuelPort", ElementType::PortDef, "FuelPort");
+    // 0.55+ reads a bare package-level `attribute x : T;` as the usage it is (0.54: an attribute
+    // definition) -- `REQ-TRS-SYSMLV2-073`'s documented improvement; this is what makes a
+    // package-level attribute value mappable.
+    expect_typed_by("SysML2Legacy::Mixed::mass", ElementType::Attribute, "Real");
+    expect_typed_by("SysML2Legacy::Mixed::fuelPort", ElementType::Port, "FuelPort");
     expect_typed_by("SysML2Legacy::Mixed::wiring", ElementType::Connection, "Wire");
     expect_supertype("SysML2Legacy::Mixed::iface", ElementType::InterfaceDef, "SomeInterface");
-    expect_supertype("SysML2Legacy::Mixed::fuel", ElementType::ItemDef, "Fuel");
+    expect_typed_by("SysML2Legacy::Mixed::fuel", ElementType::Item, "Fuel");
     expect_typed_by(
         "SysML2Legacy::Mixed::enduranceReq",
         ElementType::Requirement,
         "EnduranceReqType",
     );
     expect_typed_by("SysML2Legacy::Mixed::allocA", ElementType::Allocation, "AllocKind");
+    // REQ-TRS-SYSMLV2-029 (GH #142): `allocation def` maps to a native
+    // AllocationDef, so allocA's typedBy resolves (no E111) below.
+    assert_eq!(
+        find("SysML2Legacy::Mixed::AllocKind").frontmatter.element_type,
+        Some(ElementType::AllocationDef)
+    );
 
     let result = validate(&elements);
     assert_eq!(result.errors().count(), 0, "unexpected errors: {:#?}", result.findings);
@@ -249,6 +265,8 @@ fn variant_membership_inside_a_variation_part_def_maps_with_variant_of() {
         &root,
         "SysML2Legacy/Variants.sysml",
         "package Variants {\n\
+         part def QuadRotor;\n\
+         part def HexRotor;\n\
          variation part def RotorConfig {\n\
          variant part quad : QuadRotor;\n\
          variant part hex : HexRotor;\n\
@@ -303,6 +321,7 @@ fn bare_variant_reference_to_a_sibling_usage_does_not_shadow_it() {
         &root,
         "SysML2Legacy/Variants.sysml",
         "package Variants {\n\
+         part def QuadRotor;\n\
          variation part def Config {\n\
          part quad : QuadRotor;\n\
          variant quad;\n\
@@ -366,11 +385,9 @@ fn dangling_bare_variant_reference_synthesizes_nothing() {
 
 #[test]
 fn a_file_mixing_mapped_and_unmapped_constructs_parses_fully_and_keeps_the_mapped_ones() {
-    // REQ-TRS-SYSMLV2-007: full-grammar parsing, fixed-set mapping. `calc
-    // def`/`use case def` (still outside the fixed set even after
-    // REQ-TRS-SYSMLV2-026/-027/-028 moved case/analysis/verification into
-    // it — `use case def` is deliberately excluded from that increment's
-    // scope, see its own ADR addendum) must not fail the parse or drop the
+    // REQ-TRS-SYSMLV2-007: full-grammar parsing, fixed-set mapping. A package-level `actor`
+    // (still outside the fixed set; calc/constraint/use case were
+    // mapped by REQ-TRS-SYSMLV2-033/-034/-035) must not fail the parse or drop the
     // file — they are simply invisible, while a mapped `part def` in the
     // very same file/package still comes through.
     let root = tempdir();
@@ -385,8 +402,8 @@ fn a_file_mixing_mapped_and_unmapped_constructs_parses_fully_and_keeps_the_mappe
         "SysML2Legacy/Mixed.sysml",
         "package Boundary {\n\
          part def Vehicle;\n\
-         calc def ComputeMargin;\n\
-         use case def InspectVehicle;\n\
+         actor ComputeMargin;\n\
+         actor InspectVehicle;\n\
          }\n",
     );
 
@@ -429,6 +446,7 @@ fn a_named_port_nested_inside_an_interface_def_is_mapped() {
         &root,
         "SysML2Legacy/Power.sysml",
         "package Power {\n\
+         port def PowerOutPort;\n\
          interface def PowerInterface {\n\
          port supplyPort : PowerOutPort;\n\
          }\n\
@@ -513,6 +531,7 @@ fn nested_members_of_connection_def_and_port_def_are_mapped() {
         &root,
         "SysML2Legacy/Wiring.sysml",
         "package Wiring {\n\
+         item def Pin;\n\
          connection def Harness {\n\
          item pin : Pin;\n\
          }\n\
@@ -608,4 +627,67 @@ fn a_parse_failure_in_one_file_does_not_abort_the_rest_of_the_subtree() {
     assert!(w541[0].file.contains("Broken.sysml"));
     // A parse failure is a warning, never an error — never aborts the rest of validate.
     assert_eq!(result.errors().count(), 0, "unexpected errors: {:#?}", result.findings);
+}
+
+#[test]
+fn allocation_usage_allocate_clause_lifts_into_resolved_allocation_edges() {
+    // REQ-TRS-SYSMLV2-029 (GH #144): `allocate <source> to <target>` becomes
+    // allocatedFrom/allocatedTo, resolved against the full model — scoped
+    // qualified names, feature chains through the head's type or supertype,
+    // a truncated chain (W542), and a typing cycle that must not hang the
+    // feature walk.
+    let root = tempdir();
+    write(&root, "_index.md", "---\ntype: Package\nname: Root\n---\n");
+    write(&root, "Hw/_index.md", "---\ntype: Package\nname: Hw\n---\n");
+    write(&root, "Hw/Board.md", "---\ntype: PartDef\nname: Board\ndomain: hardware\n---\nBoard.\n");
+    write(
+        &root,
+        "SysML2/_index.md",
+        "---\ntype: Package\nname: SysML2\nsysmlSubmodel: true\n---\n",
+    );
+    write(
+        &root,
+        "SysML2/Deploy.sysml",
+        "package Deploy {\n\
+         part def Ctl { part core; }\n\
+         part def Base { part inherited; }\n\
+         part def Derived :> Base;\n\
+         part def Loop :> Loop;\n\
+         part sys : Ctl;\n\
+         part d : Derived;\n\
+         part l : Loop;\n\
+         allocation a1 allocate sys.core to Hw::Board;\n\
+         allocation a2 allocate d.inherited to 'REQ-X-001';\n\
+         allocation a3 allocate l.nothing to sys;\n\
+         allocate anon to Hw::Board;\n\
+         }\n",
+    );
+
+    let elements = walk_model(&root).unwrap();
+    let find = |q: &str| {
+        elements
+            .iter()
+            .find(|e| e.qualified_name == q)
+            .unwrap_or_else(|| panic!("missing {q}"))
+    };
+    let from = |q: &str| find(q).frontmatter.allocated_from.clone().unwrap_or_default();
+    let to = |q: &str| find(q).frontmatter.allocated_to.clone().unwrap_or_default();
+
+    assert_eq!(from("SysML2::Deploy::a1"), vec!["SysML2::Deploy::Ctl::core"]);
+    assert_eq!(to("SysML2::Deploy::a1"), vec!["Hw::Board"]);
+    // Inherited through Derived's `:>` supertype; a stable id is kept verbatim.
+    assert_eq!(from("SysML2::Deploy::a2"), vec!["SysML2::Deploy::Base::inherited"]);
+    assert_eq!(to("SysML2::Deploy::a2"), vec!["REQ-X-001"]);
+    // Cyclic specialization: truncated to the head, with a W542 on the allocation.
+    assert_eq!(from("SysML2::Deploy::a3"), vec!["SysML2::Deploy::l"]);
+    assert_eq!(to("SysML2::Deploy::a3"), vec!["SysML2::Deploy::sys"]);
+    assert!(find("SysML2::Deploy::a3").derive_findings.iter().any(|f| f.0 == "W542"));
+    // The anonymous `allocate` statement has no identity: nothing synthesized for it.
+    assert!(!elements
+        .iter()
+        .any(|e| e.frontmatter.allocated_from.as_deref() == Some(&["anon".to_string()][..])));
+
+    let resolver = syscribe_model::resolver::Resolver::new(&elements);
+    let edges = syscribe_model::validator::allocation_edges(&elements, &resolver);
+    assert!(edges.contains(&("SysML2::Deploy::Ctl::core".to_string(), "Hw::Board".to_string())));
 }

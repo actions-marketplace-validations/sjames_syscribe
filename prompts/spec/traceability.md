@@ -14,13 +14,16 @@ upstream. No reverse links are stored in model files.
 |---|---|---|
 | `derivedFrom:` | child → parent | child `Requirement` |
 | `verifies:` | test → requirement | `TestCase` |
-| `satisfies:` | arch element → requirement | `Part`/`PartDef` |
-| `allocatedFrom:` | arch element → logical/security artifact | architecture element |
-| `allocatedTo:` | allocation → target | `Allocation` element |
+| `satisfies:` | element → requirement | the satisfying element (any kind; not type-restricted — structural or behavioral, §12.3) |
+| `allocatedTo:` | source → target | the element being allocated (logical function, software package, security control) |
+| `allocatedFrom:` + `allocatedTo:` | source → target | a standalone `Allocation` element (it *is* the relationship, so it names both ends) |
 | `breakdownAdr:` | requirement → ADR | child `Requirement` |
 
-Reverse indices (`verifiedBy`, `derivedChildren`, `satisfiedBy`) are **computed at load
-time and never written to disk**.
+Reverse indices (`verifiedBy`, `derivedChildren`, `satisfiedBy`, `allocatedFrom`) are **computed at load
+time and never written to disk**. Do not author `allocatedFrom:` on an architecture element: it is the
+derived reverse of `allocatedTo:` (§12.9). An authored one on a non-`Allocation` element is still
+accepted as a legacy input form, but new models use `allocatedTo:` on the source or an `Allocation`
+element.
 
 ---
 
@@ -33,7 +36,7 @@ time and never written to disk**.
 |---|---|
 | `breakdownAdr:` absent | `E310` |
 | `breakdownAdr:` resolves to non-ADR or unresolvable | `E311` |
-| Referenced ADR is still `proposed` | `W303` |
+| Referenced ADR is still `proposed` while the requirement is `approved`, `implemented` or `verified` | `W303` |
 
 **Procedure:**
 1. Author ADR (`type: ADR`, `status: proposed`).
@@ -46,13 +49,15 @@ time and never written to disk**.
 
 A requirement is a **leaf** when no other requirement has `derivedFrom:` pointing to it.
 
-**Rule:** A leaf `Requirement` at `status: approved` or higher must be assigned to
-exactly one architecture element (one `Part`/`PartDef` has `satisfies:` pointing to it).
+**Rule:** A leaf `Requirement` at `status: approved` or `implemented` must be assigned to
+at least one architecture element (an element has `satisfies:` pointing to it). Several
+elements may jointly satisfy a leaf (e.g. a `PartDef` plus its `StateDef`); leaf/parent is
+decided by `derivedChildren` alone, never by the satisfier count.
 
 | Violation | Code |
 |---|---|
-| Zero satisfying elements | `W300` |
-| More than one satisfying element | `W301` |
+| Zero satisfying elements | `W300` (not raised for `requirementKind` `process`/`regulatory`/`deliverable`) |
+| More than one satisfying element | none — `W301` is retired (GH #121) |
 
 Assignment should point to the **deepest known** architecture element responsible for
 fulfilling the requirement.
@@ -94,35 +99,51 @@ through `Allocation` elements.
 **Rule R-006a:** `domain: software` elements must not have `supertype:`/`typedBy:`
 referencing `domain: hardware`, or vice versa. (`E315`)
 
-**Rule R-006b:** `isDeploymentPackage: true` parts must have at least one `Allocation`
-to a `hardware` element. (`E314`)
+**Rule R-006b:** `isDeploymentPackage: true` parts must have at least one allocation
+to a `hardware` element — an `Allocation` element (top-level or `features:` entry) or
+`allocatedTo:` on the part itself; any §12.9 form counts. (`E314`)
 
 **Correct cross-domain pattern:**
 
 ```yaml
-# SW element
+# model/Software/SchedulerModule.md — SW element
+---
 type: PartDef
 name: SchedulerModule
 domain: software
 isDeploymentPackage: true
+---
 
-# Allocation — the only permitted cross-domain link
+# model/Hardware/FlightComputer.md — HW element
+---
+type: PartDef
+name: FlightComputer
+domain: hardware
+---
+
+# model/Allocations/schedulerToFC.md — the only permitted cross-domain link
+---
 type: Allocation
 name: schedulerToFC
 allocatedFrom: Software::SchedulerModule
 allocatedTo: Hardware::FlightComputer
+---
 ```
 
 ---
 
 ## R-007 — Integrity level propagation (§12.7)
 
-**Rule:** Once any element in the traceability chain carries `asilLevel:`, `silLevel:`,
-or `plLevel:`, all downstream elements reached via `derivedFromSafetyGoal:`,
-`derivedFrom:`, or `satisfies:` must also carry the same field.
+**Rule:** Once any element in the traceability chain carries `asilLevel:` or `silLevel:`,
+all downstream elements reached via `derivedFromSafetyGoal:`, `derivedFrom:`, or
+`satisfies:` must also carry an integrity level — **either** `asilLevel:` **or**
+`silLevel:` satisfies the presence check (the same field is not required). `plLevel:`
+takes no part: it neither triggers the rule on a source nor satisfies it downstream (a
+requirement with only `plLevel:` under an ASIL goal is `E841`).
 
 A downstream element may carry a **lower** level (ASIL/SIL decomposition), but only
-when `breakdownAdr:` is set to document the decomposition rationale.
+when `breakdownAdr:` is set to document the decomposition rationale. Levels are compared
+only on the same scale (both ASIL or both SIL).
 
 | Link | Missing field | Lower level without ADR |
 |---|---|---|
@@ -133,19 +154,24 @@ when `breakdownAdr:` is set to document the decomposition rationale.
 Level ranking:
 - `asilLevel`: A < B < C < D
 - `silLevel`: 1 < 2 < 3 < 4
-- `plLevel`: a–e (not compared cross-element with ASIL/SIL)
+- `plLevel`: a–e (ignored by this rule)
 
 **Example — ASIL D decomposed to ASIL B:**
 
 ```yaml
 type: SafetyGoal
 id: SG-BRAKE-001
+name: "Prevent unintended brake release"
+status: approved
 asilLevel: D
 hazardousEvents: [HE-BRAKE-001]
 ---
 type: Requirement
 id: REQ-BRAKE-HYD-001
+name: "Maintain hydraulic pressure within 50 ms"
+status: approved
 asilLevel: B
+verificationMethod: test
 derivedFromSafetyGoal: SG-BRAKE-001
 breakdownAdr: ADR-BRAKE-DECOMP-001
 ```

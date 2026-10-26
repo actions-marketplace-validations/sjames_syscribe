@@ -57,6 +57,17 @@ fn keys(e: &RawElement) -> Vec<String> {
     k
 }
 
+thread_local! {
+    /// The `--select` stereotype selectors of this `matrix` run (REQ-TRS-META-024). A run is one process,
+    /// and the row filter sits several calls below the command, so the selectors are set once here.
+    static SELECT: std::cell::RefCell<Vec<syscribe_model::tagged_values::Selector>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Keep only the requirement rows that satisfy every selector.
+pub fn set_select(sels: Vec<syscribe_model::tagged_values::Selector>) {
+    SELECT.with(|s| *s.borrow_mut() = sels);
+}
+
 fn has_tag(e: &RawElement, tag: &str) -> bool {
     e.frontmatter
         .tags
@@ -251,6 +262,29 @@ fn participating_tcs(
         .collect()
 }
 
+/// The participating TestCases of each configuration column, judged on that configuration's own
+/// evidence (GH #258, REQ-TRS-CFGRES-001). Without per-configuration evidence every column shares
+/// the global verdicts, as before.
+fn column_tcs(
+    elements: &[RawElement],
+    pkg: &std::collections::HashMap<String, serde_yaml::Value>,
+    alias: &std::collections::HashMap<String, String>,
+    evidence: Option<&ResultsData>,
+    ids: &[String],
+) -> Vec<Vec<(Option<FeatureExpr>, Vec<String>, TcVerdict, bool)>> {
+    let per_config = evidence.is_some_and(|e| !e.by_config.is_empty());
+    ids.iter()
+        .map(|id| {
+            if per_config {
+                let own = evidence.map(|e| e.for_config(id));
+                participating_tcs(elements, pkg, alias, own.as_ref())
+            } else {
+                participating_tcs(elements, pkg, alias, evidence)
+            }
+        })
+        .collect()
+}
+
 /// Compute the active (feature-model) coverage grid: the configuration columns,
 /// the per-requirement cell states (honouring tag/status/`--gaps-only` filters),
 /// and the coverage rollup. Shared by the text and JSON renderers.
@@ -285,11 +319,17 @@ fn active_grid(
         .filter(|e| tag.is_none_or(|t| has_tag(e, t)))
         .filter(|e| status.is_none_or(|s| e.frontmatter.status.as_deref() == Some(s)))
         .collect();
+    let selectors = SELECT.with(|s| s.borrow().clone());
+    if !selectors.is_empty() {
+        let resolver = syscribe_model::resolver::Resolver::new(elements);
+        reqs.retain(|e| selectors.iter().all(|sel| syscribe_model::tagged_values::selector_matches(elements, &resolver, e, sel)));
+    }
     sort_reqs_by_display_order(&mut reqs);
 
     // Effective conditions honour transitive package appliesWhen (REQ-TRS-VAR-006).
     let pkg = variability::package_conditions(elements);
-    let tcs = participating_tcs(elements, &pkg, &feat_alias, evidence);
+    let ids: Vec<String> = cfg_sel.iter().map(|(id, _)| id.clone()).collect();
+    let col_tcs = column_tcs(elements, &pkg, &feat_alias, evidence, &ids);
 
     // Materialise each retained row's cell states once: (id, [state per column]).
     // `--gaps-only` keeps only rows that have at least one `gap` cell (dropping
@@ -299,7 +339,8 @@ fn active_grid(
         .map(|r| {
             let cells: Vec<&'static str> = cfg_sel
                 .iter()
-                .map(|(_, sel)| cell_state(r, sel, &pkg, &feat_alias, &tcs, evidence))
+                .zip(col_tcs.iter())
+                .map(|((_, sel), tcs)| cell_state(r, sel, &pkg, &feat_alias, tcs, evidence))
                 .collect();
             (disp_id(r), cells)
         })
@@ -400,23 +441,26 @@ pub fn requirement_rollup(
 ) -> std::collections::HashMap<String, &'static str> {
     let alias = variability::feature_id_to_qname(elements);
     let pkg = variability::package_conditions(elements);
-    let tcs = participating_tcs(elements, &pkg, &alias, results);
     // Project over the model's Configurations; a flat model collapses over a
-    // single empty selection (every requirement active, no projection).
-    let cfgs: Vec<BTreeMap<String, bool>> = if variability::is_active(elements) {
+    // single empty selection (every requirement active, no projection). Each configuration is judged
+    // on its own evidence (GH #258).
+    let cfgs: Vec<(String, BTreeMap<String, bool>)> = if variability::is_active(elements) {
         elements
             .iter()
             .filter(|e| is_type(e, ElementType::Configuration))
-            .map(|c| variability::canon_selection(&c.frontmatter.feature_selections(), &alias))
+            .map(|c| (disp_id(c), variability::canon_selection(&c.frontmatter.feature_selections(), &alias)))
             .collect()
     } else {
-        vec![BTreeMap::new()]
+        vec![(String::new(), BTreeMap::new())]
     };
+    let ids: Vec<String> = cfgs.iter().map(|(id, _)| id.clone()).collect();
+    let col_tcs = column_tcs(elements, &pkg, &alias, results, &ids);
     let mut out = std::collections::HashMap::new();
     for r in elements.iter().filter(|e| is_type(e, ElementType::Requirement)) {
         let cells: Vec<&'static str> = cfgs
             .iter()
-            .map(|sel| cell_state(r, sel, &pkg, &alias, &tcs, results))
+            .zip(col_tcs.iter())
+            .map(|((_, sel), tcs)| cell_state(r, sel, &pkg, &alias, tcs, results))
             .collect();
         out.insert(disp_id(r), rollup_cells(&cells));
     }
@@ -449,6 +493,11 @@ fn cmd_matrix_inner(
     results: Option<&ResultsData>,
     linked_only: bool,
 ) {
+    // REQ-TRS-LINKTYPE-006 — a `coverage = true` user-defined link extending
+    // verifies/satisfies/derivedFrom counts as that base link in the grid
+    // (read-only report; the vocabulary installed by the loaded config).
+    let cov = syscribe_model::link_types::coverage_view(elements, &syscribe_model::link_types::active());
+    let elements: &[RawElement] = &cov;
     // Executed-evidence refinement applies only when a results sidecar is loaded
     // and the caller did not force the linked-only view (issue #21).
     let evidence = if linked_only { None } else { results };
@@ -598,14 +647,16 @@ impl Coverage {
         sort_reqs_by_display_order(&mut reqs);
 
         let pkg = variability::package_conditions(elements);
-        let tcs = participating_tcs(elements, &pkg, &feat_alias, evidence);
+        let ids: Vec<String> = cfg_sel.iter().map(|(id, _)| id.clone()).collect();
+        let col_tcs = column_tcs(elements, &pkg, &feat_alias, evidence, &ids);
 
         let grid: Vec<(String, Vec<&'static str>)> = reqs
             .iter()
             .map(|r| {
                 let cells: Vec<&'static str> = cfg_sel
                     .iter()
-                    .map(|(_, sel)| cell_state(r, sel, &pkg, &feat_alias, &tcs, evidence))
+                    .zip(col_tcs.iter())
+                    .map(|((_, sel), tcs)| cell_state(r, sel, &pkg, &feat_alias, tcs, evidence))
                     .collect();
                 (disp_id(r), cells)
             })

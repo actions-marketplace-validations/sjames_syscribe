@@ -1,0 +1,136 @@
+{
+  "kind": "FaultTree",
+  "qualifiedName": "Diagrams::FtD",
+  "name": "FtD",
+  "subject": "Safety::FT",
+  "nodes": [
+    {
+      "id": "s-safety-ft-a",
+      "elementRef": "Safety::FT::A",
+      "resolved": true,
+      "elementType": "FaultTreeEvent",
+      "kind": "eventBasic",
+      "label": "FTE-DS-001",
+      "isAbstract": false,
+      "mark": {
+        "detail": "Channel A fails",
+        "status": "dual-point",
+        "value": "λ 1.0e-4/h · P 9.5e-2",
+        "tone": "warn",
+        "badges": [
+          "1 MCS"
+        ],
+        "emphasis": true
+      }
+    },
+    {
+      "id": "s-safety-ft-b",
+      "elementRef": "Safety::FT::B",
+      "resolved": true,
+      "elementType": "FaultTreeEvent",
+      "kind": "eventUndeveloped",
+      "label": "FTE-DS-002",
+      "isAbstract": false,
+      "mark": {
+        "detail": "Channel B fails",
+        "status": "dual-point",
+        "value": "P 1.0e-2",
+        "tone": "warn",
+        "badges": [
+          "1 MCS"
+        ],
+        "emphasis": true
+      }
+    },
+    {
+      "id": "s-safety-ft-both",
+      "elementRef": "Safety::FT::Both",
+      "resolved": true,
+      "elementType": "FaultTreeGate",
+      "kind": "gateAnd",
+      "label": "FTG-DS-002",
+      "isAbstract": false,
+      "mark": {
+        "detail": "Both channels fail",
+        "tone": "neutral"
+      }
+    },
+    {
+      "id": "s-safety-ft-c",
+      "elementRef": "Safety::FT::C",
+      "resolved": true,
+      "elementType": "FaultTreeEvent",
+      "kind": "eventBasic",
+      "label": "FTE-DS-003",
+      "isAbstract": false,
+      "mark": {
+        "detail": "Comparator fails",
+        "status": "single point of failure",
+        "value": "P 1.0e-6",
+        "tone": "bad",
+        "badges": [
+          "1 MCS"
+        ],
+        "emphasis": true
+      }
+    },
+    {
+      "id": "s-safety-ft-top",
+      "elementRef": "Safety::FT::Top",
+      "resolved": true,
+      "elementType": "FaultTreeGate",
+      "kind": "gateOr",
+      "label": "FTG-DS-001",
+      "isAbstract": false,
+      "mark": {
+        "detail": "Harm occurs",
+        "status": "top event",
+        "value": "P 9.5e-4",
+        "tone": "warn",
+        "badges": [
+          "2 MCS",
+          "1 single point"
+        ],
+        "emphasis": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-input-s-safety-ft-both-s-safety-ft-a",
+      "elementRef": "Safety::FT::Both",
+      "source": "s-safety-ft-both",
+      "target": "s-safety-ft-a",
+      "kind": "gateInput"
+    },
+    {
+      "id": "e-input-s-safety-ft-both-s-safety-ft-b",
+      "elementRef": "Safety::FT::Both",
+      "source": "s-safety-ft-both",
+      "target": "s-safety-ft-b",
+      "kind": "gateInput"
+    },
+    {
+      "id": "e-input-s-safety-ft-top-s-safety-ft-both",
+      "elementRef": "Safety::FT::Top",
+      "source": "s-safety-ft-top",
+      "target": "s-safety-ft-both",
+      "kind": "gateInput"
+    },
+    {
+      "id": "e-input-s-safety-ft-top-s-safety-ft-c",
+      "elementRef": "Safety::FT::Top",
+      "source": "s-safety-ft-top",
+      "target": "s-safety-ft-c",
+      "kind": "gateInput"
+    }
+  ],
+  "layoutHints": {
+    "algorithm": "layered",
+    "direction": "down",
+    "hierarchical": false,
+    "portConstraints": "free",
+    "reversedKinds": []
+  },
+  "derived": true
+}

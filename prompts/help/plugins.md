@@ -7,6 +7,10 @@ language, no embedded-runtime toolchain required. This is read-only ingestion:
 the foreign folder stays authoritative and is edited by its own native
 tooling, never by Syscribe's write paths.
 
+## SYNOPSIS
+    syscribe -m <root> plugins run <alias> --dry-run
+    syscribe -m <root> plugins run <alias> --report <file> --dry-run     # a results plugin
+
 ## Marking a package foreign (`_index.md`)
 
 ```yaml
@@ -23,6 +27,14 @@ command = "python3"                 # PATH-resolved name, or a path relative to 
 args = ["plugins/toydsl_plugin.py"] # optional, default []
 timeout_ms = 10000                  # optional, default 10000
 ```
+
+## Results plugins (`kind = "results"`)
+
+A plugin with `kind = "results"` converts a test report instead of a package: `ingest-results --format
+plugin:<alias> <file>` runs it and stores the records it returns, validated exactly like `--format records`.
+Request on stdin: `{protocolVersion, alias, reportPath, modelRoot, run?, config?, environment?}`; response on
+stdout: `{records, diagnostics}`. Failures are `E553`, a `kind` that does not match its use is `E552`; nothing
+is written on either. See `syscribe help ingest-results` and `docs/model-guide/stdio-plugins.md`.
 
 ## Subcommands
 

@@ -66,6 +66,44 @@ fn render_diagram_returns_plantuml_source_and_findings() {
 }
 
 #[test]
+fn render_diagram_generates_mermaid_from_the_ir_on_request() {
+    // REQ-TRS-VIS-009: `format: mermaid` on a manifest/derived diagram is the
+    // generated classDiagram/flowchart, with a `%% ref:` per node.
+    let model = fixture_copy();
+    let mut mcp = Mcp::start(&model);
+    mcp.initialize();
+    let res = mcp.call_tool("render_diagram", json!({"ref": "Diagrams::FxBlock", "format": "mermaid"}));
+    assert_eq!(res.get("format").and_then(|f| f.as_str()), Some("mermaid"));
+    let source = res.get("source").and_then(|s| s.as_str()).expect("source string");
+    assert!(source.starts_with("classDiagram\n"), "generated Mermaid; got {source}");
+    assert!(source.contains("%% ref: Parts::Base") && source.contains("%% ref: Parts::Derived"), "{source}");
+    assert!(source.contains("s_base <|-- s_derived"), "{source}");
+    assert!(res.get("findings").and_then(|f| f.as_array()).is_some());
+}
+
+#[test]
+fn render_diagram_svg_draws_pinned_and_unpinned_diagrams_alike() {
+    // REQ-TRS-VIS-010/016: `format: svg` draws a fully pinned diagram from its
+    // pins and an unpinned one through the embedded ELK; only a diagram with
+    // nothing to draw is a tool error, with the CLI's exact message.
+    let model = fixture_copy();
+    let mut mcp = Mcp::start(&model);
+    mcp.initialize();
+    let res = mcp.call_tool("render_diagram", json!({"ref": "Diagrams::FxPinned", "format": "svg"}));
+    let source = res.get("source").and_then(|s| s.as_str()).expect("source string");
+    assert!(source.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:sysml=\"urn:syscribe:1.0\""), "{source}");
+    assert!(source.contains("sysml:ref=\"Parts::Base\""));
+    let res = mcp.call_tool("render_diagram", json!({"ref": "Diagrams::FxBlock", "format": "svg"}));
+    let source = res.get("source").and_then(|s| s.as_str()).expect("source string");
+    assert!(source.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""), "unpinned diagram laid out: {source}");
+    assert!(source.contains("sysml:source=\"s-derived\" sysml:target=\"s-base\""), "{source}");
+    let raw = mcp.call_tool_raw("render_diagram", json!({"ref": "Diagrams::FxEmpty", "format": "svg"}));
+    assert_eq!(raw.get("isError").and_then(|e| e.as_bool()), Some(true), "a tool error; got {raw}");
+    let text = serde_json::to_string(&raw).unwrap();
+    assert!(text.contains("'Diagrams::FxEmpty' has no shapes to draw"), "{text}");
+}
+
+#[test]
 fn render_diagram_returns_mermaid_source_for_mermaid() {
     let model = fixture_copy();
     let mut mcp = Mcp::start(&model);

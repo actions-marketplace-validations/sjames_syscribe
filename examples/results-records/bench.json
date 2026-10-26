@@ -1,0 +1,8 @@
+[
+  {"testCase": "TC-BRK-001", "scenario": "Request reaches the actuator in time", "verdict": "pass",
+   "measurements": [{"name": "latency", "value": "3.1 ms", "limit": {"op": "<", "value": "5 ms"}}],
+   "provenance": {"build": {"commit": "abc1234"}, "environment": "TE-BENCH-001",
+                  "startedAt": "2026-10-01T08:00:00Z", "finishedAt": "2026-10-01T08:00:04Z"}},
+  {"testCase": "TC-BRK-001", "scenario": "Request during a bus fault is not lost", "verdict": "pass",
+   "provenance": {"build": {"commit": "abc1234"}, "environment": "TE-BENCH-001"}}
+]

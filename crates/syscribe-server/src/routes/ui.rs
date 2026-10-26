@@ -4,7 +4,7 @@ use axum::{
 };
 use askama::Template;
 use serde::Deserialize;
-use syscribe_model::diagram::DEFAULT_DIAGRAM_KIND;
+use syscribe_model::vis::DEFAULT_DIAGRAM_KIND;
 use syscribe_model::frontmatter::split_frontmatter;
 use crate::state::SharedState;
 
@@ -29,6 +29,27 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Model text is not trusted (peer repos, plugins and annotated source feed it), and the result is
+/// emitted unescaped into the page, so raw HTML in a body is shown as text and a link or image
+/// whose target uses a script-capable scheme is pointed at `#`.
+fn neutralize<'a>(event: pulldown_cmark::Event<'a>) -> pulldown_cmark::Event<'a> {
+    use pulldown_cmark::{CowStr, Event, Tag};
+    let unsafe_target = |d: &str| {
+        let t: String = d.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect::<String>().to_ascii_lowercase();
+        t.starts_with("javascript:") || t.starts_with("vbscript:") || t.starts_with("data:")
+    };
+    match event {
+        Event::Html(s) | Event::InlineHtml(s) => Event::Text(s),
+        Event::Start(Tag::Link { link_type, dest_url, title, id }) if unsafe_target(&dest_url) => {
+            Event::Start(Tag::Link { link_type, dest_url: CowStr::Borrowed("#"), title, id })
+        }
+        Event::Start(Tag::Image { link_type, dest_url, title, id }) if unsafe_target(&dest_url) => {
+            Event::Start(Tag::Image { link_type, dest_url: CowStr::Borrowed("#"), title, id })
+        }
+        other => other,
+    }
 }
 
 /// Render Markdown to HTML.  Fenced ` ```mermaid ` blocks are emitted as
@@ -62,7 +83,7 @@ fn markdown_to_html(md: &str) -> String {
                 events.push(Event::Html(CowStr::Borrowed("</pre>")));
             }
             _ => {
-                events.push(event);
+                events.push(neutralize(event));
             }
         }
     }
@@ -101,6 +122,9 @@ pub struct TreeItemsTemplate {
 #[derive(Template)]
 #[template(path = "element_detail.html")]
 pub struct ElementDetailTemplate {
+    /// GH #223 — the element has a derived safety diagram (a fault tree, an
+    /// attack tree or a GSN argument) the panel embeds from `/ui/diagram/…`.
+    pub has_safety_diagram: bool,
     pub name: String,
     pub element_type: String,
     pub qualified_name: String,
@@ -121,6 +145,23 @@ pub struct ElementDetailTemplate {
     /// text for the edit-mode `#edit-extra` textarea. Empty when the file has
     /// no frontmatter or couldn't be read.
     pub extra_yaml: String,
+    /// REQ-TRS-PKG-001 (GH #120) — whether to render the generated "Members"
+    /// list: always for a package, else only when the element owns children.
+    pub show_members: bool,
+    /// The element's direct members (`syscribe_model::members::direct_members`),
+    /// sorted by qualified name — generated from the directory tree, never from
+    /// `_index.md` prose. Each row links to that member's detail panel.
+    pub members: Vec<MemberRow>,
+}
+
+/// One row of the detail panel's generated member list (REQ-TRS-PKG-001).
+pub struct MemberRow {
+    pub qualified_name: String,
+    /// Stable id, else qualified name.
+    pub label: String,
+    pub element_type: String,
+    pub name: String,
+    pub status: String,
 }
 
 /// Serialize an element's on-disk frontmatter minus the `name` key as YAML
@@ -293,7 +334,24 @@ pub async fn element_detail(
                     e.frontmatter.id.as_deref().unwrap_or(""),
                 )
             };
+            // REQ-TRS-PKG-001 — generated member list (same helper as `show`).
+            let members: Vec<MemberRow> = syscribe_model::members::direct_members(&store.elements, &e.qualified_name)
+                .into_iter()
+                .map(|m| MemberRow {
+                    qualified_name: m.qualified_name.clone(),
+                    label: syscribe_model::members::member_label(m).to_string(),
+                    element_type: m
+                        .frontmatter
+                        .element_type
+                        .as_ref()
+                        .map(|t| format!("{:?}", t))
+                        .unwrap_or_else(|| "Unknown".to_string()),
+                    name: m.frontmatter.name.clone().unwrap_or_else(|| "—".to_string()),
+                    status: m.frontmatter.status.clone().unwrap_or_else(|| "—".to_string()),
+                })
+                .collect();
             let tmpl = ElementDetailTemplate {
+                has_safety_diagram: !syscribe_model::vis::embedded_kinds_of(e, &store.elements, &store.resolver).is_empty(),
                 name: e
                     .frontmatter
                     .name
@@ -313,10 +371,232 @@ pub async fn element_detail(
                     .collect(),
                 source_url,
                 extra_yaml: extra_frontmatter_yaml(&e.file_path),
+                show_members: syscribe_model::members::is_package(e) || !members.is_empty(),
+                members,
             };
             Html(tmpl.render().unwrap_or_default())
         }
     }
+}
+
+/// One inline feature, as shown on an element card (`REQ-TRS-VIS-026`).
+pub struct FeatureCard {
+    pub name: String,
+    pub owner: String,
+    /// Declared properties (`type`, `typedBy`, `direction`, `multiplicity`, `unit`), as written.
+    pub props: Vec<(String, String)>,
+    /// When the documentation shown is the feature's type's rather than its owner's.
+    pub doc_from: Option<String>,
+}
+
+#[derive(Template)]
+#[template(path = "element_card.html")]
+pub struct ElementCardTemplate {
+    pub found: bool,
+    /// What was asked for, shown when it names nothing.
+    pub reference: String,
+    pub name: String,
+    pub element_type: String,
+    pub badge_class: String,
+    pub qualified_name: String,
+    pub elem_id: String,
+    pub status: String,
+    pub doc_html: String,
+    pub feature: Option<FeatureCard>,
+}
+
+/// The inline feature `name` declared in `owner`'s `features:`, as `(properties, typedBy)`.
+fn declared_feature(owner: &syscribe_model::element::RawElement, name: &str) -> Option<(Vec<(String, String)>, Option<String>)> {
+    let list = owner.frontmatter.features.as_ref()?;
+    for v in list {
+        let serde_yaml::Value::Mapping(m) = v else { continue };
+        let get = |k: &str| m.get(serde_yaml::Value::String(k.into())).and_then(|x| match x {
+            serde_yaml::Value::String(s) => Some(s.clone()),
+            serde_yaml::Value::Number(n) => Some(n.to_string()),
+            serde_yaml::Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        });
+        if get("name").as_deref() != Some(name) {
+            continue;
+        }
+        let props: Vec<(String, String)> = ["type", "typedBy", "direction", "multiplicity", "unit"]
+            .iter()
+            .filter_map(|k| get(k).map(|v| (k.to_string(), v)))
+            .collect();
+        let typed_by = get("typedBy");
+        return Some((props, typed_by));
+    }
+    None
+}
+
+/// `GET /ui/element-card/{*qname}` — the read-only card the diagram editor's side
+/// panel shows for a clicked shape or edge (`REQ-TRS-VIS-026`): identity and the
+/// element's Markdown body rendered. A reference that names an inline feature
+/// (a port, part usage or attribute) resolves to its owner and shows the
+/// feature's declared properties; one that names nothing says so.
+pub async fn element_card(
+    State(state): State<SharedState>,
+    Path(qname): Path<String>,
+) -> Html<String> {
+    let store = state.read().await;
+    let reference = qname.replace('/', "::");
+    let find = |q: &str| store.elements.iter().find(|e| e.qualified_name == q);
+
+    let card = |e: &syscribe_model::element::RawElement, feature: Option<FeatureCard>, doc_of: &syscribe_model::element::RawElement| {
+        let element_type = e.frontmatter.element_type.as_ref().map(|t| format!("{:?}", t)).unwrap_or_else(|| "Unknown".to_string());
+        ElementCardTemplate {
+            found: true,
+            reference: reference.clone(),
+            name: e.frontmatter.name.clone().unwrap_or_else(|| e.qualified_name.rsplit("::").next().unwrap_or(&e.qualified_name).to_string()),
+            badge_class: badge_class_for(&element_type),
+            element_type,
+            qualified_name: e.qualified_name.clone(),
+            elem_id: e.frontmatter.id.clone().unwrap_or_default(),
+            status: e.frontmatter.status.clone().unwrap_or_default(),
+            doc_html: markdown_to_html(doc_of.doc.trim()),
+            feature,
+        }
+    };
+
+    if let Some(e) = find(&reference) {
+        return Html(card(e, None, e).render().unwrap_or_default());
+    }
+
+    // An inline feature: walk up to the nearest owning element, then down its
+    // `features:` (following `typedBy:` for a nested path such as `battery::powerOut`).
+    let segs: Vec<&str> = reference.split("::").collect();
+    for split in (1..segs.len()).rev() {
+        let owner_q = segs[..split].join("::");
+        let Some(owner) = find(&owner_q) else { continue };
+        let mut declaring = owner;
+        let mut found: Option<(String, Vec<(String, String)>, Option<String>, String)> = None;
+        for (i, seg) in segs[split..].iter().enumerate() {
+            let Some((props, typed_by)) = declared_feature(declaring, seg) else {
+                found = None;
+                break;
+            };
+            found = Some((seg.to_string(), props, typed_by.clone(), declaring.qualified_name.clone()));
+            if i + 1 < segs[split..].len() {
+                match typed_by.as_deref().and_then(|t| store.resolver.resolve_ref(&store.elements, t)) {
+                    Some(next) => declaring = next,
+                    None => {
+                        found = None;
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some((fname, props, typed_by, declared_in)) = found {
+            let typed = typed_by.as_deref().and_then(|t| store.resolver.resolve_ref(&store.elements, t));
+            let (doc_of, doc_from) = match typed {
+                Some(t) => (t, Some(t.qualified_name.clone())),
+                None => (store.elements.iter().find(|e| e.qualified_name == declared_in).unwrap_or(owner), None),
+            };
+            let feature = FeatureCard { name: fname, owner: declared_in, props, doc_from };
+            return Html(card(doc_of, Some(feature), doc_of).render().unwrap_or_default());
+        }
+    }
+
+    let tmpl = ElementCardTemplate {
+        found: false,
+        reference: reference.clone(),
+        name: reference.rsplit("::").next().unwrap_or(&reference).to_string(),
+        element_type: String::new(),
+        badge_class: String::new(),
+        qualified_name: String::new(),
+        elem_id: String::new(),
+        status: String::new(),
+        doc_html: String::new(),
+        feature: None,
+    };
+    Html(tmpl.render().unwrap_or_default())
+}
+
+#[derive(Template)]
+#[template(path = "planning.html")]
+pub struct PlanningTemplate {}
+
+#[derive(Template)]
+#[template(path = "planning_board.html")]
+pub struct PlanningBoardTemplate {
+    pub board: crate::planning::Board,
+}
+
+#[derive(Deserialize)]
+pub struct PlanningQuery {
+    #[serde(default)]
+    pub who: String,
+    #[serde(default)]
+    pub done: String,
+}
+
+#[derive(Template)]
+#[template(path = "features.html")]
+pub struct FeaturesTemplate {}
+
+/// `GET /features` — the feature model viewer (`REQ-TRS-FMED-001`).
+pub async fn features_page() -> Html<String> {
+    Html(FeaturesTemplate {}.render().unwrap_or_default())
+}
+
+/// `GET /planning` — the live planning dashboard page (`REQ-TRS-VIS-027`).
+pub async fn planning() -> Html<String> {
+    Html(PlanningTemplate {}.render().unwrap_or_default())
+}
+
+/// `GET /ui/planning/board` — the refreshable board fragment.
+pub async fn planning_board(State(state): State<SharedState>, Query(q): Query<PlanningQuery>) -> Html<String> {
+    let store = state.read().await;
+    let board = crate::planning::build_board(&store.elements, &store.config.users, &q.who, q.done == "1");
+    Html(PlanningBoardTemplate { board }.render().unwrap_or_default())
+}
+
+/// The heading of a safety diagram view.
+fn safety_kind_title(kind: syscribe_model::vis::DiagramKind) -> &'static str {
+    use syscribe_model::vis::DiagramKind as K;
+    match kind {
+        K::FaultTree => "Fault tree",
+        K::AttackTree => "Attack tree",
+        K::SafetyCase => "Safety case (GSN)",
+        K::Traceability => "Hazard-to-test traceability",
+        K::ZoneConduit => "Zones and conduits (IEC 62443)",
+        K::ThreatGraph => "Threat graph (TARA)",
+        _ => "Diagram",
+    }
+}
+
+/// The HTML fragment embedding the derived safety diagrams of `element`
+/// (`/ui/diagram/<element>` for a non-`Diagram`, GH #223): one titled static SVG
+/// per kind (the same IR and ELK layout the editor and `diagram export` use),
+/// each node an `<a href="/ui/detail/<qname>">` that the page's delegated click
+/// handler opens in the detail panel. A view with nothing to draw says why.
+fn safety_views(
+    store: &crate::state::ModelStore,
+    element: &syscribe_model::element::RawElement,
+    kinds: &[syscribe_model::vis::DiagramKind],
+) -> String {
+    use syscribe_model::vis;
+    let links = |r: &str| {
+        store
+            .resolver
+            .resolve_ref(&store.elements, r)
+            .map(|e| format!("/ui/detail/{}", e.qualified_name))
+    };
+    let mut out = String::new();
+    for &kind in kinds {
+        let (graph, issues) = vis::build_subject_graph_in(element, kind, &store.elements, &store.resolver, &store.model_root);
+        let title = safety_kind_title(kind);
+        out.push_str(&format!(r#"<div class="safety-diagram" data-diagram-kind="{}"><div class="detail-section-label">{title}</div>"#, kind.as_str()));
+        match vis::render_svg(&graph, &links) {
+            Ok(svg) => out.push_str(&svg),
+            Err(e) => {
+                let why = issues.first().map(|i| format!("{}: {}", i.code, i.message)).unwrap_or_else(|| e.to_string());
+                out.push_str(&format!(r#"<p class="diagram-empty">Nothing to draw — {}</p>"#, html_escape(&why)));
+            }
+        }
+        out.push_str("</div>");
+    }
+    out
 }
 
 pub async fn diagram(
@@ -337,6 +617,13 @@ pub async fn diagram(
         .map(|t| format!("{:?}", t) == "Diagram")
         .unwrap_or(false);
     if !is_diagram {
+        // GH #223 — a fault tree, attack tree, safety goal or argument is drawn
+        // from the model itself: the derived diagram, laid out and embedded as
+        // static SVG with every node linking to its element.
+        let kinds = syscribe_model::vis::embedded_kinds_of(element, &store.elements, &store.resolver);
+        if !kinds.is_empty() {
+            return Html(safety_views(&store, element, &kinds));
+        }
         return Html(
             r#"<p class="diagram-empty">No diagram for this element.</p>"#.to_string(),
         );
@@ -352,14 +639,13 @@ pub async fn diagram(
             ))
         }
         _ => {
-            // SVG / BDD / IBD / StateMachine — no longer served over this HTML
-            // route now that the sprotty editor claims every non-Mermaid
-            // `diagram_kind` (opened via `/api/diagrams/model/{*qname}`
-            // instead). `syscribe_model::renderer::render_diagram` itself is
-            // still used by the CLI's HTML export
-            // (`crates/syscribe/src/export_html.rs`) — only this HTTP branch
-            // is retired. A direct hit here (e.g. a stale bookmark) gets a
-            // plain fallback rather than a panic.
+            // SVG / BDD / IBD / StateMachine — not served over this HTML
+            // route: every non-Mermaid `diagram_kind` is a Diagram IR
+            // (`syscribe_model::vis`) that the sprotty editor fetches from
+            // `/api/diagrams/model/{*qname}` and lays out in the browser
+            // (`REQ-TRS-VIS-001`); there is no server-side SVG renderer any
+            // more (`REQ-TRS-VIS-013`). A direct hit here (e.g. a stale
+            // bookmark) gets a plain fallback rather than a panic.
             Html(
                 r#"<p class="diagram-empty">This diagram type isn't served here — open it as a diagram tab.</p>"#
                     .to_string(),
@@ -368,3 +654,54 @@ pub async fn diagram(
     }
 }
 
+
+#[derive(Template)]
+#[template(path = "requirements.html")]
+pub struct RequirementsTemplate {
+    pub focus: String,
+    pub depth: u8,
+    pub config: String,
+}
+
+#[derive(serde::Deserialize, Default)]
+pub struct RequirementsQuery {
+    pub focus: Option<String>,
+    pub depth: Option<String>,
+    pub config: Option<String>,
+}
+
+/// `GET /requirements[?focus=&depth=&config=]` — the Requirements Explorer (GH #269). The query only
+/// seeds the page's initial state (HTML-escaped by the template); the graph itself comes from
+/// `/api/req-graph`. A depth that is not an integer is 1, one above 6 is 6.
+pub async fn requirements_page(Query(q): Query<RequirementsQuery>) -> Html<String> {
+    let depth = q.depth.as_deref().and_then(|d| d.trim().parse::<i64>().ok()).map_or(1, |d| d.clamp(1, 6)) as u8;
+    Html(
+        RequirementsTemplate { focus: q.focus.unwrap_or_default(), depth, config: q.config.unwrap_or_default() }
+            .render()
+            .unwrap_or_default(),
+    )
+}
+
+#[derive(Template)]
+#[template(path = "heat.html")]
+pub struct HeatTemplate {
+    pub css: &'static str,
+    pub body: String,
+}
+
+/// `GET /heat` - FMEA, HARA and TARA heat tables (GH #223), server-rendered from
+/// `syscribe_model::heat`.
+pub async fn heat_page(State(state): State<SharedState>) -> Html<String> {
+    use syscribe_model::heat;
+    let store = state.read().await;
+    let cfg = syscribe_model::cyber_config::CyberConfig::load(&store.model_root);
+    let body: String = [
+        heat::hara_grid(&store.elements),
+        heat::fmea_grid(&store.elements, None),
+        heat::tara_grid(&store.elements, &cfg),
+    ]
+    .iter()
+    .map(|g| g.to_html_fragment())
+    .collect();
+    Html(HeatTemplate { css: heat::HEAT_CSS, body }.render().unwrap_or_default())
+}

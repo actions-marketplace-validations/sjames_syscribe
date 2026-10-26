@@ -151,6 +151,12 @@ pub(super) fn compute(store: &LspStore, path: &Path, position: Position, new_nam
             candidate.push(e.clone());
         }
     }
+    // Re-parsing a frontmatter from YAML drops the non-serialized Configuration
+    // inheritance slot (§9.8), so a Configuration touched above — e.g. one whose
+    // `derivedFrom:` names the renamed base — would lose its inherited selection
+    // and the gate below would report spurious new findings. Re-derive
+    // inheritance over the whole candidate set, as the walker does (GH #146).
+    syscribe_model::config_inherit::apply_configuration_inheritance(&mut candidate);
 
     // Compared by (code, file) only, not the message text: renaming the id changes
     // the *message* of any pre-existing finding that happens to mention it (e.g. a
@@ -158,9 +164,11 @@ pub(super) fn compute(store: &LspStore, path: &Path, position: Position, new_nam
     // genuinely new. The file path itself is stable across an id rename (only the
     // `id:` value changes, not the file), so (code, file) identifies "the same
     // underlying issue, before and after" precisely enough for this gate.
+    // W065 (file stem vs id) is exempt: an id rename edits `id:` only, never the
+    // file name, so it is the expected, advisory side effect of this operation.
     let before = validate_with_config(&store.elements, &store.config).findings;
     let after = validate_with_config(&candidate, &store.config).findings;
-    if let Some(new_finding) = after.iter().find(|f| !before.iter().any(|b| b.code == f.code && b.file == f.file)) {
+    if let Some(new_finding) = after.iter().find(|f| f.code != "W065" && !before.iter().any(|b| b.code == f.code && b.file == f.file)) {
         return Err(format!("rename refused: it would introduce {} in {}: {}", new_finding.code, new_finding.file, new_finding.message));
     }
 

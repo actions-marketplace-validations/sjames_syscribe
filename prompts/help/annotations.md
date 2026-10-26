@@ -10,6 +10,9 @@ frontmatter uses. This is read-only ingestion: the source file stays
 authoritative and is edited by its own normal tooling, never by Syscribe's
 write paths.
 
+## SYNOPSIS
+    syscribe -m <root> annotations scan <qname-or-label> --dry-run
+
 ## Marking a package annotated (`_index.md`)
 
 ```yaml
@@ -43,6 +46,9 @@ implemented."
 ```
 annotations scan <qname-or-label> --dry-run   # scan one package in isolation, print its elements
 ```
+
+`--dry-run` is required: without it `scan` prints a usage line and exits 1. The output is one
+JSON document, `{"elements":[{"qname","type","filePath","frontmatter":{...}}]}`.
 
 `<qname-or-label>` matches a package's qualified name first, then (first
 match) its `annotationFormat:` label. No merge, no validation — the fastest

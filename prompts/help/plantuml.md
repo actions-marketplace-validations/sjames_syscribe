@@ -1,11 +1,8 @@
 # plantuml — Generate PlantUML source files from Diagram elements
 
-## Synopsis
-
-```
-syscribe -m <root> plantuml [<qname>] [--output <file>|-] [--dry-run]
-syscribe -m <root> plantuml render [--jar <path>] [--dry-run]
-```
+## SYNOPSIS
+    syscribe -m <root> plantuml [<qname>] [--output <file>|-] [--dry-run]
+    syscribe -m <root> plantuml render [--jar <path>] [--dry-run]
 
 ## Description
 
@@ -63,7 +60,7 @@ The validator emits **W413** when neither `![` nor `<img` is present, and
 | Flag | Description |
 |---|---|
 | `<qname>` | Qualified name of a single `Diagram` element to generate |
-| `--output <file>` | Write output to `<file>` instead of the companion path |
+| `--output <file>`, `-o <file>` | Write output to `<file>` instead of the companion path |
 | `--output -` | Write output to stdout |
 | `--dry-run` | Print the file path(s) that would be written without writing |
 

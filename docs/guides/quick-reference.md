@@ -55,6 +55,7 @@ syscribe -m model metrics                # SPFM / LFM / PMHF per goal
 syscribe -m model safety-case            # GSN trees for all goals
 syscribe -m model safety-case SG-X-001  # GSN tree for one goal
 syscribe -m model fmea report FMEA-X-001 # RPN-ranked FMEA table
+syscribe -m model hara matrix            # HARA S/E/C -> ASIL heat table (--format md|html|json)
 syscribe -m model fault-tree render FT-X-001  # Mermaid FTA
 syscribe -m model audit                  # readiness dashboard
 
@@ -75,6 +76,13 @@ syscribe -m model check-ref Safety::SG-X-001  # verify a reference resolves
 syscribe -m model move <src> <dst> --dry-run  # safe rename preview
 syscribe -m model move <src> <dst>       # rename + rewrite all references
 syscribe -m model extref "DOORS://..."   # find elements by external reference
+syscribe -m model set REQ-X-001 status=approved       # schema-checked field mutation
+syscribe -m model set PI-X-001 achieves.add REQ-X-002 # append, target validated first
+syscribe -m model ingest-results --format cargo-json test-output.json   # or junit | session-log
+
+# PlanningItem (multi-agent coordination)
+syscribe -m model claim PI-X-001 --by agent-session-01VRUS  # refuses if claimed by someone else
+syscribe -m model release PI-X-001                           # on completion or handoff
 ```
 
 ### Integrity level gating — what syscribe checks
@@ -85,4 +93,7 @@ syscribe -m model extref "DOORS://..."   # find elements by external reference
 | ISO 26262 ASIL C | `asilLevel: C` | PMHF < 1e-7/h AND SPFM ≥ 0.97 AND LFM ≥ 0.80 | — |
 | IEC 61508 SIL 4 | `silLevel: 4` | PMHF/PFH < 1e-8/h | SPFM, LFM |
 | IEC 61508 SIL 3 | `silLevel: 3` | PMHF/PFH < 1e-7/h | SPFM, LFM |
+| IEC 61508 SIL 1-4, demand mode | `target: {mode: demand, ...}` | PFDavg < 1e-1 / 1e-2 / 1e-3 / 1e-4 (SIL 1 / 2 / 3 / 4) | SPFM, LFM |
 | ISO/SAE 21434 | `calLevel: CAL4` | CAL ≥ risk-implied minimum (W032) | No numeric PFH |
+
+Rate-only and demand-mode (PFDavg) figures gate W033 only when the goal declares `target:` or `.syscribe.toml` sets a limit; `metrics` exits 2 on a gating failure.

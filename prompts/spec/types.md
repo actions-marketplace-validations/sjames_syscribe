@@ -76,12 +76,15 @@
 | `ADR` | Record | Architecture Decision Record — stable `ADR-*` ID |
 | `ReviewRecord` | Record | Formal review event + traceability anchor — stable `RR-*` ID |
 | `TradeStudy` | Record | Weighted-criteria evaluation of alternatives — stable `TRD-*` ID |
-| `PlanningItem` | Record | Native work-item tracking (§23) — stable `PI-*` ID; single-parent tree, `achieves:` a Requirement, `evidence:` proves `status: done` |
+| `PlanningItem` | Record | Native work-item tracking (§23) — stable `PI-*` ID; single-parent tree, `achieves:` a Requirement (or goal / ADR / argument / plan / baseline), `evidence:` proves `status: done` |
+| `Baseline` | Record | Sealed release snapshot — stable `BL-*` ID (need not end in a number, e.g. `BL-2026-07`); written by `baseline create`, drift-checked on every validate (`E520`–`E522`, `W520`) |
+| `FeatureModel` | PLE | Single-file feature model: a flat `featureTree:` list (dotted `name:` paths) exploded into ordinary `FeatureDef` elements (§9.6a); optional `crossTreeConstraints:` / `parameterConstraints:` |
 | `Package` | Namespace | Named container; `_index.md` in a directory |
 | `LibraryPackage` | Namespace | Package marked as a model library |
 | `Namespace` | Namespace | Root namespace; `_index.md` at model root |
 | `Dependency` | Relationship | Directed client → supplier link; fields: `clients:`, `suppliers:` |
 | `Diagram` | Diagram | SVG diagram with model-element manifest |
+| `PlantDef` | Executable | In-process continuous plant (GH #340): `parameters:`, `inputs:`, `outputs:`, `states:` and `equations:` (`der(x) = …`, `y := …`), integrated with `method: rk4` (default) or `euler`; a part becomes it with `plant:` (a `PlantDef` or a `library:` plant) |
 
 ## Safety/security native types — see `syscribe spec safety`
 
@@ -97,6 +100,10 @@
 cybersecurity assessment, with independence level I1–I3 ·
 `Argument` (ARG-*) — a GSN node (claim/strategy/solution) ·
 `AssumptionOfUse` (AOU-*) — safety-related application condition (SRAC)
+`SafetyMechanism` (SM-*) — diagnostic mechanism: `covers`, coverages, `reactionTime`
+`TestEnvironment` (TE-*) — a rig a test runs on; `runsOn:` on TestCase/TestPlan
+`ResidualRisk` (RISK-*) — the decision on a fault set an `inject` campaign defeats: `faultSet`, `status` (proposed | accepted | mitigated | rejected), `goal`, `mitigatedBy`, `approvedBy`, `expires`, `campaignHash`
+`DependentFailureAnalysis` (DFA-*) — ISO 26262-9 clause 7 independence argument (`analyses`, `sharedResources`)
 
 ## Key per-type schemas
 
@@ -110,7 +117,7 @@ typedBy: Avionics::FlightControllerDef  # (Part) type
 domain: software         # system | hardware | software
 isAbstract: false
 isDeploymentPackage: false
-asilLevel: C             # propagated from satisfied requirements
+asilLevel: C             # must be authored (E843 if a satisfied requirement carries an integrity level and this element has none)
 satisfies: [REQ-UAV-FC-001]
 features:
   - name: powerIn
@@ -124,27 +131,31 @@ performs: [Behavior::MissionExecution]
 exhibitsStates: [Behavior::FlightStates]
 ```
 
-### PortDef / Port
+### PortDef / InterfaceDef / Port
 
 ```yaml
 type: PortDef
 name: PowerPortDef
 supertype: Ports::Port
-conjugates: ./PowerPortDef   # conjugate port def for the other end
-ends:                        # (InterfaceDef) typed ends
+features:                    # directed features carried by the port
+  - name: voltage
+    type: Attribute
+    direction: out
+---
+type: InterfaceDef
+name: PowerInterface
+ends:                        # typed ends (an InterfaceDef is a ConnectionDef between ports)
   - name: supplier
-    typedBy: ./VoltageSupplyDef
+    typedBy: Interfaces::PowerPortDef
   - name: consumer
-    typedBy: ./CurrentDrawDef
+    typedBy: Interfaces::PowerPortDef
+    isConjugated: true       # receiving end = conjugate of the supplier
 ---
 type: Port
 name: powerIn
 typedBy: Interfaces::PowerPortDef
 direction: in    # in | out | inout
 isConjugated: false
-ports:           # nested sub-ports
-  - name: voltage
-    direction: in
 ```
 
 ### Ports & Interfaces — decision guide
@@ -173,7 +184,7 @@ allocatedFrom: Software::SchedulerModule   # upstream source
 allocatedTo: Hardware::FlightComputer      # downstream target
 ```
 
-On architecture elements: `allocatedFrom: SC-001` (or list) references upstream controls.
+To link a `SecurityControl` to the architecture that realises it, put `allocatedTo:` on the control (or use a standalone `Allocation`). `allocatedFrom` is the derived reverse; authoring it on a non-`Allocation` element is a legacy input form only.
 
 ### native Requirement
 
@@ -189,7 +200,7 @@ verificationMethod: test     # test | inspection | analysis | demonstration
 derivedFrom: [REQ-UAV-SAFE-000]
 breakdownAdr: ADR-UAV-001    # required when derivedFrom is set (E310)
 derivedFromSafetyGoal: SG-BRAKE-001
-derivedFromSecurityGoal: CSG-001
+derivedFromCybersecurityGoal: CSG-BRAKE-001
 tags: [safety, contingency]
 ```
 Body must contain at least one `shall` statement (W001 if absent).
@@ -248,7 +259,7 @@ and use the `--plan TP-X` lens on `matrix`/`verification-depth`/`audit`. Validat
 type: PlanningItem
 id: PI-RTH-IMPL-SW-002       # required; PI(-[A-Z0-9]{2,12})*-[0-9]{3,8}
 name: "..."                 # required
-status: in_progress          # required; todo | in_progress | blocked | done
+status: blocked              # required; todo | in_progress | blocked | done
 itemType: task                # optional; bug | task | feature
 parent: PI-RTH-IMPL-001       # optional; single scalar (strict single-parent tree, not a DAG)
 achieves: [REQ-RTH-002]       # required (non-empty) when parent: is absent (top-level)
@@ -271,6 +282,32 @@ A **leaf** item (empty computed `children` — no other `PlanningItem` names it 
 `blockedBy:` while `status` isn't `blocked` warns (likely stale), but `status: blocked` with no
 `blockedBy:` raises nothing — being blocked needs no proof, unlike claiming done. `assignedTo:`
 must be username-shaped regardless of `[users]` (`E723`), and additionally a declared roster
-member when `[users]` is non-empty (`E722`); `show` prints the resolved display name. No dedicated
-CLI subcommand yet — use `list`/`show`/`ls`/`find`/`refs` (§23, `ADR-SYS-PLANITEM-001`). Validation:
-`E706`–`E717`, `E719`–`E723`, `W308`–`W309`.
+member when `[users]` is non-empty (`E722`); `show` prints the resolved display name. A `done`
+item whose `achieves:` Requirement lacks the verification bar `W002`/`W305` apply (active TestCase
+for a leaf, active L3–L5 TestCase for a parent) warns `W310`; two *active* items (`in_progress` or
+claimed) that share an `achieves:` Requirement or an `evidence[].path` warn `W311`. Advisory
+ownership for concurrent (multi-agent) work: `syscribe claim <PI-id> --by <agent-id>` sets
+`claimedBy:`/`claimedAt:` (refused on a `done` item or one claimed by someone else) and
+`syscribe release <PI-id>` clears them. Everything else goes through the generic
+`list`/`show`/`ls`/`find`/`refs`/`set` commands (§23, `ADR-SYS-PLANITEM-001`). Validation:
+`E706`–`E717`, `E719`–`E723`, `W308`–`W311`.
+
+### Baseline
+
+<!-- syscribe-example: expect E520 reason="the seal: values are placeholders, so the seal cannot match" -->
+```yaml
+type: Baseline
+id: BL-2026-07               # required; BL(-[A-Z0-9]{2,12})+ — no numeric suffix needed
+name: "Release 2026.07"      # required
+status: released             # draft | approved | released | superseded
+gitTag: REL-2026-07          # VCS tag — distinct from the BL-* id
+frozenScope:                 # omit for the whole model; clauses combine
+  package: Requirements
+seal:                        # generated by `baseline create` — never hand-edit
+  aggregateHash: "blake3:..."
+  elementCount: 42
+  manifest: baselines/BL-2026-07.manifest.json
+```
+Create with `syscribe -m model/ baseline create …` (it computes `seal:`, `gitCommit:` and the
+manifest); inspect with `baseline verify`/`diff`/`list`/`show`. Drift is graded by status:
+`released` → `E520`, `approved` → `W520`, `draft` silent, `superseded` skipped.

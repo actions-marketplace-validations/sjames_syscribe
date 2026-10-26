@@ -11,6 +11,9 @@ a configured scripts directory. They are *tooling*, not model content: they are
 never parsed as model elements and are **not** run by the built-in `validate`
 pass — the qualification boundary stays crisp.
 
+Unlike the other commands, `scripts` does not reject unknown options: arguments after
+the command name are passed through to the user script.
+
 Scripts run in a sandboxed, resource-limited, deterministic Rhai engine: no
 filesystem, network, clock, randomness, environment, or process access; `eval` is
 disabled; the module resolver is confined to the scripts directory; and a runaway
@@ -62,9 +65,10 @@ An absent scripts directory is not an error — the model simply has no extensio
                 `--warnings-as-errors`. Independent of the built-in `validate`.
 
 ## EXAMPLES
-    syscribe -m model/ scripts list
-    syscribe -m model/ scripts run coverage
-    syscribe -m model/ scripts validate --deny naming/NOASIL
+    # with the [scripts] configuration shown above (the bundled models define none)
+    syscribe -m <root> scripts list
+    syscribe -m <root> scripts run coverage
+    syscribe -m <root> scripts validate --deny naming/NOASIL
 
 ## SEE ALSO
     validate, export

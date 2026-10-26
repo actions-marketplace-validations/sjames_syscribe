@@ -1,9 +1,10 @@
 # matrix — requirement × configuration coverage grid
 
 ## SYNOPSIS
-    syscribe -m <root> matrix [--json] [--tag <t>]
+    syscribe -m <root> matrix [--json] [--tag <t>] [--select <sel>]...
         [--status <s>] [--gaps-only] [--linked-only]
         [--config <C>] [--plan TP-X]
+    syscribe -m <root> matrix --rollup [--json] [--tag <t>] [--status <s>] [--config <C>]
     syscribe -m <root> matrix --features [--json]
     syscribe -m <root> matrix --allocations [--json]
 
@@ -12,13 +13,24 @@ Rows are requirements, columns are Configurations; cells are covered (✓), gap
 (✗), or N/A (—). When a results sidecar is present, a covered cell shows ✓ for
 covered-and-passing vs ▣ for covered-but-not-passing. A per-config and overall
 coverage-% footer is printed. With no feature model, falls back to a flat
-requirement/test view.
+requirement/test view. A Configuration with a `derivedFrom:` base contributes
+its effective (inherited + own) selection, spec §9.8.
 
 ## OPTIONS
     --tag <t>       Restrict rows to requirements tagged t.
+    --select <sel>  Restrict rows to requirements a stereotype selector matches: `Safety`, or
+                    `Safety where integrity >= 2` (a specialisation counts). Repeatable, ANDed.
     --status <s>    Restrict rows to requirements whose status: equals s.
     --gaps-only     Drop fully-covered and all-N/A rows (keep rows with a gap).
     --linked-only   Ignore ingested results (covered cells stay ✓).
+    --rollup        One row per requirement: own coverage, coverage below it (leaf
+                    descendants active/total/planned), verdict glyph and the
+                    [coverage] rule applied, plus a per-reqClass footer. The
+                    all-requirements view of `coverage tree`. Honours --tag,
+                    --status, --config and --json; --gaps-only, --linked-only are not applied (results are always
+                    used), --plan scopes the model first, and --allocations / --features take
+                    precedence over it. The [coverage] integrity guard runs over all
+                    requirements, whatever the filters keep.
     --features      Show the Feature × Configuration selection grid instead.
     --allocations   Show the MagicGrid Allocation source × target matrix instead:
                     rows are allocation sources, columns are targets, cells mark an

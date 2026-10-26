@@ -71,6 +71,31 @@ Elements that must NOT change:
 
 ---
 
+## Discovering what the tool can do
+
+This prompt covers the core authoring workflow. Syscribe has more commands, element types and fields than any prompt can list, and it grows — **do not guess; ask the tool.** Every answer below comes from the installed binary, so it is always current.
+
+| You need | Run |
+|---|---|
+| The list of commands, grouped by purpose | `syscribe help` |
+| One command's synopsis, flags and examples | `syscribe help <command>` (same as `syscribe <command> --help`) |
+| Which element types the model uses / exist | `syscribe -m model/ types`, then `syscribe spec types` |
+| The exact frontmatter for a type | `syscribe template <type>`, then `syscribe spec fields` |
+| What a validation code means and how to fix it | `syscribe spec validation` (every code, one row each); MCP `explain_finding` |
+| Format rules: directories, cross-references, multiplicity | `syscribe spec namespace`, `syscribe spec traceability`, `syscribe spec safety` |
+| A topic beyond those: executable models, evidence, plants, diagrams, placeholders | `syscribe spec behaviour`, `spec evidence`, `spec diagrams`, `spec variability` |
+| Which link types the project declares | `syscribe -m model/ link-types` |
+
+Rules of thumb:
+
+1. **Before using a command, field, element type or flag you have not seen in this session, look it up** with the table above. An unrecognised key is not an error in itself, but it is ignored and raises `W047`.
+2. **Before writing an element**, run `template <type>` — it prints the current schema, which is authoritative when it differs from an example in this prompt.
+3. **After writing**, run `validate` and read each finding's code in `syscribe spec validation` rather than inferring its meaning from the message alone.
+4. **If a task mentions simulation, fault injection, executable evidence, a plant, a context diagram, or a feature parameter placeholder (`{{Features::…param}}`)**, read Part 9e for the map, then `syscribe spec behaviour` / `spec evidence` and the *Execution* group of `syscribe help` — the prompt does not carry the detail.
+5. Over MCP, the equivalents are `describe_type` (fields of a type), `explain_finding` (a code), `link_types`, and the `syscribe://spec/<section>` resources.
+
+---
+
 ## CLI Tools
 
 Use these commands throughout the workflow. Run them in the project root.
@@ -79,73 +104,123 @@ Use these commands throughout the workflow. Run them in the project root.
 
 | Command | Purpose |
 |---|---|
-| `syscribe model/ show <qname\|id>` | Show element details and all fields |
-| `syscribe model/ ls [qname]` | List namespace children (default: root) |
-| `syscribe model/ tree [qname]` | Recursive namespace tree |
-| `syscribe model/ find <pattern>` | Fuzzy search by name / ID / content |
-| `syscribe model/ list <type> [scope] [--tag <t>]` | List elements of a type, optionally scoped; `--tag` filters by `tags:` |
-| `syscribe model/ ls\|find\|list … --where custom.<key>[op<val>]` | Filter by `custom_fields:` (`=` exact, `=~` regex/substring, `~=` list-membership, bare key = presence) |
-| `syscribe model/ types` | All element types present in the model with counts |
-| `syscribe model/ untyped` | List elements with no `type:` field set |
-| `syscribe model/ links <qname\|id>` | All outbound and inbound relationships |
-| `syscribe model/ refs <qname\|id>` | What elements reference this element (for a `Configuration`: the TestCases that run in it) |
-| `syscribe model/ matrix [--json] [--tag <t>]` | Requirement × Configuration coverage grid (variant-aware; see Part 9b) |
-| `syscribe model/ feature-check [--json]` | Holistic feature-model validation (requires/excludes, cycles, bindTo, constraints, orphan-feature W024); separate from `validate` |
-| `syscribe model/ features [--json]` | The feature model as a tree (groupKind, constraints, params, per-feature config rollup) |
-| `syscribe model/ feature <qname>` | One feature's card: constraints, params, configs that select it, elements it gates |
-| `syscribe model/ matrix --features` | Feature × Configuration grid (which feature ships in which product) |
-| `syscribe model/ list <type> --feature <F>` | Elements gated by feature `F` (via `appliesWhen:`) |
-| `syscribe model/ why-active <qname\|id> --config <C>` | Whether an element is active in a product, and why |
-| `syscribe model/ feature-check --deep` | SAT-backed analysis: void / dead / core / false-optional features, full-semantics config validity, explanations + diagnoses |
-| `syscribe model/ feature-check --count` / `--enumerate` | Count / list the valid configurations the feature model permits |
-| `syscribe model/ configure <Configuration>` | Assisted configuration: from a partial selection, report satisfiability + forced/free features |
-| `syscribe model/ validate --config <C>` | Project onto a configuration and validate that variant (escaping refs: E226/W019) |
-| `syscribe model/ validate --all-configs` | Validate every stored Configuration (CI gate) |
-| `syscribe model/ diff --config <A> --config <B>` | Elements active in one variant but not the other |
+| `syscribe -m model/ show <qname\|id>` | Show element details and all fields |
+| `syscribe -m model/ ls [qname]` | List namespace children (default: root) |
+| `syscribe -m model/ tree [qname]` | Recursive namespace tree |
+| `syscribe -m model/ find <pattern>` | Fuzzy search by name / ID / content |
+| `syscribe -m model/ list <type> [scope] [--tag <t>]` | List elements of a type, optionally scoped; `--tag` filters by `tags:` |
+| `syscribe -m model/ ls\|find\|list … --where custom.<key>[op<val>]` | Filter by `custom_fields:` (`=` exact, `=~` regex/substring, `~=` list-membership, bare key = presence) |
+| `syscribe -m model/ types` | All element types present in the model with counts |
+| `syscribe -m model/ search-text <query> [--type <T>] [--limit N]` | Ranked (BM25) full-text search over element text — find elements by what they *say* |
+| `syscribe -m model/ stats [--json] [--group-by <facet>]` | Requirement population at a glance: status/domain/SIL/ASIL/package histograms + coverage/orphan rollups |
+| `syscribe -m model/ digest [--limit N] [--offset N] [--status <s>]` | One compact NDJSON row per Requirement (~30 tokens) — bulk-scan a large model without reading files |
+| `syscribe -m model/ untyped` | List elements with no `type:` field set |
+| `syscribe -m model/ topics [--top N]` / `clusters [--k N]` / `summarize [--scope <q>] [--depth N]` | Large-model overview: distinctive keywords per package (TF-IDF), topical clusters, hierarchical content digest |
+| `syscribe -m model/ sysml [--json]` | Inspect the SysMLv2 submodels (`sysmlSubmodel:`) ingested into the model |
+| `syscribe -m model/ view render <View\|ViewDef> [--format tree\|table\|json\|mermaid]` | Materialise a `View`: the elements its `expose:` selects |
+| `syscribe -m model/ export [--ndjson] [--config <C>]` | The structured model graph as JSON / NDJSON |
+| `syscribe -m model/ render <diagram-path>` | Print a hand-authored `Diagram` with element links injected |
+| `syscribe -m model/ links <qname\|id>` | All outbound and inbound relationships |
+| `syscribe -m model/ refs <qname\|id>` | What elements reference this element (for a `Configuration`: the TestCases that run in it) |
+| `syscribe -m model/ matrix [--json] [--tag <t>]` | Requirement × Configuration coverage grid (variant-aware; see Part 9b) |
+| `syscribe -m model/ feature-check [--json]` | Holistic feature-model validation (requires/excludes, cycles, bindTo, constraints, orphan-feature W024); separate from `validate` |
+| `syscribe -m model/ features [--json]` | The feature model as a tree (groupKind, constraints, params, per-feature config rollup) |
+| `syscribe -m model/ feature <qname>` | One feature's card: constraints, params, configs that select it, elements it gates |
+| `syscribe -m model/ matrix --features` | Feature × Configuration grid (which feature ships in which product) |
+| `syscribe -m model/ list <type> --feature <F>` | Elements gated by feature `F` (via `appliesWhen:`) |
+| `syscribe -m model/ why-active <qname\|id> --config <C>` | Whether an element is active in a product, and why |
+| `syscribe -m model/ feature-check --deep` | SAT-backed analysis: void / dead / core / false-optional features, full-semantics config validity, explanations + diagnoses |
+| `syscribe -m model/ feature-check --count` / `--enumerate` | Count / list the valid configurations the feature model permits |
+| `syscribe -m model/ configure <Configuration>` | Assisted configuration: from a partial selection, report satisfiability + forced/free features |
+| `syscribe -m model/ validate --config <C>` | Project onto a configuration and validate that variant (escaping refs: E226/W019) |
+| `syscribe -m model/ validate --all-configs` | Validate every stored Configuration (CI gate) |
+| `syscribe -m model/ diff --config <A> --config <B>` | Elements active in one variant but not the other |
 
 **Traceability:**
 
 | Command | Purpose |
 |---|---|
-| `syscribe model/ trace <qname\|req-id>` | Full traceability slice for a requirement |
-| `syscribe model/ why <qname>` | What requirements this element satisfies |
-| `syscribe model/ who-verifies <req-id>` | Which test cases cover a requirement |
+| `syscribe -m model/ trace <qname\|req-id>` | Full traceability slice for a requirement |
+| `syscribe -m model/ trace-export [--config <C>] [--sort directory\|asc\|desc] [--out <f>]` | One JSON document of every requirement's trace (derivedFrom/children, breakdownAdr, satisfiedBy, verifiedBy, refinedBy, coverage) for CI coverage checks; MCP `trace_export` |
+| `syscribe -m model/ why <qname>` | What requirements this element satisfies |
+| `syscribe -m model/ who-verifies <req-id>` | Which test cases cover a requirement |
+| `syscribe -m model/ suspect list` / `suspect accept <src> <tgt>` | Suspect links: trace links whose target changed since review (W090). `accept` writes the reviewed hash into the source's `traceBaselines:` — never hand-edit that map |
+| `syscribe -m model/ coverage tree <req> [--plan <TP-id>] [--config <C>]` | Roll test coverage up the derivation tree (parent coverage from its children) |
+| `syscribe -m model/ baseline create --tag <t> …` / `baseline verify\|diff\|list\|show` | Release baselines: frozen, git-anchored, content-hashed snapshots; `verify` recomputes the seal |
+| `syscribe -m model/ results runs\|failures\|diff <runA> <runB>` | Retained test runs and run-to-run diffs (`--fail-on-regression`) |
+| `syscribe -m model/ budgets [--json]` | Memory used against capacity per hardware part (`ram`/`flash`/`stack` on software parts, `ramCapacity`/`flashCapacity`/`margin` on hardware) |
+| `syscribe -m model/ design-report <part> [--json]` | The detailed design of one software part: interface, behaviour, data, resources, code, requirements and tests |
+| `syscribe -m model/ meta [--def <Def>] [--group-by <key>] [--json]` | Stereotype report: who applies a `MetadataDef`, grouped by a tagged value (the compliance worklist) |
+| `syscribe -m model/ link-types [--json]` | The project's declared link types for `links:` (run **before** authoring any link — see §12.10 in Part 10) |
+| `syscribe -m model/ follow <qname\|id> <link> [--reverse] [--transitive] [--depth N] [--format text\|json\|dot]` | Walk one link type (custom type, its `inverse`, or a built-in link / reverse index such as `satisfiedBy`) |
 
 **Reports & analysis:**
 
 | Command | Purpose |
 |---|---|
-| `syscribe model/ audit [--json] [--profile <p>]` | Safety-readiness dashboard: status split, SIL/ASIL distribution, coverage %, orphans, PASS/FAIL verdict (exit 2 on fail) |
-| `syscribe model/ verification-depth [--sil <v>] [--status <s>] [--min-levels N] [--json]` | Per-requirement distinct verification levels + depth flag (none/hil-only/single/ok); `--min-levels` gates |
-| `syscribe model/ metrics [--json]` | Quantitative HW safety metrics SPFM/LFM/PMHF per SafetyGoal vs ASIL/SIL target (needs `diagnosticCoverage`) |
-| `syscribe model/ cyber-risk [--json]` | ISO/SAE 21434 risk per ThreatScenario (severity×feasibility) + treatment + untreated flag |
-| `syscribe model/ co-analysis [--json]` | Safety↔security: which cyber threats can violate each SafetyGoal (via `hazardRef`) |
-| `syscribe model/ safety-case [<SG>] [--json]` | GSN goal→argument→evidence tree (Argument/AssumptionOfUse + implicit goal→req→test) |
-| `syscribe model/ connectivity <element> [--depth N] [--format text\|dot\|json]` | Element-rooted subgraph of elements + connections (model root = whole model) |
-| `syscribe model/ n2 [<qname>] [--depth N] [--format text\|html\|json] [--interfaces-only] [--allocations]` | N² interface matrix: parts on the diagonal, connecting interfaces in the cells |
-| `syscribe model/ impact <qname\|id> [--direction downstream\|upstream\|both] [--depth N] [--format text\|json\|dot] [--kinds <csv>]` | Change impact: every element reachable through the traceability graph, with hop distance + edge kind |
-| `syscribe model/ behavioral-coverage [<qname>] [--depth N] [--format text\|json] [--uncovered-only] [--include-planned]` | How completely active TestCases exercise ActionDef/StateDef behaviors (source/requirement/testFn/allocation paths) |
-| `syscribe model/ sbom [--format cyclonedx\|spdx] [--config <C>] [--output <f>] [--include-tests] [--scope <qname>]` | Software Bill of Materials from implementedBy: links (CycloneDX 1.6 / SPDX 2.3; registry URIs → PURLs) |
-| `syscribe model/ export-reqif [--output <f>] [--scope <qname>] [--config <C>] [--include-tests] [--zip]` | Export Requirements as a ReqIF 1.2 document (DOORS/Jama/Polarion interchange) |
-| `syscribe model/ zones [--coverage] [--json]` / `conduits [--json]` | IEC 62443 security zones (SL gap) and conduits (SL adequacy), with a Zone × SecurityControl coverage table |
-| `syscribe model/ repos [list\|status\|sync] [--json] [--all]` | Multi-repository composition (§14): list/sync peer repos from `[repos]` in `.syscribe.toml` |
-| `syscribe model/ reviews [<qname>] [--open-only] [--json]` / `review <RR-id>` / `reviews --coverage` | List/detail `ReviewRecord`s and their requirement coverage |
-| `syscribe model/ trade-study [<TRD-id>] [--json]` | List/score `TradeStudy` elements (normalised, weighted, ranked) |
-| `syscribe model/ extref <ref> [--json]` | Find elements by external reference (`extRef`) |
-| `syscribe model/ list <type> [--status <s>] [--sil <v>] [--has-wcet] [--json]` | (filters) status/integrity/WCET filters + JSON |
-| `syscribe model/ matrix [--gaps-only] [--status <s>] [--linked-only]` | (flags) drop covered rows; status filter; coverage-% footer; executed-evidence glyphs when results ingested |
+| `syscribe -m model/ audit [--json] [--profile <p>]` | Safety-readiness dashboard: status split, SIL/ASIL distribution, coverage %, orphans, PASS/FAIL verdict (exit 2 on fail) |
+| `syscribe -m model/ verification-depth [--sil <v>] [--status <s>] [--min-levels N] [--json]` | Per-requirement distinct verification levels + depth flag (none/hil-only/single/ok); `--min-levels` gates |
+| `syscribe -m model/ metrics [--json]` | Quantitative HW safety metrics SPFM/LFM/PMHF per SafetyGoal vs ASIL/SIL target (needs `diagnosticCoverage`; cut-set driven; exits 2 when a goal fails) |
+| `syscribe -m model/ fault-tree analyze <FT> [--json]` | Fault-tree minimal cut sets, top-event probability over `missionTime`, Fussell-Vesely/Birnbaum importance, beta-factor CCF |
+| `syscribe -m model/ cyber-risk [--json]` | ISO/SAE 21434 risk per ThreatScenario (severity×feasibility) + treatment + untreated flag |
+| `syscribe -m model/ co-analysis [--json]` | Safety↔security: which cyber threats can violate each SafetyGoal (via `hazardRef`) |
+| `syscribe -m model/ safety-case [<SG>] [--json]` | GSN goal→argument→evidence tree (Argument/AssumptionOfUse + implicit goal→req→test) |
+| `syscribe -m model/ connectivity <element> [--depth N] [--format text\|dot\|json]` | Element-rooted subgraph of elements + connections (model root = whole model) |
+| `syscribe -m model/ n2 [<qname>] [--depth N] [--format text\|html\|json] [--interfaces-only] [--allocations]` | N² interface matrix: parts on the diagonal, connecting interfaces in the cells |
+| `syscribe -m model/ impact <qname\|id> [--direction downstream\|upstream\|both] [--depth N] [--format text\|json\|dot] [--kinds <csv>]` | Change impact: every element reachable through the traceability graph, with hop distance + edge kind |
+| `syscribe -m model/ behavioral-coverage [<qname>] [--depth N] [--format text\|json] [--uncovered-only] [--include-planned]` | How completely active TestCases exercise ActionDef/StateDef behaviors (source/requirement/testFn/allocation paths) |
+| `syscribe -m model/ sbom [--format cyclonedx\|spdx] [--config <C>] [--output <f>] [--include-tests] [--scope <qname>]` | Software Bill of Materials from implementedBy: links (CycloneDX 1.6 / SPDX 2.3; registry URIs → PURLs) |
+| `syscribe -m model/ export-reqif [--output <f>] [--scope <qname>] [--config <C>] [--include-tests] [--zip]` | Export Requirements as a ReqIF 1.2 document (DOORS/Jama/Polarion interchange) |
+| `syscribe -m model/ export-sysml [<package>] [--out <file\|dir>]` | One-way export of native elements as SysML v2 textual notation (unsupported types become `// skipped:` comments) |
+| `syscribe -m model/ zones [--coverage] [--json]` / `conduits [--json]` | IEC 62443 security zones (SL gap) and conduits (SL adequacy), with a Zone × SecurityControl coverage table |
+| `syscribe -m model/ fmea report [--fmea-sheet <id>] [--format md\|html\|json]` | FMEA report from `FMEASheet` rows |
+| `syscribe -m model/ hara matrix [--format md\|html\|json]` / `hara trace [<subject>]` | HARA ASIL matrix and the hazard → goal → requirement trace graph |
+| `syscribe -m model/ lint-docs <path>… [--deny <CODES>]` | Scan external Markdown/SVG for references to model elements that no longer resolve |
+| `syscribe -m model/ plugins run <alias> --dry-run` / `annotations scan <qname-or-label> --dry-run` | Preview foreign-format (stdio plugin) or annotated-source ingestion for one package, no merge |
+| `syscribe -m model/ compliance --standard <name> [--fail-on-missing]` | Which expected work products of a standard (ASPICE, ISO 26262, ISO/SAE 21434) the model has |
+| `syscribe -m model/ mechanisms [--uncovered]` | What each `SafetyMechanism` covers; lists uncovered failure modes |
+| `syscribe -m model/ export-html [--out <dir>]` | Standalone offline HTML site for the whole model |
+| `syscribe -m model/ import-reqif <file.reqif> [--into <pkg>] [--id-prefix P] [--update] [--dry-run]` | Create Requirements from a ReqIF document (the inverse of `export-reqif`) |
+| `syscribe -m model/ repos [list\|status\|sync] [--json] [--all]` | Multi-repository composition (§14): list/sync peer repos from `[repos]` in `.syscribe.toml` |
+| `syscribe -m model/ reviews [<qname>] [--open-only] [--json]` / `review <RR-id>` / `reviews --coverage` | List/detail `ReviewRecord`s and their requirement coverage |
+| `syscribe -m model/ trade-study [<TRD-id>] [--json]` | List/score `TradeStudy` elements (normalised, weighted, ranked) |
+| `syscribe -m model/ extref <ref> [--json]` | Find elements by external reference (`extRef`) |
+| `syscribe -m model/ ingest-results [--format cargo-json\|junit\|session-log\|records\|robot] [--replace] <file>` | Record test-run verdicts (`.syscribe/results.json`); `matrix`/`trace` then show executed evidence and `validate` warns W010 for a failed/missing `active` TestCase function |
+| `syscribe -m model/ list <type> [--status <s>] [--sil <v>] [--has-wcet] [--json]` | (filters) status/integrity/WCET filters + JSON |
+| `syscribe -m model/ matrix [--gaps-only] [--status <s>] [--linked-only]` | (flags) drop covered rows; status filter; coverage-% footer; executed-evidence glyphs when results ingested |
+
+**Executable behaviour & evidence** (state machines, action flows, plants, fault injection — `syscribe help <command>` for each; see also Part 9e):
+
+| Command | Purpose |
+|---|---|
+| `syscribe eval '<expr>' [--set n=v]… [--unit <u>]` | Evaluate an expression of the execution engine's typed, unit-aware language |
+| `syscribe -m model/ constraints check\|calc\|sweep …` | Evaluate `ConstraintDef`/`CalculationDef` against attribute values or a `Configuration` (`--all-configs` checks every Configuration) |
+| `syscribe -m model/ compile <StateDef> [--config <C>]` | Lower a state machine to its IR; surfaces typing errors (`E935`) before running |
+| `syscribe -m model/ simulate <TestCase\|StateDef> [--scenario <t>] [--trace] [--record] [--coverage]` | Run a machine's Gherkin scenarios (or `--do "<script>"`) and print the trace; `--record` stores the verdict as evidence |
+| `syscribe -m model/ inject <composite\|TestCase> [--ft <FT>] [--max-order N] [--record]` | Run a composite's safety invariants under injected single faults and fault-tree cut sets; `--record` keeps the campaign as evidence |
+| `syscribe -m model/ mutate <StateDef\|TestCase\|composite> [--min-score N]` | Judge scenario quality by seeding faults; surviving mutants are scenario gaps |
+| `syscribe -m model/ requirement-coverage [<REQ>…] [--config <C>]` | Per requirement: which executable scenarios verify it, what they exercised, and which have **no** executable evidence |
+| `syscribe -m model/ exec-coverage [<element>…] [--config <C>]` | Per architecture element: modelled (`models:`) and exercised by executable scenarios |
+| `syscribe -m model/ export-scxml <StateDef> [--output <f>]` | Write a state machine as W3C SCXML |
+| `syscribe -m model/ scaffold-gherkin <TC-id> [--fix]` | Generate/align Gherkin scenarios for a TestCase |
 
 **Authoring helpers:**
 
 | Command | Purpose |
 |---|---|
-| `syscribe model/ validate` | Validation findings only — errors and warnings |
-| `syscribe model/ validate --json` | Same, machine-readable JSON |
-| `syscribe model/ validate --file <path>` | Findings for a single file only |
-| `syscribe model/ template <type>` | Print a ready-to-fill frontmatter skeleton |
-| `syscribe model/ next-id <prefix>` | Print the next available stable ID (e.g. `REQ-AID-FC-002`) |
-| `syscribe model/ check-ref <qname\|id>` | Verify a cross-reference resolves before writing it |
-| `syscribe model/ path-for <qname\|id>` | Print the file path for an element |
+| `syscribe -m model/ validate` | Validation findings only — errors and warnings |
+| `syscribe -m model/ validate --json` | Same, machine-readable JSON |
+| `syscribe -m model/ validate --file <path>` | Findings for a single file only |
+| `syscribe -m model/ template <type> [--prefix P]` | Print a ready-to-fill frontmatter skeleton (`Requirement` defaults to the first `[ids.prefixes]` prefix; `--prefix` picks another) |
+| `syscribe -m model/ next-id <prefix>` | Print the next available stable ID (e.g. `REQ-AID-FC-002`) |
+| `syscribe -m model/ check-ref <qname\|id>` | Verify a cross-reference resolves before writing it |
+| `syscribe -m model/ path-for <qname\|id>` | Print the file path for an element |
+| `syscribe -m model/ set <qname\|id> status=<v>` / `evidence.add ref=<id>` / `achieves.add <req-id>` | Validated single-field edit (value checked **before** writing); `--dry-run` previews |
+| `syscribe -m model/ applies-when <element> [--set "<expr>" \| --clear]` | Show (with inheritance) or edit an element's `appliesWhen:` gate |
+| `syscribe -m model/ move <src> <dest> [--dry-run]` | Move/rename an element or package, rewriting every reference to it |
+| `syscribe -m model/ claim <PI-id> --by <agent-id>` / `release <PI-id>` | Advisory ownership of a `PlanningItem` when several agents share a model (see Part 6e) |
+| `syscribe -m model/ scripts list\|run\|validate` | User-authored Rhai extension scripts from the `[scripts]` directory (tooling, not model content) |
+| `syscribe -m model/ mcp [--read-only]` / `lsp` | Run the MCP server / language server for this model |
 
 **Before writing a new element:**
 1. `template <type>` — get the frontmatter skeleton
@@ -161,24 +236,24 @@ Use these commands throughout the workflow. Run them in the project root.
 ### The validator command
 
 ```bash
-syscribe model/ validate
+syscribe -m model/ validate
 ```
 
 - **Errors** (`E___`) block a correct model. Fix every error before continuing.
 - **Warnings** (`W___`) are advisory. Aim to fix them, but they do not block progress.
 
-The target is **0 errors**. Two W404 warnings for `ScalarValues::*` types are expected and acceptable.
+The target is **0 errors**. `ScalarValues::*` (and the other standard-library packages) resolve built-in — they raise no warning.
 
 For single-file feedback during iterative authoring:
 
 ```bash
-syscribe model/ validate --file model/Requirements/MyNewReq.md
+syscribe -m model/ validate --file model/Requirements/MyNewReq.md
 ```
 
 For structured output (useful when parsing findings programmatically):
 
 ```bash
-syscribe model/ validate --json
+syscribe -m model/ validate --json
 ```
 
 ### Validation batches
@@ -209,8 +284,9 @@ Write `Allocation` elements. Validate: fix E502/E503 (unresolved `allocatedFrom`
 **Batch 8 — Diagrams**
 Write `Diagram` elements after all model elements are in place.
 
+- **Derived BDD / IBD** — **preferred for those two kinds.** Declare only `diagramKind: BDD` (subject: a Package, PartDef or ItemDef) or `diagramKind: IBD` (subject: a PartDef or Part) and `subject:`; no `shapes:`/`edges:` — the content is derived from the model and follows it. Optional `include:`/`exclude:` narrow the members shown. On an IBD, `depth: 2` draws each part's own parts inside it (deployed software inside the hardware it is allocated to) and `groupBy: domain` frames the parts by `domain:`. For a view of one concern, give `include:` as a mapping (`{kinds: [power]}`, `domains`, `tags`, `features`): the rest is faded; `style: <name>` picks a `[diagram.style.<name>]` of `.syscribe.toml` (`context = "hide"` leaves the rest out), and `layout: {flow: left-to-right, layers: [power, sensing]}` orders the bands. Validate: fix W401, W417 (filter entry names no member), W418 (subject type wrong for the kind), W420 (`groupBy:` other than `domain` or `stereotype`, or not on a derived IBD), W421 (malformed view, style or layout hint).
 - **Mermaid** — write the `.md` directly with a fenced ` ```mermaid ` block. Validate: fix E400, W408, W409.
-- **svgMode: companion** (composed SVG) — use the 4-step CLI workflow: `diagram list` → `diagram measure` → author `*.layout.json` → `diagram compose --output <path>`. Commit both `.md` and generated `.svg`.
+- **svgMode: companion** (companion SVG) — the `.svg` is saved from the browser (Save companion SVG) or produced by `syscribe -m model/ plantuml render`; there is no CLI command that composes it. Commit both `.md` and the `.svg`.
 - **pumlMode: companion** (PlantUML) — preferred for BDD, IBD, StateMachine, Sequence, and Requirement diagrams. Set `pumlMode: companion` and `pumlFile: ./<Name>.puml`. Then run:
   ```bash
   syscribe -m model/ plantuml          # generates .puml files and injects ![name](./stem.svg) if absent
@@ -219,7 +295,7 @@ Write `Diagram` elements after all model elements are in place.
   Commit the `.md` (with the auto-injected image link), the `.puml`, and the generated `.svg`. Validate: fix E403, E404, W413, W414.
 
 **Batch 9 — Resolve leaf PartDefs (closure pass)**
-After all architecture and requirement elements exist, verify that every leaf `PartDef`/`Part` is properly closed. See Part 7b for the full procedure. Validate: resolve all W300 (unassigned leaf requirements) and W301 (over-assigned leaf requirements).
+After all architecture and requirement elements exist, verify that every leaf `PartDef`/`Part` is properly closed. See Part 7b for the full procedure. Validate: resolve all W300 (unassigned leaf requirements).
 
 After all batches pass with 0 errors, review warnings and fix any that indicate genuine gaps (W300 — leaf requirement has no satisfying element; W002 — approved requirement has no active TestCase).
 
@@ -241,6 +317,7 @@ Check off each one, then re-run `validate` to confirm 0 errors before proceeding
 
 When you write a file, show its full content in a fenced block labelled with the file path and action keyword:
 
+<!-- syscribe-example: skip reason="illustrates the new:/update: output-block convention, not a model file" -->
 ````
 ```new: model/Requirements/MyNewReq.md
 ---
@@ -265,8 +342,7 @@ Updated body.
 
 ```deprecate: model/Decisions/OldADR.md
 Change status: accepted → superseded
-Add field:     supersededBy: Decisions::NewADR
-No other changes.
+No other changes. (The link is stored on the NEW ADR as `supersedes: Decisions::OldADR`; `supersededBy` is computed.)
 ```
 ````
 
@@ -281,7 +357,7 @@ No other changes.
 After each batch of files, show the validator command and its output before continuing:
 
 ```
-Running: syscribe model/ validate
+Running: syscribe -m model/ validate
 
 [paste output here]
 
@@ -334,6 +410,8 @@ name: <DirectoryName>
 One-line description of this package.
 ```
 
+Describe the package's **purpose and scope** in `_index.md` — never list its members (ids or file names). Membership is generated from the directory (`syscribe -m model/ show <package>` prints it), so a hand-written list only drifts; `lint-docs` flags one with `W103`.
+
 ---
 
 ## Part 2 — Element Types Quick Reference
@@ -357,6 +435,8 @@ One-line description of this package.
 | `TestCase` | native test case | `Verification/` |
 | `TestPlan` | native test plan (groups TestCases) | `TestPlans/` |
 | `ADR` | architecture decision | `Decisions/` |
+| `PlanningItem` | work item (epic/story/task) toward a Requirement (PI-*; see Part 6e) | `Planning/` |
+| `FeatureDef` / `FeatureModel` / `Configuration` | product-line variability (FEAT-* / sheet / CONF-*; see Part 9b) | `Features/`, `Configurations/` |
 | `Baseline` | frozen, git-anchored release snapshot (BL-*; created by `baseline create`, not hand-authored) | `Baselines/` |
 | `ReviewRecord` | formal review event + traceability (RR-*) | `Reviews/` |
 | `TradeStudy` | weighted-criteria evaluation of alternatives (TRD-*) | `TradeStudies/` |
@@ -385,10 +465,12 @@ One-line description of this package.
 
 The safety/security **analysis fields and checks** (HARA S/E/C, TARA `attackFeasibility`/`damageSeverity`, `hazardRef` safety↔security link, `riskTreatment`, `diagnosticCoverage` + SPFM/LFM/PMHF, `ffiRationale`, `responsibility`, attack-tree roll-up, GSN `Argument`) are documented in full under **`syscribe spec safety`**, with every field in **`syscribe spec fields`** and every rule code in **`syscribe spec validation`**.
 
+**Packages authored in another notation (opt-in, read-only ingestion).** A package `_index.md` may hand its whole subtree to another source instead of Markdown files: `sysmlSubmodel: true` (native SysML v2 `.sysml`/`.kerml` text), `foreignFormat: <alias>` (an external plugin process configured under `[plugins.<alias>]` in `.syscribe.toml`), or `annotationFormat: <label>` with `marker:`/`include:`/`exclude:` (YAML frontmatter embedded in source-code comments). At most one per package. Never write `.md` element files inside such a subtree — edit the source it ingests; the resulting elements are referenced by qname/id like any other. A named SysML `allocation n allocate a to b;` usage becomes an `Allocation` edge `a → b` (§12.9), exactly like a Markdown `Allocation` element.
+
 For a ready-to-fill frontmatter skeleton for any type, run:
 
 ```bash
-syscribe model/ template <type>
+syscribe -m model/ template <type>
 ```
 
 ---
@@ -404,19 +486,24 @@ Key fields that apply to most element types:
 | `title` | **REMOVED — use `name`.** `title` is no longer a label field on any element; a stray `title:` is error `E025` ("rename it to `name`"). |
 | `supertype` | Specialisation link (`>` in SysML) |
 | `typedBy` | Type of a usage element (port, part, action, etc.) |
-| `isAbstract` | `true` for abstract definitions |
+| `isAbstract` | `true` for abstract definitions. On a **`FeatureDef`** it marks an *abstract feature*: a grouping feature that is not a choice. Never list one in a `Configuration`'s `features:` (`E238`, selected or not): its value is derived from the concrete features, and `appliesWhen:` may name it |
 | `multiplicity` | Cardinality; default `"1"` |
 | `domain` | `system` \| `hardware` \| `software` — required on Part/PartDef |
 | `features` | Inline attributes or ports |
 | `connections` | Port bindings (on Part files) |
 | `satisfies` | List of `REQ-*` IDs this element satisfies |
 | `implementedBy` | Path(s) to the source artifact realising this Part/PartDef/Interface/InterfaceDef (string or list); missing local paths warn W023 |
+| `models` | On an executable Part/PartDef (no `domain:`): the architecture element(s) it is a behavioural model of; with `portMap:` (exec port → arch port, a list, or `null`), `abstracts:` (arch ports or requirement ids it leaves out) and `fidelity:` (prose). Checked by E990–E991, W990–W992 (§12.11) |
+| `role` | On a part usage in a composite's `features:` (GH #332): `environment` marks a part of the test set-up (a grid source, a stimulus), not the product: no architecture counterpart, never evidence for a requirement. Where the executable part and the architecture element coincide, put `exhibitsStates:` on the architecture `PartDef` and use it directly instead of a separate part with `models:`. `external` (GH #337) marks an actor outside the product (the PV array, the grid, an operator) in a context `PartDef` that holds the system beside its actors; diagrams draw it «actor», and in such a context every port of a product part must be connected (`W996`) |
+| port `typedBy` / `isConjugated` | On a `type: Port` feature or `Port` element: the `PortDef` whose `ItemDef` items are the events it carries (item `direction:` seen unconjugated). A machine's send/accept and payload fields are checked against them (E932/E935, §8.8.5) |
+| `flowKind` / `side` | On a `PortDef`, a `Port`, a port feature or a `connections:`/`flowConnections:` entry, `flowKind:` (`power`, `signal`, `command`, `data`, `protection`, `mechanical`) says what it carries so diagrams style the line (§8.16.9); `side:` (`north`/`east`/`south`/`west`) on a port feature places that port. Anywhere else, or any other value, is `W419` |
+| `links` | Project-defined relationships: map of declared link-type name → ref or list of refs (see §12.10 in Part 10). Never invent a type — discover them with `link-types` |
 | `custom_fields` | Optional freeform user metadata (see below) |
 
 ### `custom_fields:` — user-defined metadata
 
 Attach arbitrary metadata to any element under a `custom_fields:` map. Use this instead
-of inventing top-level keys (which are silently ignored).
+of inventing top-level keys (an unknown top-level key warns `W047` and is otherwise ignored).
 
 ```yaml
 custom_fields:
@@ -427,7 +514,7 @@ custom_fields:
 
 - Keys are freeform; values must be a scalar or a list of scalars (a nested map warns `W041`).
 - Serialised in sorted order; read-only in the UI and `show`.
-- Query with `--where`: `syscribe model/ ls --where custom.supplier=Bosch` (also
+- Query with `--where`: `syscribe -m model/ ls --where custom.supplier=Bosch` (also
   `=~` regex/substring, `~=` list-membership, and bare `custom.key` presence).
 
 ### `domain:` field rules
@@ -455,9 +542,9 @@ custom_fields:
 | `reqDomain` | `system` · `hardware` · `software` — required on leaf requirements |
 | `silLevel` | Integer 1–4 (IEC 61508). **Do not set both `silLevel` and `asilLevel`** — they are incompatible standards (W006). |
 | `asilLevel` | `A` · `B` · `C` · `D` (ISO 26262). Mutually exclusive with `silLevel`. |
-| `plLevel` | `a` · `b` · `c` · `d` · `e` (ISO 13849-1 Performance Level). Mutually exclusive with the above. |
+| `plLevel` | `a` · `b` · `c` · `d` · `e` (ISO 13849-1 Performance Level). Use one standard per element (only the `silLevel`+`asilLevel` pair is flagged, W006). |
 | `derivedFromSafetyGoal` | ID of the `SafetyGoal` that motivated this requirement. The SafetyGoal's integrity level must also be set on this element (E841). |
-| `derivedFromSecurityGoal` | ID of the `CybersecurityGoal` that motivated this requirement. Requires `verificationMethod:` (W807). |
+| `derivedFromCybersecurityGoal` | ID of the `CybersecurityGoal` that motivated this requirement. Requires `verificationMethod:` (W807). |
 | `verificationMethod` | `test` · `inspection` · `analysis` · `demonstration` — required for ASIL B/C/D (W701). |
 | `derivedFrom` | List of parent Requirement `id`s — triggers §12 rules |
 | `breakdownAdr` | Qualified name of an `accepted` ADR — **required whenever `derivedFrom` is set** (E310); also required when integrity level is lower than the source (W808) |
@@ -478,9 +565,9 @@ REQ-SYS-000  (parent — stakeholder goal, no derivedFrom, no reqDomain needed)
 
 **Parent requirements** must **never** appear in any element's `satisfies:` list (error E312). Only leaf requirements may be satisfied.
 
-**Getting the next ID:** `syscribe model/ next-id REQ-AID-FC` → prints e.g. `REQ-AID-FC-002`
+**Getting the next ID:** `syscribe -m model/ next-id REQ-AID-FC` → prints e.g. `REQ-AID-FC-002`
 
-**Template:** `syscribe model/ template Requirement`
+**Template:** `syscribe -m model/ template Requirement`
 
 ---
 
@@ -498,9 +585,9 @@ REQ-SYS-000  (parent — stakeholder goal, no derivedFrom, no reqDomain needed)
 
 Body structure: `## Context`, `## Decision`, `## Consequences` (conventional — not validated beyond being non-empty).
 
-**Getting the next ID:** `syscribe model/ next-id ADR-AID-SAFE`
+**Getting the next ID:** `syscribe -m model/ next-id ADR-AID-SAFE`
 
-**Template:** `syscribe model/ template ADR`
+**Template:** `syscribe -m model/ template ADR`
 
 ---
 
@@ -521,10 +608,11 @@ Body structure: `## Context`, `## Decision`, `## Consequences` (conventional —
 - Must contain a fenced ` ```gherkin ` block (error E011).
 - First ` ```gherkin ` block must begin with `Feature:` (error E015).
 - Every `Scenario Outline:` must have an `Examples:` table (error E014).
+- When a TestCase verifies several requirements, tag each scenario with the ones it is evidence for: `@verifies REQ-A,REQ-B` on the line before `Scenario:` (GH #344). Tags only narrow `verifies:`; a tag naming a requirement outside it is `W994`, and a `verifies:` requirement no tagged scenario claims is `W995`. `requirement-coverage` then shows which requirements have executable evidence.
 
-**Getting the next ID:** `syscribe model/ next-id TC-AID-FC`
+**Getting the next ID:** `syscribe -m model/ next-id TC-AID-FC`
 
-**Template:** `syscribe model/ template TestCase`
+**Template:** `syscribe -m model/ template TestCase`
 
 ---
 
@@ -553,13 +641,13 @@ is *for*.
 
 ### Tooling
 
-- `syscribe model/ testplan` — list plans (scope, configs, coverage %, verdict).
-- `syscribe model/ testplan TP-X [--json]` — per-plan detail.
+- `syscribe -m model/ testplan` — list plans (scope, configs, coverage %, verdict).
+- `syscribe -m model/ testplan TP-X [--json]` — per-plan detail.
 - `--plan TP-X` lens on `matrix`, `verification-depth`, `audit` (composes with `--config`).
 
-**Getting the next ID:** `syscribe model/ next-id TP-DELIVERY-INTEGRATION`
+**Getting the next ID:** `syscribe -m model/ next-id TP-DELIVERY-INTEGRATION`
 
-**Template:** `syscribe model/ template TestPlan`
+**Template:** `syscribe -m model/ template TestPlan`
 
 ---
 
@@ -629,24 +717,55 @@ Template: `template TradeStudy`.
 
 ---
 
+## Part 6e — PlanningItem (`type: PlanningItem`)
+
+A `PlanningItem` (id `PI-*`) is a durable work item — epic/story/task — on the way from a
+`Requirement` to satisfied/verified. Items form a strict **single-parent tree** (`parent:`); a
+top-level item (no `parent:`) must name the Requirement(s) it `achieves:`.
+
+```yaml
+---
+type: PlanningItem
+id: PI-BRAKE-001
+name: Implement brake-pressure monitor
+status: in_progress          # todo | in_progress | blocked | done
+itemType: feature            # bug | task | feature (optional)
+achieves: [REQ-BRAKE-001]    # top-level only; a child sets parent: PI-… instead
+assignedTo: jdoe             # optional Unix-style username
+evidence:                    # a leaf claiming status: done needs ≥1 resolving entry (E719)
+  - ref: TC-BRAKE-001
+---
+```
+
+Validation: `E708`/`E709` (status / itemType enums), `E712` (parent cycle), `E713`–`E715`
+(`achieves:` missing / unresolved / not a Requirement), `E719` (done leaf without evidence),
+`E720`/`E721` (`blockedBy:` dangling / cycle), `W308` (`blockedBy:` set but not `blocked`),
+`W310` (done, but the achieved Requirement lacks the required TestCase), `W311` (two active items
+overlap). Mark progress with `set <PI-id> status=done` / `set <PI-id> evidence.add ref=<TC-id>`.
+When several agents share one model, `claim <PI-id> --by <agent-id>` before starting and
+`release <PI-id>` when finished (advisory `claimedBy:`/`claimedAt:` — never hand-edit them).
+Template: `template PlanningItem`.
+
+---
+
 ## Part 7 — Allocation (`type: Allocation`)
 
 Allocations link a `software` or `system` element to a `hardware` element. Use them for cross-domain integration; never use `supertype:` across domain boundaries.
 
 Required: `allocatedFrom` and `allocatedTo` must both resolve to known elements (errors E502, E503).
 
-**Template:** `syscribe model/ template Allocation`
+**Template:** `syscribe -m model/ template Allocation`
 
 ---
 
 ## Part 7b — Closing the Architecture: Resolving Leaf PartDefs
 
-A **leaf PartDef** is a `PartDef` or `Part` that has no sub-part children in the model — it represents the lowest-level component that actually implements requirements. The closure pass ensures every leaf PartDef is assigned to at least one leaf requirement, and every leaf requirement at `approved` or higher is assigned to exactly one element.
+A **leaf PartDef** is a `PartDef` or `Part` that has no sub-part children in the model — it represents the lowest-level component that actually implements requirements. The closure pass ensures every leaf PartDef is assigned to at least one leaf requirement, and every leaf requirement at `approved` or higher is assigned to at least one element.
 
 ### Step 1 — Find unassigned leaf requirements
 
 ```bash
-syscribe model/ validate 2>&1 | grep W300
+syscribe -m model/ validate 2>&1 | grep W300
 ```
 
 W300 fires for every leaf `Requirement` at `status: approved` or `implemented` that has no element with `satisfies:` pointing to it. This is your work list.
@@ -654,14 +773,14 @@ W300 fires for every leaf `Requirement` at `status: approved` or `implemented` t
 ### Step 2 — Find under-specified PartDefs
 
 ```bash
-syscribe model/ list PartDef
+syscribe -m model/ list PartDef
 ```
 
 For each PartDef, check what requirements it already covers:
 
 ```bash
-syscribe model/ why <qname>          # requirements this element satisfies
-syscribe model/ links <qname>        # all outbound and inbound relationships
+syscribe -m model/ why <qname>          # requirements this element satisfies
+syscribe -m model/ links <qname>        # all outbound and inbound relationships
 ```
 
 ### Step 3 — Assign requirements
@@ -679,9 +798,9 @@ satisfies:
   - REQ-AID-FC-002    # newly assigned
 ```
 
-### Step 4 — Handle over-assigned requirements (W301)
+### Step 4 — Requirements satisfied by several elements
 
-A leaf requirement with more than one satisfying element fires W301. This is almost always a modelling mistake — decide which single element owns the requirement and remove it from the others. Legitimate split ownership (redundancy architectures) should be documented in the breakdown ADR and the requirement should be decomposed into two child requirements, one per element.
+A leaf requirement may be satisfied by more than one element — a `PartDef` plus the `StateDef` that gives it its behaviour, redundant channels, a component plus its interface. This is legitimate and raises no finding (W301 is retired). Do **not** invent child requirements just to get one satisfier per leaf; decompose only when the children say something new. Never satisfy a *parent* requirement (E312).
 
 ### Step 5 — Handle deployment packages
 
@@ -697,16 +816,15 @@ allocatedTo: Hardware::TargetBoard
 ### Step 6 — Final validation
 
 ```bash
-syscribe model/ validate
+syscribe -m model/ validate
 ```
 
 Target state at end of closure pass:
 - **0 errors**
 - **0 × W300** — every leaf requirement at `approved`/`implemented` has a satisfying element
-- **0 × W301** — no leaf requirement is satisfied by more than one element
 - **0 × E314** — every deployment package has an allocation to hardware
 
-Remaining acceptable warnings after closure: W404 (`ScalarValues::*` stdlib), W007 (unused definition types), W305 (parent requirement without system-integration TestCase), W008 (README file).
+Remaining acceptable warnings after closure: W007 (unused definition types), W305 (parent requirement without system-integration TestCase), W008 (README file).
 
 ### Summary checklist for each leaf PartDef
 
@@ -720,7 +838,9 @@ Remaining acceptable warnings after closure: W404 (`ScalarValues::*` stdlib), W0
 
 ## Part 8 — Ports & Interfaces
 
-**Decision guide (model this right).** A `PortDef` is a reusable *kind* of connection point with directed features (`in`/`out`/`inout`); a `Port` is a usage of one on a part (in `features:`, `type: Port`, `typedBy:` the PortDef). An **`InterfaceDef` is a kind of `ConnectionDef` whose ends are ports** — use it for a reusable compatible pairing; a `ConnectionDef` connects arbitrary features/parts. Pick: expose a point → `Port`; reusable port pairing → `InterfaceDef`; arbitrary connection → `ConnectionDef`; wire two ports → a connection usage (`connections:` `from`/`to` feature chains, `typedBy:` the interface); move items → `flowConnections:`; equate features → `bindingConnections:`.
+**Data records vs flowing items (`E123`).** A usage is typed by a definition of the matching kind: `Attribute` ← `AttributeDef`/`EnumerationDef`; `Item`/`Part` ← `ItemDef`/`PartDef`/…; `Port` ← `PortDef`; `Connection` ← `ConnectionDef`/`InterfaceDef`; `Interface` ← `InterfaceDef`; `Action` ← `ActionDef`; `State` ← `StateDef` (other usage kinds follow the same pairing; `Constraint`/`Calculation` also accept a `PartDef`/`ItemDef` context). Pick: a **data record or value type** (a CRC record, a decision, a request's fields) → `AttributeDef` + `type: Attribute`; something that **flows** between parts or is sent/received (signals, messages, material, a `send:`/`accept:` payload, a flow's type) → `ItemDef` + `type: Item`; a fixed set of literals → `EnumerationDef`. Do not "fix" `E123` on an `Attribute` typed by an `ItemDef` by changing the usage to `type: Item` unless the thing really flows — define the record as an `AttributeDef` instead.
+
+**Decision guide (model this right).** A `PortDef` is a reusable *kind* of connection point with directed features (`in`/`out`/`inout`); a `Port` is a usage of one on a part (in `features:`, `type: Port`, `typedBy:` the PortDef). An **`InterfaceDef` is a kind of `ConnectionDef` whose ends are ports** — use it for a reusable compatible pairing; a `ConnectionDef` connects arbitrary features/parts. Pick: expose a point → `Port`; reusable port pairing → `InterfaceDef`; arbitrary connection → `ConnectionDef`; wire two ports → a connection usage (`connections:` `from`/`to` feature chains, `typedBy:` the interface); move items → `flowConnections:`; equate features → `bindingConnections:`. Say what a connection carries with `flowKind:` (`power`, `signal`, `command`, `data`, `protection`, `mechanical`) on the `PortDef`, the port or the `connections:` entry, so diagrams draw power, commands and trips differently (§8.16.9); any other value is `W419`.
 
 **Conjugation:** the receiver is the **conjugate** of the sender — directions flip (`in`↔`out`; `inout` self-conjugate). Use a conjugate `PortDef` (`conjugates:`) for reuse, or `isConjugated: true` on the usage. Full guide: `syscribe spec types` and format spec §8.3.
 
@@ -729,19 +849,20 @@ Remaining acceptable warnings after closure: W404 (`ScalarValues::*` stdlib), W0
 Operations on a PortDef:
 - `isAsync: true` and `returnType:` are mutually exclusive.
 - `direction:` values: `in` · `out` · `inout`.
-- `typedBy:` and `returnType:` trigger W404 if they don't resolve — `ScalarValues::*` warnings are acceptable.
+- `typedBy:` and `returnType:` trigger W404 if they resolve neither to a model element nor to a standard-library type — `ScalarValues::Real`, `ISQ::MassValue` etc. are recognised built-in and raise nothing.
 
-**Template:** `syscribe model/ template PortDef`
+**Template:** `syscribe -m model/ template PortDef`
 
 ---
 
 ## Part 9 — Diagrams
 
-Every diagram is a `type: Diagram` element in `Diagrams/`. Four authoring approaches:
+Every diagram is a `type: Diagram` element in `Diagrams/`. Five authoring approaches:
 
-- **PlantUML companion** (`pumlMode: companion`) — **preferred** for BDD, IBD, StateMachine, Sequence, and Requirement diagrams. Syscribe generates a `.puml` source file; PlantUML renders it to SVG. Each shape carries a clickable hyperlink back to its element in the web browser. Set `pumlMode: companion`, `pumlFile:`, and add an `<img>` tag in the body referencing the anticipated SVG. Run `syscribe plantuml` then `syscribe plantuml render`.
+- **Derived** (`BDD`, `IBD`) — **preferred for these two kinds.** Declare only `diagramKind:` and `subject:` (BDD: a `Package`, `PartDef` or `ItemDef`; IBD: a `PartDef` or `Part`) and no `shapes:`; the blocks, compartments, ports, inheritance, composition and connections are derived from the model and follow it. `include:`/`exclude:` (qualified names or names relative to the subject) narrow the view. A `shapes:` block switches the diagram to the hand-listed manifest form below.
+- **PlantUML companion** (`pumlMode: companion`) — **preferred** for StateMachine, Sequence, and Requirement diagrams (and the manifest form of BDD/IBD). Syscribe generates a `.puml` source file; PlantUML renders it to SVG. Each shape carries a clickable hyperlink back to its element in the web browser. Set `pumlMode: companion`, `pumlFile:`, and add an `<img>` tag in the body referencing the anticipated SVG. Run `syscribe -m model/ plantuml` then `syscribe -m model/ plantuml render`.
 - **Mermaid** — for traceability trees, flow diagrams, simple state machines. Set `diagramKind: Mermaid`. Include a fenced ` ```mermaid ` block (error E400 if absent).
-- **Composed SVG** (`syscribe diagram` CLI) — element-card architecture diagrams. Cards generated from live model data. Commit the generated SVG as a companion file.
+- **Companion SVG** (`svgMode: companion`) — an SVG file next to the `.md`, saved from the browser (Save companion SVG) or rendered by `syscribe -m model/ plantuml render`. Commit the SVG as a companion file.
 - **Embedded SVG** — hand-coded SVG using the symbol library, for precise SysML notation.
 
 ### Diagram element frontmatter
@@ -752,7 +873,7 @@ type: Diagram
 name: UAVSystemBDD
 diagramKind: BDD            # BDD | IBD | StateMachine | Sequence | Requirement | Mermaid
 subject: UAV::UAVSystem     # element this diagram depicts (W401 if it doesn't resolve)
-pumlMode: companion         # generate .puml via `syscribe plantuml`; render SVG via `syscribe plantuml render`
+pumlMode: companion         # generate .puml via `syscribe -m model/ plantuml`; render SVG via `… plantuml render`
 pumlFile: ./UAVSystemBDD.puml
 # svgMode: inline           # alternative: embed SVG directly in body
 shapes:                     # shape-id → descriptor
@@ -783,60 +904,6 @@ graph TD
   FC --> REQ
 ```
 ````
-
-### Composed SVG diagrams (syscribe diagram CLI)
-
-#### Step 1 — Inventory elements
-
-```bash
-syscribe diagram list model/
-syscribe diagram list model/ --type PartDef,Part --ns UAV
-```
-
-#### Step 2 — Measure elements
-
-```bash
-syscribe diagram measure model/ \
-  "UAV::Power::BatteryPack,UAV::Power::PowerDistributionUnit" \
-  --view ports
-```
-
-Output JSON: `width`, `height`, `port_anchors`, `peers`.
-
-**`--view` presets:** `full` · `ports` · `features` · `compact` · `name` · `requirement`
-
-#### Step 3 — Author the layout JSON
-
-Name it `<anything>.layout.json` — gitignored. **Never commit layout files.**
-
-```json
-{
-  "title": "UAV Power Architecture",
-  "canvas": { "padding": 40, "bg": "#fafafa" },
-  "elements": [
-    { "qname": "UAV::Power::BatteryPack",           "x": 20,  "y": 80, "view": "ports" },
-    { "qname": "UAV::Power::PowerDistributionUnit", "x": 240, "y": 80, "view": "ports" }
-  ],
-  "edges": [
-    {
-      "from": { "qname": "UAV::Power::BatteryPack",           "port": "powerOut" },
-      "to":   { "qname": "UAV::Power::PowerDistributionUnit", "port": "powerIn" },
-      "kind": "flow"
-    }
-  ]
-}
-```
-
-**Edge kinds:** `flow` · `derive` · `verify` · `allocate` · `satisfy` · `generalize`
-
-#### Step 4 — Compose the SVG
-
-```bash
-syscribe diagram compose model/ my-arch.layout.json \
-  --output model/Views/MyDiagram.svg
-```
-
-Commit the generated SVG. For the Diagram element, use `svgMode: companion` and `expose:` listing the qualified names shown.
 
 ### Embedded SVG — available symbols
 
@@ -874,6 +941,11 @@ SVG conventions: root `<svg>` uses `xmlns:sysml="urn:syscribe:1.0"`. Each shape 
 | W409 | Mermaid diagram has no `%% ref:` annotations |
 | W413 | `pumlMode: companion` but body has no `<img` tag |
 | W414 | `pumlMode: companion` but the `.puml` file does not exist yet |
+| W417 | `include:`/`exclude:` on a manifest diagram (ignored), or an entry naming no member of the subject |
+| W418 | Derived diagram's `subject:` type is not valid for its `diagramKind:` — drawn empty |
+| W419 | A `flowKind:` or port `side:` that is not known, or set where it is not read |
+| W420 | `groupBy:` other than `domain`, or not on a derived IBD — ignored |
+| W421 | A view (`include:` mapping, `style:`, `layout:` hint) that is malformed or names nothing — ignored |
 
 ---
 
@@ -886,7 +958,7 @@ Three building blocks:
 | Element / field | Role |
 |---|---|
 | `type: FeatureDef` | A node in the feature model (a selectable characteristic). **Requires a mandatory `id:` matching `FEAT-*`** (`E201` if missing); labelled by `name`. `groupKind:` (`optional`/`alternative`/`or`) groups its children; `mandatory: true` makes it a mandatory member of its parent (combine with `groupKind: alternative` for a mandatory XOR group). |
-| `type: Configuration` | A named product variant. `id:` matches `CONF-*`; `featureModel:` names the feature package; `features:` is a **map** of `<FeatureDef QName>: true/false`. Optional `subConfigurations:` consolidates other, already-configured `Configuration`s — see below. |
+| `type: Configuration` | A named product variant. `id:` matches `CONF-*`; `name:` and `status:` are required (`E201`); `featureModel:` names the feature package; `features:` is a **map** of `<FeatureDef QName>: true/false`. Optional `subConfigurations:` consolidates other, already-configured `Configuration`s — see below. |
 | `appliesWhen:` | On *any* element (including a `TestCase`): conditions it on a boolean expression over `FeatureDef` QNames. |
 
 **Single-file alternative — `type: FeatureModel` (§9.6a).** A `FeatureDef`-per-file layout doesn't scale to a large feature tree. Prefer one `type: FeatureModel` sheet with a **flat**, dot-named `featureTree:` list instead — it's exploded into ordinary `FeatureDef` elements before validation, so every other rule/command treats it identically:
@@ -928,7 +1000,7 @@ Every operand must resolve to a `FeatureDef` (else `E209`).
 
 **Test coverage is variant-aware — there is no `runsIn` field.** A `TestCase` *runs in* a `Configuration` iff its `appliesWhen:` is satisfied by that configuration's `features:` selections; a `TestCase` with no `appliesWhen:` runs in every configuration. To check coverage per variant:
 
-- `syscribe model/ matrix` — Requirement × Configuration grid (cells: covered / gap / N-A). Use `--json` for structured output, `--tag` to filter rows.
+- `syscribe -m model/ matrix` — Requirement × Configuration grid (cells: covered / gap / N-A). Use `--json` for structured output, `--tag` to filter rows.
 - Validation emits **W015** when a requirement is active in a `Configuration` but no non-draft `TestCase` running there verifies it. Gate it with `validate --deny W015`.
 
 If two configurations would have identical `features:` (e.g. emulator vs physical rig), model the distinguishing axis as its own feature (e.g. an `ExecEnv` alternative group) rather than reaching for a separate field.
@@ -959,6 +1031,7 @@ parameters:
 type: Configuration
 id: CONF-PREMIUM-001
 name: Premium
+status: approved               # required (E201); a derivedFrom base must be approved or released
 featureModel: Features
 features:
   Features::ABS: true
@@ -968,13 +1041,15 @@ buildOverrides:
   DEBUG_BUILD: 0
 ```
 
-**Holistic checks — run `feature-check` (not part of `validate`).** `syscribe feature-check` validates the feature model as a whole: `requires:`/`excludes:` resolution (`E212`) and satisfaction per configuration (`E219`/`E220`), dead/always-on optional features (`W011`/`W012`), circular `derivedFrom:` (`E207`), `bindTo:` propagation outside the component `range:` (`E202`), and cross-feature `parameterConstraints` declared on a package `_index.md` — unresolved paths (`E213`) and `appliesWhen:` features used in no configuration (`W014`).
+**Configuration inheritance.** A `Configuration` may set `derivedFrom: <CONF-id or qname>` naming **one** local base `Configuration` (which must be `approved`/`released`, else `E215`) and then list only the `features:`/`parameterBindings:` entries it overrides; the base's other selections and bindings are inherited (a base binding for a feature the child switches to `false` is dropped). Nothing else is inherited. Errors: unresolved base `E234`, non-Configuration base `E235`, inheritance cycle `E236`, more than one base `E237`. Never use `derivedFrom:` to consolidate a peer product line — that is `subConfigurations:`.
+
+**Holistic checks — run `feature-check` (not part of `validate`).** `syscribe -m model/ feature-check` validates the feature model as a whole: `requires:`/`excludes:` resolution (`E212`) and satisfaction per configuration (`E219`/`E220`), dead/always-on optional features (`W011`/`W012`), circular `derivedFrom:` (`E207`), `bindTo:` propagation outside the component `range:` (`E202`), and cross-feature `parameterConstraints` declared on a package `_index.md` — unresolved paths (`E213`) and `appliesWhen:` features used in no configuration (`W014`).
 
 **Whole-space analysis — `feature-check --deep`.** Adds SAT-backed reasoning over a propositional encoding of the feature model (Boolean layer only; deterministic, no external solver; comfortably ~500 features): **void** models (`E223`), **dead** features (`E224`), **false-optional** features (`W018`), **invalid configurations** under full group/cardinality semantics (`E225`), **core** features, a minimal conflict-set explanation, and **diagnoses** (minimal correction sets) for void models. Companion commands: `--count`/`--enumerate` report the valid-configuration space, and `configure <Configuration>` completes a partial selection (forced/free features). Use these to prove the feature model itself is sound and to drive configuration, beyond linting authored configs. (Numeric/parameter SMT reasoning and DRAT proofs are not yet implemented.)
 
-**Configuration lens (`--config`).** The model is a 150% superset; `--config <CONF|features>` projects it onto one variant and runs `validate`/`list`/`export` over the active elements only. `validate --config` certifies a variant and flags **escaping references** (an active element pointing at one inactive in that variant: structural `E226` / traceability `W019`); `feature-check --deep` additionally proves no structural reference can escape in *any* valid configuration (`E227`). `validate --all-configs` gates every stored variant; `diff --config A --config B` shows what differs. All inert when no feature model is present.
+**Configuration lens (`--config`).** The model is a 150% superset; `--config <CONF|features>` projects it onto one variant and runs `validate`/`list`/`export` — and the single-element queries `trace`/`why`/`who-verifies`/`refs`/`links` — over the active elements only (a query whose start element is inactive in the variant exits 1). `validate --config` certifies a variant and flags **escaping references** (an active element pointing at one inactive in that variant: structural `E226` / traceability `W019`); `feature-check --deep` additionally proves no structural reference can escape in *any* valid configuration (`E227`). `validate --all-configs` gates every stored variant; `diff --config A --config B` shows what differs. On a model with no feature model, `--config` must name a stored `Configuration` (check `syscribe -m model/ list Configuration`); anything else is a usage error (exit 1).
 
-**Hierarchical product-line composition — `subConfigurations:` (§14.7, `ADR-SYS-HPLE-001`).** A `Configuration` may consolidate one or more other, already-configured `Configuration`s — reachable locally or, in the common case, via a `[repos]`-mounted lower-tier product-line repo (§14) — into a single higher-tier product (an OEM vehicle line built from a battery-pack line, itself built from a cell-chemistry line). Each `subConfigurations:` entry must resolve to a real `Configuration` (`E516` dangling, `E517` wrong-type) that is itself internally valid before it can be consolidated (`E518`). `parameterBindings:` is reused unchanged — a dotted key resolves transitively through the consolidated subtree at any depth, using the parameter's ordinary, already-mounted qname, no new addressing syntax — but must target a parameter that's genuinely open: selected by the tier that owns it (`E519`, the cross-tier form of `E203`) and not already closed by a nearer tier on the path (`E523`, no double-binding). A parameter left open at an intermediate tier is not a defect — it is exactly how staged, multi-party configuration works — so a still-open required parameter anywhere in the subtree is only ever the opt-in, `--deny`-gateable `W513`, never a hard error. **A lower tier carries zero awareness of whoever might consolidate it** — a descendant `FeatureDef` parameter that needs an external value declares this exactly as it would in an ordinary single-model `Configuration` (`isRequired: true`, no `default`), with no field naming its consolidator; `bindTo:` (component→system propagation) is explicitly not this mechanism and never crosses a `subConfigurations:` boundary. See `examples/hple-multitier/` for a complete 3-tier worked example.
+**Hierarchical product-line composition — `subConfigurations:` (§14.7, `ADR-SYS-HPLE-001`).** A `Configuration` may consolidate one or more other, already-configured `Configuration`s — reachable locally or, in the common case, via a `[repos]`-mounted lower-tier product-line repo (§14) — into a single higher-tier product (an OEM vehicle line built from a battery-pack line, itself built from a cell-chemistry line). Each `subConfigurations:` entry must resolve to a real `Configuration` (`E516` dangling, `E517` wrong-type) that is itself internally valid before it can be consolidated (`E518`). `parameterBindings:` is reused unchanged — a dotted key resolves transitively through the consolidated subtree at any depth, using the parameter's ordinary, already-mounted qname (peer-native, or a `repoImports:` mount path `<package>::<as>::X` — which `subConfigurations:` entries accept too), no new addressing syntax — but must target a parameter that's genuinely open: selected by the tier that owns it (`E519`, the cross-tier form of `E203`) and not already closed by a nearer tier on the path (`E523`, no double-binding). A parameter left open at an intermediate tier is not a defect — it is exactly how staged, multi-party configuration works — so a still-open required parameter anywhere in the subtree is only ever the opt-in, `--deny`-gateable `W513`, never a hard error. **A lower tier carries zero awareness of whoever might consolidate it** — a descendant `FeatureDef` parameter that needs an external value declares this exactly as it would in an ordinary single-model `Configuration` (`isRequired: true`, no `default`), with no field naming its consolidator; `bindTo:` (component→system propagation) is explicitly not this mechanism and never crosses a `subConfigurations:` boundary. See `examples/hple-multitier/` for a complete 3-tier worked example.
 
 ---
 
@@ -1006,7 +1081,7 @@ The `MG###` checks fire only under that profile. The reports (`magicgrid`, `trad
 
 **Base-format `refines:`.** A `UseCaseDef`/`UseCase` (or `ActionDef`/`Action`/`StateDef`/`State`) declares `refines:` pointing at the `Requirement`/`RequirementDef` it elaborates — an unresolved/wrong-type operand is `E316` (always checked, no profile needed); a non-`draft` `UseCaseDef` with no `refines:` warns `W307`. The reverse index `refinedBy` is computed on each requirement.
 
-**Reports** (read-only): `syscribe model/ magicgrid` (B/W/S × 1-4 cell grid, empty-cell hints, plus a `System of interest:` line when one `mg_soi` is set); `syscribe model/ trade-study` (MoE-weighted scoring of every `Configuration`, WINNER/FAIL rollup); `syscribe model/ matrix --allocations` (allocation source × target matrix with a logical→physical partition when `mg_layer` is present).
+**Reports** (read-only): `syscribe -m model/ magicgrid` (B/W/S × 1-4 cell grid, empty-cell hints, plus a `System of interest:` line when one `mg_soi` is set); `syscribe -m model/ trade-study` (MoE-weighted scoring of every `Configuration`, WINNER/FAIL rollup); `syscribe -m model/ matrix --allocations` (allocation source × target matrix with a logical→physical partition when `mg_layer` is present).
 
 ---
 
@@ -1032,7 +1107,27 @@ repoImports:
     as: Brakes          # local mount name (defaults to last qname segment)
 ```
 
-Cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:` references resolve against the local model first, then each repo in declaration order — by **global stable ID** (`REQ-*`, `TC-*`, …, unique across the whole composition) or qualified name. Rules: `E510` circular import, `E511` missing path (no ref), `E512` dangling cross-repo ref, `E513` unknown alias, `E514` unresolved import qname, `E515` duplicate stable ID, `W510` unpinned repo, `W511` peer `HEAD` drifted from its pinned `ref:`, `W512` submodule peer whose `ref:` disagrees with the parent's `.gitmodules` gitlink (gate a reproducible composition with `validate --deny W511 --deny W512`). Git submodules and `[repos]` are complementary — the submodule pins the checkout, `[repos]` adds cross-ref resolution and the drift/gitlink gates. CLI: `repos list|status|sync`.
+Cross-repo `verifies:`/`derivedFrom:`/`satisfies:`/`allocatedTo:` references resolve against the local model first, then each repo in declaration order — by **global stable ID** (`REQ-*`, `TC-*`, …, unique across the whole composition) or qualified name — peer-native, or through the mount point (`Integration::Brakes::REQ-BRK-001` reaches the peer's `BrakeSystem::REQ-BRK-001`). Rules: `E510` circular import, `E511` missing path (no ref), `E512` dangling cross-repo ref, `E513` unknown alias, `E514` unresolved import qname, `E515` duplicate stable ID (local vs peer or peer vs peer), `W510` unpinned repo, `W511` peer `HEAD` drifted from its pinned `ref:`, `W512` submodule peer whose `ref:` disagrees with the parent's `.gitmodules` gitlink (gate a reproducible composition with `validate --deny W511 --deny W512`). Git submodules and `[repos]` are complementary — the submodule pins the checkout, `[repos]` adds cross-ref resolution and the drift/gitlink gates. CLI: `repos list|status|sync`.
+
+---
+
+## Part 9e — Executable Behaviour, Evidence and Context (opt-in)
+
+Nothing here changes a model that does not use it. Detail is in `syscribe spec behaviour|evidence|diagrams|variability` and `syscribe help <command>`; this part is only the map.
+
+**Executable behaviour.** A `StateDef` (substates, `transitions:` with `accept`/`guard`/`effect`, `entryAction`/`doAction`/`exitAction`, optional `variables:`) or an `ActionDef` flow is *executable* when its guards and effects are written in the engine's typed, unit-aware expression language (`syscribe eval` tries one). A `Part` joins a machine with `exhibitsStates:`. A physical environment is a `PlantDef` (`parameters`, `inputs`, `outputs`, `states`, equations such as `der(x) = …`, `y := …`), or an FMU on a `Part` with the optional `fmi` build feature. `syscribe compile <StateDef>` type-checks a machine (`E935`). An `ActionDef` is executable only when it declares `variables:` or uses `assign:`; one that only sends declares `variables: []`. A `SendAction` inside an activity a machine runs is emitted as a message of that machine, like its own `send:` effect. A parameter with no `typedBy:` or `unit:` is a plain number, so declare `unit: SI::m` on one whose value carries a unit. `simulate --strict` reports ties that only document order would resolve.
+
+**Scenarios and verdicts.** A `TestCase` whose `subject:` is a machine, an executable action or a composite carries Gherkin `Scenario`s in its body; `syscribe simulate <TC>` runs them, `--record` keeps the verdict as evidence. Tag a scenario `@verifies REQ-X` to say which requirement it is evidence for (without a tag it claims every requirement of the TestCase), and `@invariant` for a safety property checked under `inject`. `syscribe inject` runs a composite under injected faults and fault-tree cut sets; `syscribe mutate` judges whether the scenarios would notice a seeded bug.
+
+**Linking behaviour to architecture.** `models: [<architecture element>]` on the executable part names the `domain:` architecture element it is a behavioural model of; `portMap:` maps ports, `abstracts:` says what the model leaves out, `fidelity:` is prose (`E990`/`E991`, `W990`–`W993`). A part used only to set up a test is `role: environment`; a part outside the product in a context diagram is `role: external`. Then `requirement-coverage` and `exec-coverage` report which requirements and which architecture elements have *executable* evidence, as opposed to test cases that only describe.
+
+**Typed ports.** A port `typedBy:` a `PortDef` whose items are `ItemDef`s lets machine events and payloads be checked against the architecture's interface (`direction:` per item).
+
+**Diagrams generated from the model.** A `Diagram` with `diagramKind:` derives its content (block definition, internal block, context, safety and traceability graphs). Narrow or style it with `include:` (kinds, domains, tags, features), `depth:`, `style:` (a `[diagram.style.<name>]` table in `.syscribe.toml`) and `layout:` hints; `flowKind:` on a port or connection colours power/signal/command flows. `syscribe diagram export --all --check` gates committed renders in CI.
+
+**Feature parameters in text.** `{{Features::Group::Leaf.param}}` (or `{{FEAT-….param}}`) in a string, a body or a state-machine guard/assignment/duration is replaced per `Configuration` (`syscribe spec variability`); `--config <C>` on `compile`, `simulate`, `mutate` and `inject` picks the variant.
+
+**Always look up before authoring**: `syscribe template StateDef`, `template PlantDef`, `template TestCase`, then `syscribe help simulate`.
 
 ---
 
@@ -1045,7 +1140,7 @@ Links always point **upstream**. The child holds `derivedFrom:`, the TestCase ho
 Every Requirement with `derivedFrom:` **must also have `breakdownAdr:`** pointing to an `accepted` ADR (error E310). Create the ADR *before* the child requirements.
 
 ### §12.3 — Leaf assignment
-Every leaf Requirement at `status: approved` or `implemented` should be assigned to exactly one architecture element via `satisfies:` (warning W300 if none).
+Every leaf Requirement at `status: approved` or `implemented` should be assigned to at least one architecture element via `satisfies:` (warning W300 if none); several elements may jointly satisfy it (W301 is retired).
 
 ### §12.4 — No parent assignment
 A Requirement from which others derive must **never** appear in any `satisfies:` list (error E312).
@@ -1067,6 +1162,22 @@ Once a `SafetyGoal` carries `asilLevel:`, `silLevel:`, or `plLevel:`, every down
 
 A lower level (ASIL decomposition per ISO 26262-9) is valid only when `breakdownAdr:` references an `accepted` ADR documenting the decomposition rationale.
 
+### §12.10 — User-defined link types (`links:`)
+Some projects declare their own relationships (`mitigates`, `conflictsWith`, `partiallySatisfies`, …) as `[linkTypes.<name>]` tables in `.syscribe.toml`. Elements hold instances under **one** field, `links:` — a map from a declared link-type name to a ref or list of refs (id or qname, resolved like `satisfies:`):
+
+```yaml
+links:
+  mitigates: [REQ-BRK-002, REQ-BRK-003]
+  partiallySatisfies: REQ-BRK-005
+```
+
+- **Link types are project-specific — you MUST discover them first.** Before writing any `links:` entry run `syscribe -m <root> link-types` (or call the MCP `link_types` tool), or read the **"Project link types"** section that `syscribe -m <root> --agent-instructions` appends when the model declares any. Each entry gives the description, inverse, source → target types, cardinality and any `extends`/`relax`.
+- **MUST NOT invent an undeclared link type**, and never put a custom relationship at the top level (`W047`) or in `custom_fields:` (unresolved). If nothing fits, use the built-in field or ask for a type to be declared. An undeclared key is `E630`, and its message lists the declared types — pick from that list.
+- **Direction (§12.1):** the element holding `links:` is the source; the ref is the target. Never write the `inverse` name in `links:` — it is computed. Use `follow <elem> <inverse>` to read the reverse side.
+- **Respect the declaration:** source type in `sourceTypes` (`E633`), each target's type in `targetTypes` (`E634`), target count within `cardinality` (`E635` over; `W631` under the lower bound on a non-draft source), no cycles in an `acyclic` type (`E636`). Every ref must resolve (`E632`); the value must be a ref or list of refs (`E631`).
+- **`extends` types are variants of a built-in link** (`satisfies`/`verifies`/`derivedFrom`/`refines`): every base rule applies except the codes in `relax`. A `partiallySatisfies` that relaxes `E313` does **not** make a plain `satisfies:` cross-domain assignment legal. With `coverage = false` the link earns no coverage credit, so the target still needs a real `satisfies:`/`verifies:`.
+- Malformed `[linkTypes]` entries are `W630` and ignored — do not edit `.syscribe.toml` unless asked.
+
 ---
 
 ## Part 10b — Safety and Security Analysis Workflow
@@ -1085,12 +1196,13 @@ A lower level (ASIL decomposition per ISO 26262-9) is valid only when `breakdown
 - W806 — `SafetyGoal` has no `hazardousEvents:` (not grounded in HARA)
 - E841 — `Requirement` missing integrity level when `SafetyGoal` has one
 
-**Templates:** `syscribe model/ template HazardousEvent`, `template SafetyGoal`
+**Templates:** `syscribe -m model/ template HazardousEvent`, `template SafetyGoal`
 
 ### TARA (ISO/SAE 21434) — TARASheet (recommended)
 
 Use a single `TARASheet` file. The parser explodes it into individual `DamageScenario`, `ThreatScenario`, `CybersecurityGoal`, and `SecurityControl` elements.
 
+<!-- syscribe-example: skip reason="row fields elided with ...; the full sheet is in docs/model-guide/safety-analysis.md" -->
 ```yaml
 type: TARASheet
 id: TARA-SYS-001
@@ -1115,17 +1227,18 @@ controlTable:
     implementsGoals: [CSG-SYS-001]
 ```
 
-**Template:** `syscribe model/ template TARASheet`
+**Template:** `syscribe -m model/ template TARASheet`
 
-After the TARASheet is in place, create `Requirement` elements with `derivedFromSecurityGoal: CSG-SYS-001` and set `verificationMethod:`.
+After the TARASheet is in place, create `Requirement` elements with `derivedFromCybersecurityGoal: CSG-SYS-001` and set `verificationMethod:`.
 
-**Binding a SecurityControl to an architecture element** (OSLC-compliant direction — architecture element holds the reference):
+**Binding a SecurityControl to the architecture element that implements it** — an allocation from the control (source) to the element (target). `SC-*` controls live inside the TARA sheet's `controlTable:`, so use a standalone `Allocation` element (§12.9 form 2); never author `allocatedFrom:` on the architecture element (it is the derived reverse index):
 
 ```yaml
-# In Hardware/ECU.md
-type: PartDef
-allocatedFrom:
-  - SC-SYS-001    # this component implements this security control
+# In Allocations/SC-SYS-001-to-ECU.md
+type: Allocation
+name: SecureBootOnEcu
+allocatedFrom: SC-SYS-001       # the security control
+allocatedTo: Hardware::ECU      # the component that implements it
 ```
 
 ### FTA (Fault Tree Analysis)
@@ -1141,17 +1254,17 @@ Safety/FTA/
 ```
 
 ```bash
-syscribe model/ template FaultTree      > Safety/FTA/FT-SYS-001.md
+syscribe -m model/ template FaultTree      > Safety/FTA/FT-SYS-001.md
 mkdir -p Safety/FTA/FT-SYS-001
-syscribe model/ template FaultTreeGate  > Safety/FTA/FT-SYS-001/FTG-SYS-001.md
-syscribe model/ template FaultTreeEvent > Safety/FTA/FT-SYS-001/FTE-SYS-001.md
+syscribe -m model/ template FaultTreeGate  > Safety/FTA/FT-SYS-001/FTG-SYS-001.md
+syscribe -m model/ template FaultTreeEvent > Safety/FTA/FT-SYS-001/FTE-SYS-001.md
 ```
 
 ### FMEA
 
 Use a single `FMEASheet` file with an `entries:` list. Each entry becomes a virtual `FMEAEntry` element at parse time.
 
-**Template:** `syscribe model/ template FMEASheet`
+**Template:** `syscribe -m model/ template FMEASheet`
 
 ---
 
@@ -1187,7 +1300,7 @@ draft → review → approved → implemented → verified
 **Update:** old Requirement — leave the file, do not change the ID; update `satisfies:` in architecture elements; retire old TestCase.
 
 ### Pattern F — Supersede an ADR
-**Create:** new ADR (`status: accepted`). **Deprecate:** old ADR (`status: superseded`). **Update:** any Requirement with `breakdownAdr:` pointing to the old ADR — update to the new one.
+**Create:** new ADR (`status: accepted`) with `supersedes: <old ADR>` (one reference or a list). **Deprecate:** old ADR (`status: superseded`; `W313` if you forget). The reverse `supersededBy` is computed and shown by `show`/`links`; `E320` unresolved/non-ADR target, `E321` cycle, `W314` a `breakdownAdr:` that still cites the superseded ADR. **Update:** any Requirement with `breakdownAdr:` pointing to the old ADR — update to the new one.
 
 ### Pattern G — Add a new architecture element
 **Create:** new PartDef/Part with correct `domain:` and `satisfies:`. **Check:** domain matches `reqDomain:` on satisfied requirements; add `Allocation` if it's software running on hardware.
@@ -1218,6 +1331,11 @@ draft → review → approved → implemented → verified
 | E103 | `derivedFrom:` ID does not resolve | Check parent Requirement ID |
 | E104 | `verifies:` target is not a native Requirement | Only point `verifies:` at `type: Requirement` |
 | E105 | `derivedFrom:` target is not a native Requirement | Only point `derivedFrom:` at `type: Requirement` |
+| E110 | `supertype:` does not resolve | Use the full qualified name from the model root (no root-package prefix), or a standard-library name such as `Parts::Part` |
+| E111 | `typedBy:` (element or inline feature) does not resolve | Point it at an existing definition, or a library type such as `ScalarValues::Real` / `ISQ::MassValue` |
+| E112 | `subsets:` does not resolve | Name an existing usage or inline feature (`Owner::feature`) |
+| E113 | `redefines:` does not resolve | Name a feature the owner inherits (`Owner::feature`, or the bare feature name) |
+| E114 | `satisfies:` does not resolve | Check the `REQ-*` ID matches a Requirement file |
 | E300 | ADR `id` does not match `ADR-*` pattern | Fix the ID |
 | E301 | ADR missing `id`, `name`, or `status` | Add all three fields |
 | E302 | `reqDomain` not `system`/`hardware`/`software` | Use one of the three values |
@@ -1229,11 +1347,23 @@ draft → review → approved → implemented → verified
 | E313 | Domain mismatch between element and requirement | Match `domain:` to `reqDomain:` |
 | E314 | `isDeploymentPackage: true` with no `Allocation` | Add an Allocation to a hardware element |
 | E315 | Cross-domain `supertype:` or `typedBy:` | Use Allocation for HW↔SW binding |
+| E630 | `links:` key is not a declared link type | Use a type listed in the message / by `link-types`; never invent one |
+| E631 | `links:` not a map, or a value not a ref / list of refs | `links: { <type>: <ref> }` or `<type>: [<ref>, …]` |
+| E632 | `links:` ref does not resolve | `check-ref` the id or qname |
+| E633 | Element type not in the link type's `sourceTypes` | Hold the link on a permitted source type (see `link-types`) |
+| E634 | Target type not in the link type's `targetTypes` | Point at a permitted target type |
+| E635 | More targets than the `cardinality` upper bound | Remove targets or split across elements |
+| E636 | Cycle in an `acyclic` link type | Break the loop |
+| W630 | Malformed `[linkTypes]` entry (ignored) or unknown key | Fix `.syscribe.toml` only if asked; report it |
+| W631 | Non-draft source below the link type's lower cardinality bound | Add the required link(s) |
 | E500–E503 | `allocatedFrom`/`allocatedTo` does not resolve | Use correct qualified names |
-| E841 | `derivedFromSafetyGoal` source has integrity level; this element has none | Add `asilLevel`, `silLevel`, or `plLevel` |
+| E504 | `derive:` fields depend on each other in a cycle | Break the cycle (one field must not read itself, directly or via other derived fields) |
+| E505 | `derive:` formula does not parse (or the block is not a mapping / a formula is not a string) | Fix the formula syntax |
+| E506 | `derive:` formula's `elements["QName"]` names no element | Use an existing qualified name |
+| E841 | `derivedFromSafetyGoal` source has an `asilLevel`/`silLevel`; this element has neither | Add `asilLevel` or `silLevel` (`plLevel` does not satisfy the check) |
 | E842 | `derivedFrom` parent has integrity level; this element has none | Add the same integrity level field |
 | E843 | `satisfies` target has integrity level; this element has none | Add the same integrity level field |
-| W006 | Both `silLevel` and `asilLevel` set on the same element | Use only one — they are incompatible standards |
+| W006 | Both `silLevel` and `asilLevel` set on the same element (`plLevel` is not part of this check) | Use only one — they are incompatible standards |
 | W806 | `SafetyGoal` has no `hazardousEvents:` | Add `hazardousEvents:` referencing the relevant `HE-*` IDs |
 | W808 | Integrity level is lower than source but no `breakdownAdr:` | Add `breakdownAdr:` documenting the ASIL/SIL decomposition |
 | E209 | `appliesWhen:` malformed or an operand is not a `FeatureDef` | Fix the expression; every operand must be a `FeatureDef` QName |
@@ -1242,7 +1372,7 @@ draft → review → approved → implemented → verified
 | E203–E206 / E222 | Bad `parameterBindings`: unselected feature / fixed param / out of range / not in enum / undeclared (or legacy-`::`) path | Bind only selected, configurable params with in-range, in-enum values keyed `<FeatureDef>.<param>` (dotted) |
 | W017 | Selected feature's required parameter left unbound | Bind it in `parameterBindings:` or give the parameter a `default:` |
 | E050 | Two selected features export the same `buildExports:` variable with conflicting values | Add a `buildOverrides:` entry on the `Configuration` to resolve the conflict |
-| W050 | Selected feature contributes no build variable (opt-in) | Add `buildExports:` or a parameter with `buildVar:`, or suppress with `--deny W050` |
+| W050 | Selected feature contributes no build variable (catalogued, not currently emitted) | Add `buildExports:` or a parameter with `buildVar:` |
 
 ---
 
@@ -1287,7 +1417,7 @@ model/
 - [ ] `name:` and `status:` are present
 - [ ] Normative body is non-empty and contains `shall`
 - [ ] If `derivedFrom:` is set → `breakdownAdr:` is also set, pointing to an `accepted` ADR
-- [ ] If it is a leaf at `approved`/`implemented` → exactly one architecture element has it in `satisfies:`
+- [ ] If it is a leaf at `approved`/`implemented` → at least one architecture element has it in `satisfies:`
 - [ ] If it has children deriving from it → it does NOT appear in any `satisfies:` list
 - [ ] `reqDomain:` matches `domain:` of the satisfying element (or one of them is `system`)
 
@@ -1317,12 +1447,12 @@ model/
 
 - [ ] `id:` matches `^SG(-[A-Z0-9]{2,12})+-[0-9]{3,8}$`
 - [ ] `hazardousEvents:` references at least one `HE-*` element (W806)
-- [ ] Exactly one integrity level is set: `asilLevel:`, `silLevel:`, or `plLevel:` — never more than one (W006)
+- [ ] One integrity level is set: `asilLevel:`, `silLevel:`, or `plLevel:` (W801 if none); never both `asilLevel:` and `silLevel:` (W006)
 
 ### For every safety/security Requirement
 
 - [ ] If `derivedFromSafetyGoal:` is set → the same integrity level field is set on this element (E841)
-- [ ] If `derivedFromSecurityGoal:` is set → `verificationMethod:` is also set (W807)
+- [ ] If `derivedFromCybersecurityGoal:` is set → `verificationMethod:` is also set (W807)
 - [ ] If integrity level is lower than the source SafetyGoal/parent → `breakdownAdr:` is set (W808)
 - [ ] Do not set both `silLevel:` and `asilLevel:` — use one standard per element (W006)
 
@@ -1332,5 +1462,6 @@ model/
 - [ ] Every directory referenced by a new file has an `_index.md`
 - [ ] All qualified name cross-references use `::` and resolve to actual files
 - [ ] No `supertype:` or `typedBy:` crosses the `hardware`/`software` domain boundary
+- [ ] Every `links:` key is a type listed by `link-types` (no invented types), held on the source end
 
 Now generate the output.

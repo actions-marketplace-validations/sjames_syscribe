@@ -1,0 +1,11 @@
+# Two results plugins. `kind = "results"` marks them as report converters, not foreign-format plugins.
+[plugins.rig]
+command = "python3"
+args = ["../rig_plugin.py"]      # relative to the model root
+kind = "results"
+timeout_ms = 10000
+
+[plugins.tap]
+command = "python3"
+args = ["../tap_plugin.py"]
+kind = "results"

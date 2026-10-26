@@ -24,7 +24,7 @@ unknown id, or an id that does not resolve to a TestPlan, is a usage error
 - With `demonstrates:` → the goal-closure: each demonstrated `Requirement` plus
   the transitive closure of its `derivedChildren`; for a demonstrated
   `SafetyGoal`/`CybersecurityGoal`, the requirements that
-  `derivedFromSafetyGoal:`/`derivedFromSecurityGoal:` it (and their closure).
+  `derivedFromSafetyGoal:`/`derivedFromCybersecurityGoal:` it (and their closure).
 - Without `demonstrates:` → the union of the `verifies:` targets of the plan's
   effective TestCase set.
 
@@ -42,9 +42,15 @@ ingested verdict is Fail; `pass` when every member passes; otherwise
 ## EXAMPLES
     syscribe -m model/ testplan
     syscribe -m model/ testplan --json
-    syscribe -m model/ testplan TP-DELIVERY-INTEGRATION-001
-    syscribe -m model/ testplan TP-DELIVERY-INTEGRATION-001 --json
+    syscribe -m model/ testplan TP-TRS-MCP-001
+    syscribe -m model/ testplan TP-TRS-MCP-001 --json
+
+## RESULTS PER RIG
+A plan with `runsOn:` is judged on each listed TestEnvironment alone, using the results recorded on that rig
+(`ingest-results --format records`): every rig must pass, a rig with no passing result leaves the plan
+`incomplete`, results from other rigs are ignored, and results from a retired or out-of-calibration rig do
+not count. Without `runsOn:` a failure on any rig fails the plan.
 
 ## SEE ALSO
-    matrix, audit, verification-depth (each accepts the `--plan TP-X` lens),
+    matrix, audit, verification-depth, coverage tree (each accepts the `--plan TP-X` lens),
     ingest-results

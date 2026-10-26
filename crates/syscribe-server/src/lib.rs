@@ -7,10 +7,11 @@
 //! `tower::ServiceExt::oneshot` (REQ-TRS-LINK-005).
 
 use axum::{
-    routing::{get, patch},
+    routing::{get, patch, post, put},
     Router,
 };
 
+pub mod planning;
 pub mod routes;
 pub mod state;
 pub mod static_assets;
@@ -19,14 +20,13 @@ use routes::api_graph::{get_children, get_connections};
 use routes::diagram_model::get_diagram_model;
 use routes::elements::{get_element, list_elements};
 use routes::mutate::{
-    add_connection, create_element, delete_element, patch_layout, remove_connection,
-    update_element,
+    add_connection, add_shape, create_element, delete_element, delete_layout, patch_layout, put_svg,
+    remove_connection, update_element,
 };
-use routes::ui::{diagram, element_detail, index, tree_items};
+use routes::ui::{diagram, element_card, element_detail, features_page, heat_page, index, planning, planning_board, tree_items};
 use routes::validation::get_validation;
 use routes::ws::ws_handler;
 use state::{ReloadTx, SharedState};
-use tower_http::cors::CorsLayer;
 
 /// Build the Axum router over an existing shared state and reload channel.
 ///
@@ -37,6 +37,18 @@ pub fn build_router(shared: SharedState, reload_tx: ReloadTx) -> Router {
         .route("/", get(index))
         .route("/ui/tree", get(tree_items))
         .route("/ui/detail/{*qname}", get(element_detail))
+        .route("/ui/element-card/{*qname}", get(element_card))
+        .route("/planning", get(planning))
+        .route("/heat", get(heat_page))
+        .route("/features", get(features_page))
+        .route("/api/feature-model/diagram", get(routes::feature_model::diagram))
+        .route("/api/feature-model/analysis", get(routes::feature_model::analysis))
+        .route("/api/feature-model/configure", post(routes::feature_model::configure))
+        .route("/api/feature-model/edit", post(routes::feature_model::edit))
+        .route("/api/feature-model/impact", get(routes::feature_model::impact))
+        .route("/api/feature-model/configurations", get(routes::feature_model::configurations))
+        .route("/api/feature-model/export", get(routes::feature_model::export))
+        .route("/ui/planning/board", get(planning_board))
         .route("/ui/diagram/{*qname}", get(diagram))
         .route("/api/elements", get(list_elements).post(create_element))
         .route(
@@ -48,12 +60,17 @@ pub fn build_router(shared: SharedState, reload_tx: ReloadTx) -> Router {
             "/api/connections",
             get(get_connections).post(add_connection).delete(remove_connection),
         )
-        .route("/api/diagrams/layout/{*qname}", patch(patch_layout))
+        .route("/api/diagrams/layout/{*qname}", patch(patch_layout).delete(delete_layout))
+        .route("/api/diagrams/shapes/{*qname}", post(add_shape))
+        .route("/api/diagrams/svg/{*qname}", put(put_svg))
         .route("/api/diagrams/model/{*qname}", get(get_diagram_model))
         .route("/api/validation", get(get_validation))
+        .route("/requirements", get(routes::ui::requirements_page))
+        .route("/api/req-graph", get(routes::req_graph::get_req_graph))
+        .route("/api/req-graph/overview", get(routes::req_graph::get_overview))
+        .route("/api/req-graph/search", get(routes::req_graph::get_search))
         .route("/ws", get(ws_handler))
         .route("/static/{*path}", get(static_assets::static_handler))
         .layer(axum::Extension(reload_tx))
-        .layer(CorsLayer::permissive())
         .with_state(shared)
 }

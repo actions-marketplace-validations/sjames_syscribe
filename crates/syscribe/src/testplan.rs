@@ -68,7 +68,7 @@ fn resolve_plan<'a>(
 ///   plus the transitive closure of its `derivedChildren` (computed from the
 ///   `derivedFrom:` reverse direction); plus, for each demonstrated
 ///   `SafetyGoal`/`CybersecurityGoal`, the requirements that
-///   `derivedFromSafetyGoal:`/`derivedFromSecurityGoal:` it (then their derived
+///   `derivedFromSafetyGoal:`/`derivedFromCybersecurityGoal:` it (then their derived
 ///   closure too). `Argument` targets contribute nothing directly for v1.
 /// * Without `demonstrates:` → the union of the `verifies:` targets (resolved to
 ///   Requirements) of the plan's effective TestCase set.
@@ -123,7 +123,7 @@ pub fn in_scope_requirements(
     out.into_iter().collect()
 }
 
-/// Requirements whose `derivedFromSafetyGoal:` / `derivedFromSecurityGoal:`
+/// Requirements whose `derivedFromSafetyGoal:` / `derivedFromCybersecurityGoal:`
 /// names `goal` (by stable id or qname).
 fn requirements_derived_from_goal<'a>(
     goal: &RawElement,
@@ -135,10 +135,10 @@ fn requirements_derived_from_goal<'a>(
         .filter(|e| Resolver::is_native_requirement(e))
         .filter(|e| {
             let from_sg = e.frontmatter.derived_from_safety_goal.as_deref();
-            let from_csg = e.frontmatter.derived_from_cybersecurity_goal.as_deref();
-            [from_sg, from_csg]
+            let from_csg = e.frontmatter.derived_from_cybersecurity_goal.iter().flatten().map(String::as_str);
+            from_sg
                 .into_iter()
-                .flatten()
+                .chain(from_csg)
                 .any(|d| gkeys.iter().any(|k| k == d))
         })
         .collect()
@@ -240,9 +240,20 @@ fn resolves_to_in_scope(
 /// satisfying architecture elements ∪ the plan's Configurations. Exits 1 on an
 /// unknown / non-TestPlan id. Dormant-safe (works with no feature model).
 pub fn plan_lens(elements: &[RawElement], tp: &str) -> Vec<RawElement> {
-    let resolver = Resolver::new(elements);
-    match resolve_plan(elements, &resolver, tp) {
-        Some(plan) => plan_scoped_elements(plan, elements, &resolver),
+    // REQ-TRS-LINKTYPE-006 — scope is decided on the reporting view (a
+    // `coverage = true` extending satisfies/verifies/derivedFrom link counts as
+    // its base), but the lens returns the *authored* elements: callers validate
+    // the lens, and the validator applies extensions itself.
+    let cov = syscribe_model::link_types::coverage_view(elements, &syscribe_model::link_types::active());
+    let resolver = Resolver::new(&cov);
+    match resolve_plan(&cov, &resolver, tp) {
+        Some(plan) => {
+            let keep: BTreeSet<String> = plan_scoped_elements(plan, &cov, &resolver)
+                .into_iter()
+                .map(|e| e.qualified_name)
+                .collect();
+            elements.iter().filter(|e| keep.contains(&e.qualified_name)).cloned().collect()
+        }
         None => {
             eprintln!("Error: unknown TestPlan '{tp}'");
             std::process::exit(1);
@@ -257,7 +268,7 @@ pub fn plan_lens(elements: &[RawElement], tp: &str) -> Vec<RawElement> {
 /// `tc_verdict` evidence fold. Empty effective set → `empty`. Any member Fail →
 /// `fail`. All members Pass → `pass`. Otherwise (missing / no results) →
 /// `incomplete`.
-fn plan_verdict(
+pub(crate) fn plan_verdict(
     plan: &RawElement,
     elements: &[RawElement],
     resolver: &Resolver,
@@ -271,6 +282,12 @@ fn plan_verdict(
     let pkg = variability::package_conditions(elements);
     let feat_alias = variability::feature_id_to_qname(elements);
 
+    // A plan that runs on named environments judges its members on each of them (REQ-TRS-RESENV-001): all must
+    // pass, a rig with no passing result leaves the plan incomplete, and a result on a rig the plan does not
+    // list is ignored. Only once records exist; before that the old function/scenario verdicts decide.
+    let envs = syscribe_model::result_join::runs_on_ids(plan, elements, resolver);
+    let by_env = results.filter(|r| !envs.is_empty() && r.has_records());
+    let unhealthy = syscribe_model::result_join::unhealthy_environments(elements);
     let mut all_pass = true;
     for tc in &members {
         // Members active in none of the plan's configs (escaping) are not part of
@@ -279,10 +296,19 @@ fn plan_verdict(
             all_pass = false;
             continue;
         }
-        match tc_verdict(tc, results) {
+        let verdict = match by_env {
+            Some(r) => match syscribe_model::results::testcase_verdict_in_envs(tc, r, &envs, &unhealthy) {
+                syscribe_model::safety_case::Verdict::Pass => TcVerdict::Pass,
+                syscribe_model::safety_case::Verdict::Fail => TcVerdict::Fail,
+                syscribe_model::safety_case::Verdict::Waived => TcVerdict::Waived,
+                syscribe_model::safety_case::Verdict::Unknown => TcVerdict::Unknown,
+            },
+            None => tc_verdict(tc, results),
+        };
+        match verdict {
             TcVerdict::Fail => return "fail",
             TcVerdict::Pass => {}
-            TcVerdict::Unknown => all_pass = false,
+            TcVerdict::Unknown | TcVerdict::Waived => all_pass = false,
         }
     }
     if all_pass {
@@ -331,6 +357,9 @@ fn plan_row(
 
 /// `syscribe -m <root> testplan [--json]` — list every TestPlan.
 pub fn cmd_testplan_list(elements: &[RawElement], json: bool, results: Option<&ResultsData>) {
+    // REQ-TRS-LINKTYPE-006 — report over the reporting view (read-only).
+    let cov = syscribe_model::link_types::coverage_view(elements, &syscribe_model::link_types::active());
+    let elements: &[RawElement] = &cov;
     let resolver = Resolver::new(elements);
     let mut plans: Vec<&RawElement> =
         elements.iter().filter(|e| Resolver::is_test_plan(e)).collect();
@@ -381,6 +410,10 @@ pub fn cmd_testplan_list(elements: &[RawElement], json: bool, results: Option<&R
             r.id, title, scope, cfgs, r.effective_count, cov, r.verdict
         );
     }
+    println!();
+    println!(
+        "Coverage = requirements in the plan's scope covered by a non-draft member TestCase, as a percentage of the requirements applicable in the plan's configurations (with a feature model, a requirement whose only member tests were unsuccessful in the ingested results counts as not covered). Verdict is the separate roll-up of the members' ingested results."
+    );
 }
 
 // ── detail (`testplan TP-X`) ────────────────────────────────────────────────
@@ -393,6 +426,9 @@ pub fn cmd_testplan_detail(
     json: bool,
     results: Option<&ResultsData>,
 ) -> i32 {
+    // REQ-TRS-LINKTYPE-006 — report over the reporting view (read-only).
+    let cov = syscribe_model::link_types::coverage_view(elements, &syscribe_model::link_types::active());
+    let elements: &[RawElement] = &cov;
     let resolver = Resolver::new(elements);
     let Some(plan) = resolve_plan(elements, &resolver, tp) else {
         eprintln!("Error: unknown TestPlan '{tp}'");

@@ -15,6 +15,7 @@
 
 pub mod config;
 pub mod envelope;
+pub mod results;
 pub mod runtime;
 
 use std::path::{Path, PathBuf};
@@ -89,6 +90,19 @@ pub fn apply_foreign_plugins(elements: &mut Vec<RawElement>, model_root: &Path) 
     let mut owned_dirs: Vec<(PathBuf, String)> = Vec::new(); // (dir, anchor file_path)
 
     for (owner_idx, pkg) in &confirmed {
+        if let Some(entry) = plugins.get(&pkg.alias).filter(|e| !e.is_foreign()) {
+            elements[*owner_idx].derive_findings.push(finding(
+                "E552",
+                &pkg.index_path,
+                &format!(
+                    "foreignFormat '{}' names a plugin of kind \"{}\" ([plugins.{}] in .syscribe.toml); only a foreign-format plugin (no kind, or kind = \"foreign\") can ingest a package",
+                    pkg.alias,
+                    entry.kind.as_deref().unwrap_or(""),
+                    pkg.alias
+                ),
+            ));
+            continue;
+        }
         let Some(entry) = plugins.get(&pkg.alias) else {
             elements[*owner_idx].derive_findings.push(finding(
                 "E551",
@@ -267,15 +281,20 @@ mod tests {
         RawElement {
             qualified_name: qname.to_string(),
             file_path: file_path.to_string(),
-            frontmatter: RawFrontmatter {
+            frontmatter: {
+                let mut fm = RawFrontmatter {
                 element_type: Some(ElementType::Package),
-                foreign_format: foreign_format.map(|s| s.to_string()),
                 ..Default::default()
+                };
+                fm.foreign_format = foreign_format.map(|s| s.to_string());
+                fm
             },
             doc: String::new(),
             parse_issue: None,
             derived: Default::default(),
             derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
         }
     }
 
@@ -318,6 +337,8 @@ mod tests {
                 parse_issue: None,
                 derived: Default::default(),
                 derive_findings: Vec::new(),
+                locale_docs: Default::default(),
+                about_notes: Default::default(),
             },
         ];
         apply_foreign_plugins(&mut elements, &root);

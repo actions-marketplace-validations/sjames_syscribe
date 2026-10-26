@@ -168,10 +168,28 @@ Each leaf requirement carries `derivedFrom:` pointing to its parent and `breakdo
 
 ## Verification
 
-Nine test cases cover the leaf requirements. Each is a `TestCase` element with a stable `TC-*` ID, a `testLevel` (L1–L5), and a Gherkin `scenario:` block.
+Sixteen test cases (under `model/Verification/`) cover the leaf and parent requirements: leaf requirements are verified at unit/system level, parent requirements by integration-level cases (L3–L5) plus a review. Each is a `TestCase` element with a stable `TC-*` ID, a `testLevel` (L1–L5), and a Gherkin `scenario:` block.
 
 | File | Level | Verifies |
 |---|---|---|
+| `MassVerificationCase` | L5 | REQ-UAV-MASS-001 |
+| `EnduranceTestCase` | L5 | REQ-UAV-ENDUR-001 |
+| `NavigationAnalysisCase` | L2 | REQ-UAV-NAV-001 |
+| `DataLinkTestCase` | L5 | REQ-UAV-COMM-001 |
+| `FCFaultInjectionTest` | L5 | REQ-UAV-FC-001 |
+| `SafeLandingTest` | L5 | REQ-UAV-SAFE-001 |
+| `CargoReleaseTest` | L4 | REQ-UAV-CARGO-001 |
+| `MappingDensityTest` | L4 | REQ-UAV-MAP-001 |
+| `DualFCFailoverTest` | L4 | REQ-UAV-REDUN-001 |
+| `VariantIntegrationTest` | L4 | REQ-UAV-VAR-000 |
+| `MissionPerformanceIntegrationTest` | L5 | REQ-UAV-PERF-000 |
+| `SystemSafetyIntegrationTest` | L5 | REQ-UAV-SAFE-000 |
+| `RegulatoryComplianceIntegrationTest` | L4 | REQ-UAV-REG-000 |
+| `PerformanceCaseReview` | L2 | REQ-UAV-PERF-000 |
+| `SafetyCaseReview` | L2 | REQ-UAV-SAFE-000 |
+| `RegulatoryComplianceReview` | L2 | REQ-UAV-REG-000 |
+
+---|---|---|
 | `MassVerificationCase` | L1 (analysis) | REQ-UAV-MASS-001 |
 | `EnduranceTestCase` | L2 (ground) | REQ-UAV-ENDUR-001 |
 | `NavigationAnalysisCase` | L3 (simulation) | REQ-UAV-NAV-001 |
@@ -188,8 +206,8 @@ Nine test cases cover the leaf requirements. Each is a `TestCase` element with a
 
 | ID | File | Status | Subject |
 |---|---|---|---|
-| ADR-SYS-001 | `SafetyDecompositionADR` | accepted | Safety requirement decomposition strategy |
-| ADR-SYS-002 | `PerformanceDecompositionADR` | accepted | Performance requirement decomposition strategy |
+| ADR-SYS-SAFE-001 | `SafetyDecompositionADR` | accepted | Safety requirement decomposition strategy |
+| ADR-SYS-PERF-001 | `PerformanceDecompositionADR` | accepted | Performance requirement decomposition strategy |
 
 ---
 
@@ -211,4 +229,4 @@ Nine test cases cover the leaf requirements. Each is a `TestCase` element with a
 syscribe -m model/ validate
 ```
 
-The report covers all 115 elements, the full requirements traceability matrix, and any validation findings. The model produces zero errors.
+The report covers every element (the element inventory is its first section), the full requirements traceability matrix, and any validation findings. The model produces zero errors; its warnings are deliberate, advisory findings. Note that `model/` also hosts Syscribe's own product requirements, ADRs and planning items alongside the UAV, so the totals include those.

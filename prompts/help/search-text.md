@@ -7,7 +7,7 @@
 ## DESCRIPTION
 Ranked full-text search over the normative text of elements (Markdown body +
 name), scored with Okapi BM25 and returned best-first with a snippet marking the
-first hit. Complements `find`/`search` (which fuzzy-match identifiers): use this
+first hit. Complements `find` and the MCP `search` tool (which match identifiers and names; there is no `search` CLI command): use this
 to locate elements by what they say, ordered by relevance. The index is built in
 memory from the model — no external service, no persisted index.
 

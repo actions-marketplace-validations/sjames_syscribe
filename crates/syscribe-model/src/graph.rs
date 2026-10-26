@@ -27,6 +27,7 @@ pub enum EdgeKind {
     AllocatedTo,           // allocation → target element
     ConditionalOn,         // element → FeatureDef (appliesWhen:)
     Satisfies,             // Part/Config → Requirement/FeatureDef (satisfies:)
+    Plant,                 // Part/PartDef → the PlantDef it runs (plant:, GH #340)
     PlanningParent,        // PlanningItem child → parent (ADR-SYS-PLANITEM-001)
     PlanningBlockedBy,     // PlanningItem → element it's waiting on (REQ-TRS-PLANITEM-007)
     // Part-to-part wiring (resolved from connection feature chains; issue #26)
@@ -42,6 +43,7 @@ pub enum EdgeKind {
     // Safety analysis (ISO 26262 / IEC 61508)
     TopEvent,              // FaultTree → SafetyGoal
     FaultTreeInput,        // FaultTreeGate → input gate/event
+    FaultTreeEventRef,     // FaultTreeEvent → modelled element (ref:, REQ-TRS-FTA-002)
     HazardousEventRef,     // SafetyGoal → HazardousEvent
     DerivedFromSafetyGoal, // Requirement → SafetyGoal
     // Security analysis (ISO/SAE 21434)
@@ -52,11 +54,53 @@ pub enum EdgeKind {
     DerivedFromSecurityGoal, // Requirement → CybersecurityGoal
     ThreatRef,               // AttackTree → ThreatScenario
     AttackTreeInput,         // AttackTreeGate → input gate/step
+    // User-defined link type (ADR-SYS-LINKTYPE-001, REQ-TRS-LINKTYPE-009): a
+    // `links:` instance of a declared `[linkTypes.<name>]`, source → target. The
+    // payload is the link-type name's index in the process-wide interner
+    // (`crate::link_types::intern`), which keeps `EdgeKind` `Copy`; `name()`
+    // returns the declared type name.
+    Custom(u16),
 }
 
 impl EdgeKind {
+    /// Every built-in (non-[`EdgeKind::Custom`]) edge kind.
+    pub const BUILTIN: &'static [EdgeKind] = &[
+        EdgeKind::Contains,
+        EdgeKind::Supertype,
+        EdgeKind::TypedBy,
+        EdgeKind::Subsets,
+        EdgeKind::Redefines,
+        EdgeKind::Verifies,
+        EdgeKind::DerivedFrom,
+        EdgeKind::AllocatedFrom,
+        EdgeKind::AllocatedTo,
+        EdgeKind::ConditionalOn,
+        EdgeKind::Satisfies,
+        EdgeKind::Plant,
+        EdgeKind::PlanningParent,
+        EdgeKind::PlanningBlockedBy,
+        EdgeKind::Connection,
+        EdgeKind::Flow,
+        EdgeKind::Binding,
+        EdgeKind::Succession,
+        EdgeKind::FeatureTyped,
+        EdgeKind::TopEvent,
+        EdgeKind::FaultTreeInput,
+        EdgeKind::FaultTreeEventRef,
+        EdgeKind::HazardousEventRef,
+        EdgeKind::DerivedFromSafetyGoal,
+        EdgeKind::DamageScenarioRef,
+        EdgeKind::ThreatScenarioRef,
+        EdgeKind::ImplementsGoal,
+        EdgeKind::MitigatedBy,
+        EdgeKind::DerivedFromSecurityGoal,
+        EdgeKind::ThreatRef,
+        EdgeKind::AttackTreeInput,
+    ];
+
     /// Lower-camel canonical name of an edge kind. Stable: used by the
     /// `connectivity` CLI for `--kinds` filtering and the JSON `kind` field.
+    /// A [`EdgeKind::Custom`] edge is named by its declared link type.
     pub fn name(&self) -> &'static str {
         match self {
             EdgeKind::Contains => "contains",
@@ -70,6 +114,7 @@ impl EdgeKind {
             EdgeKind::AllocatedTo => "allocatedTo",
             EdgeKind::ConditionalOn => "conditionalOn",
             EdgeKind::Satisfies => "satisfies",
+            EdgeKind::Plant => "plant",
             EdgeKind::PlanningParent => "planningParent",
             EdgeKind::PlanningBlockedBy => "planningBlockedBy",
             EdgeKind::Connection => "connection",
@@ -79,6 +124,7 @@ impl EdgeKind {
             EdgeKind::FeatureTyped => "featureTyped",
             EdgeKind::TopEvent => "topEvent",
             EdgeKind::FaultTreeInput => "faultTreeInput",
+            EdgeKind::FaultTreeEventRef => "faultTreeEventRef",
             EdgeKind::HazardousEventRef => "hazardousEventRef",
             EdgeKind::DerivedFromSafetyGoal => "derivedFromSafetyGoal",
             EdgeKind::DamageScenarioRef => "damageScenarioRef",
@@ -88,6 +134,7 @@ impl EdgeKind {
             EdgeKind::DerivedFromSecurityGoal => "derivedFromSecurityGoal",
             EdgeKind::ThreatRef => "threatRef",
             EdgeKind::AttackTreeInput => "attackTreeInput",
+            EdgeKind::Custom(i) => crate::link_types::interned(*i),
         }
     }
 }
@@ -98,6 +145,9 @@ pub type ModelGraph = DiGraph<String, EdgeKind>;
 /// Returns (graph, node_index_by_qname).
 pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, NodeIndex>) {
     let resolver = Resolver::new(elements);
+    // User-defined link types (REQ-TRS-LINKTYPE-009) — the vocabulary installed
+    // for the loaded model; empty (no custom edges) when none is declared.
+    let link_types = crate::link_types::active();
     let mut graph = DiGraph::new();
     let mut idx: HashMap<String, NodeIndex> = HashMap::new();
 
@@ -246,17 +296,22 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
             }
         }
 
-        // allocatedFrom / allocatedTo
+        // allocatedFrom / allocatedTo — the authored fields, resolved with the
+        // same id-first resolver as the §12.9 unified allocation-edge extractor
+        // (`validator::allocation_edges_tagged`), so a stable-id operand (e.g. a
+        // `SC-*` control) yields an edge here exactly when it yields one there
+        // (GH #131). An `allocatedFrom:` authored on a non-Allocation element is
+        // the legacy form §12.9 still accepts; it stays an edge holder → source.
         if let Some(ref afs) = fm.allocated_from {
             for af in afs {
-                if let Some(dst) = idx.get(af.as_str()).copied() {
+                if let Some(dst) = resolve_to_idx(af) {
                     graph.add_edge(src, dst, EdgeKind::AllocatedFrom);
                 }
             }
         }
         if let Some(ref ats) = fm.allocated_to {
             for at_ in ats {
-                if let Some(dst) = idx.get(at_.as_str()).copied() {
+                if let Some(dst) = resolve_to_idx(at_) {
                     graph.add_edge(src, dst, EdgeKind::AllocatedTo);
                 }
             }
@@ -268,6 +323,13 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
                 if let Some(dst) = resolve_to_idx(s) {
                     graph.add_edge(src, dst, EdgeKind::Satisfies);
                 }
+            }
+        }
+
+        // plant: — the PlantDef a plant part runs
+        if let Some(d) = crate::plant_def::plant_def_ref(fm.plant.as_ref()) {
+            if let Some(dst) = resolve_to_idx(&d) {
+                graph.add_edge(src, dst, EdgeKind::Plant);
             }
         }
 
@@ -315,7 +377,24 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
                 }
             }
             // otherwise treat the whole chain as a qname/id.
-            resolve_to_idx(chain)
+            if let Some(n) = resolve_to_idx(chain) {
+                return Some(n);
+            }
+            // GH #206: an ingested endpoint is the full `Owner::a::b::c` path; when its tail is an
+            // inherited feature (no element of its own) the edge lands on the deepest prefix that
+            // is one — the head part at worst — never on the owner itself.
+            let owner_prefix = format!("{}::", elem.qualified_name);
+            let mut prefix = chain;
+            while let Some((p, _)) = prefix.rsplit_once("::") {
+                if !p.starts_with(owner_prefix.as_str()) {
+                    break;
+                }
+                if let Some(n) = resolve_to_idx(p) {
+                    return Some(n);
+                }
+                prefix = p;
+            }
+            None
         };
 
         // Add wiring edges from a resolved endpoint list (binary or n-ary star).
@@ -384,6 +463,15 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
             }
         }
 
+        // ref: FaultTreeEvent → the element whose failure it models (REQ-TRS-FTA-002)
+        if matches!(fm.element_type, Some(ElementType::FaultTreeEvent)) {
+            if let Some(ref r) = fm.event_ref {
+                if let Some(dst) = resolve_to_idx(r) {
+                    graph.add_edge(src, dst, EdgeKind::FaultTreeEventRef);
+                }
+            }
+        }
+
         // hazardousEvents: SafetyGoal → HazardousEvent refs
         if let Some(ref hes) = fm.hazardous_events {
             for he in hes {
@@ -446,9 +534,20 @@ pub fn build_graph(elements: &[RawElement]) -> (ModelGraph, HashMap<String, Node
         }
 
         // derivedFromSecurityGoal: Requirement → CybersecurityGoal
-        if let Some(ref csg) = fm.derived_from_cybersecurity_goal {
+        for csg in fm.derived_from_cybersecurity_goal.iter().flatten() {
             if let Some(dst) = resolve_to_idx(csg) {
                 graph.add_edge(src, dst, EdgeKind::DerivedFromSecurityGoal);
+            }
+        }
+
+        // ── User-defined links (REQ-TRS-LINKTYPE-009) ────────────────────────
+        // `links:` instances of declared types, source → target, named by type.
+        for (ti, targets) in crate::link_types::declared_links(fm, &link_types) {
+            let kind = EdgeKind::Custom(crate::link_types::intern(&link_types.types()[ti].name));
+            for t in targets {
+                if let Some(dst) = resolve_to_idx(&t) {
+                    graph.add_edge(src, dst, kind);
+                }
             }
         }
     }

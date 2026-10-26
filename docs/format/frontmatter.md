@@ -119,7 +119,7 @@ These id-identified native types carry their own field sets (full schema in [Ele
 |---|---|
 | `ReviewRecord` (`RR-*`) | `reviewType`, `reviews:` (covered elements), `items[].disposition`, `recordedAt:` (URI to the external review — keep records thin), `reviewDate`, `reviewedBy` (§19) |
 | `TradeStudy` (`TRD-*`) | `criteria:` (`weight` + `direction`), `alternatives:` (optional `element:`), `scores:` matrix, optional `objective:` / `decision:` (§15) |
-| `PlanningItem` (`PI-*`) | `status` (`todo`/`in_progress`/`blocked`/`done`, required), `itemType` (`bug`/`task`/`feature`, optional), `parent:` (single scalar — strict single-parent tree, not a DAG), `achieves:` (one or more `Requirement`s; required on a top-level item with no `parent:`), `blockedBy:` (one or more elements it's waiting on, resolved permissively like `evidence.ref:`; dangling/cycle are errors, non-empty while not `status: blocked` is a warning), `assignedTo:` (single Unix-style username — `^[a-z_][a-z0-9_-]{0,31}$`, always format-checked; also checked against the `[users]` roster in `.syscribe.toml` when that roster is non-empty, else roster membership is dormant), `evidence:` (list of duck-typed `ref:`/`path:` entries, each with an optional waiving `rationale:`; required on a leaf item once `status: done`) (`ADR-SYS-PLANITEM-001`) |
+| `PlanningItem` (`PI-*`) | `status` (`todo`/`in_progress`/`blocked`/`done`, required), `itemType` (`bug`/`task`/`feature`, optional), `parent:` (single scalar — strict single-parent tree, not a DAG), `achieves:` (one or more `Requirement`s; required on a top-level item with no `parent:`), `blockedBy:` (one or more elements it's waiting on, resolved permissively like `evidence.ref:`; dangling/cycle are errors, non-empty while not `status: blocked` is a warning), `assignedTo:` (single Unix-style username — `^[a-z_][a-z0-9_-]{0,31}$`, always format-checked; also checked against the `[users]` roster in `.syscribe.toml` when that roster is non-empty, else roster membership is dormant), `evidence:` (list of duck-typed `ref:`/`path:` entries, each with an optional waiving `rationale:`; required on a leaf item once `status: done`), `claimedBy:`/`claimedAt:` (advisory ownership markers for concurrent multi-agent work, never themselves format-validated — set/cleared by `syscribe claim`/`syscribe release`, not hand-authored) (`ADR-SYS-PLANITEM-001`) |
 | `CalculationDef` budget | `bodyLanguage: budget` + `body:` (restricted arithmetic over inline attribute values) and `evaluate:` (a `ConstraintDef` bounding the result) (§22.2) |
 
 ## State machine transitions (`StateDef`/`State`)
@@ -134,7 +134,7 @@ The canonical transition schema (§8.8.3) is `source` / `target` / `accept{paylo
 | `status` | `draft` · `review` · `approved` · `active` · `retired` |
 | `testLevel` | `L1` (unit) through `L5` (HIL) |
 | `verifies` | List of REQ-* IDs verified by this test case |
-| `testFunctions` | List of `{scenario, file, line}` mappings linking Gherkin scenarios to source |
+| `testFunctions` | List of test-function names — each entry either a plain string or a `{function, scenario}` mapping. `function` is looked up in the TestCase's `sourceFile:` (W009 if absent); `scenario` must match a `Scenario:` title in a ```` ```gherkin ```` block of the body (E106) |
 
 ## TestPlan fields (`type: TestPlan`)
 
@@ -147,6 +147,7 @@ A `TestPlan` (stable `TP-*` id) groups reusable TestCases by product and scope.
 | `configurations` | A `Configuration` id or list of ids — the product variant(s) the plan is for; absent = config-agnostic. Each must resolve (`E606`) |
 | `demonstrates` | Optional list of goals/requirements the plan is evidence for (`E603` if unresolved); not required |
 | `testCases` | Explicit `TC-*` members (`E601` if not a TestCase) |
+| `runsOn`, `requiresCapabilities` | Optional `TestEnvironment` id(s) the plan executes on (`E894`) and the capabilities it needs (`W891` when the rig lacks one); also valid on a `TestCase` |
 | `selection` | Additive query: `testLevels` (L1–L5, `E602`), `domains` (system/hardware/software, `E605`), `tags` |
 
 Effective members = `testCases` ∪ `selection` matches. Surfaced by `testplan` and the `--plan TP-X` lens on `matrix`/`verification-depth`/`audit`. Codes `E600`–`E606` / `W610`–`W616` in the [Rule Reference](../validation/rules.md).
@@ -186,16 +187,35 @@ implementedBy:
   - repo:src/scheduler/bitmap.rs
 ```
 
+## User-defined links (`links:`, §12.10)
+
+Any element may carry project-defined relationships under a single `links:` map. Link types are declared per project in `[linkTypes.<name>]` tables of the model-root `.syscribe.toml` — list them with `syscribe -m <root> link-types`.
+
+| Field | Description |
+|---|---|
+| `links` | Map from a declared link-type name to one reference or a list of references (stable id or qualified name, resolved like `satisfies:`). The holding element is the source (§12.1); the declared `inverse` is computed, never authored. An undeclared key is `E630` (the message lists the declared types); a malformed shape `E631`; a dangling target `E632`; declared source/target type, cardinality and acyclicity constraints raise `E633`–`E636`/`W631`. Never raises `W047`. |
+
+<!-- syscribe-example: config="link-types.toml" -->
+```yaml
+type: PartDef
+name: WatchdogMonitor
+domain: software
+links:
+  mitigates: [REQ-BRK-002, REQ-BRK-003]
+```
+
+See the [Link Types guide](../model-guide/link-types.md) for declaring types, `extends`/`relax`/`coverage`, and the `follow` command.
+
 ## Diagram fields
 
 | Field | Description |
 |---|---|
-| `diagramKind` | `BDD` · `IBD` · `StateMachine` · `Requirement` · `Mermaid` · `PlantUML` |
+| `diagramKind` | `BDD` · `IBD` · `StateMachine` · `Sequence` · `Requirement` · `Mermaid` · `PlantUML` |
 | `subject` | Qualified name of the element this diagram depicts |
 | `shapes` | YAML mapping of shape-id → shape descriptor |
 | `edges` | YAML mapping of edge-id → edge descriptor |
 | `layout` | YAML mapping of shape-id → `{x, y, w, h}` |
-| `svgMode` | `inline` — embed SVG directly in the response |
+| `svgMode` | `inline` (default — SVG embedded in a fenced ```` ```svg ```` block in the body) · `companion` (composed-SVG workflow: the body `<img>`-links a companion `.svg` file named by `svgFile:`) |
 
 See [Diagrams](diagrams.md) for full shape and edge schemas.
 
@@ -221,7 +241,7 @@ Opt-in: ignored when the model declares no `FeatureDef`. See the [Variability gu
 | `parameters` | `FeatureDef` | Typed parameters: each `{name, type, range:"min..max", enumValues, default, isFixed, isRequired, value}` (§9.7) |
 | `featureModel` | `Configuration`, `FeatureDef` | Qualified name of the feature-model package |
 | `features` | `Configuration` | **Map** of `<FeatureDef qname>: true/false` (the selection; absent = deselected) |
-| `parameterBindings` | `Configuration` | Map of `<FeatureDef qname>::<param>: <value>`. Resolves transitively through `subConfigurations:` at any depth (§14.7). |
+| `parameterBindings` | `Configuration` | Map of `<FeatureDef qname>.<param>: <value>` (dotted member, e.g. `Payload::Camera.resolution: 4K`; a `::<param>` key is E222). Resolves transitively through `subConfigurations:` at any depth (§14.7). |
 | `subConfigurations` | `Configuration` | String or list of `Configuration` id/qnames this one consolidates — local or via `[repos]` (§14.7, `ADR-SYS-HPLE-001`); see the [Multi-Repository guide](../model-guide/multi-repo.md) |
 | `parameterConstraints` | package `_index.md` | List of cross-feature constraints `{id, expression, severity, appliesWhen}` |
 | `tags` | any element | Free-text labels; filter with `--tag` (orthogonal to the feature model) |

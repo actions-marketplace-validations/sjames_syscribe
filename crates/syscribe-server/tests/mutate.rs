@@ -42,16 +42,33 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 /// Copy the shared fixture model into a fresh temp directory so this test can
 /// commit real writes without touching the checked-in fixture.
+///
+/// The directory is unique per call (GH #156): pid + nanosecond timestamp alone
+/// is not, because tests start on parallel threads and two of them can read
+/// the same timestamp. The two tests then shared one model directory, and
+/// whichever finished first deleted it under the other ("commit failed: No
+/// such file or directory"). A per-process sequence number plus an exclusive
+/// `create_dir` rules that out.
 fn temp_model() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "syscribe-server-mutate-test-{}-{}",
-        std::process::id(),
-        nanos
-    ));
+    let dir = loop {
+        let dir = std::env::temp_dir().join(format!(
+            "syscribe-server-mutate-test-{}-{}-{}",
+            std::process::id(),
+            nanos,
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        match std::fs::create_dir(&dir) {
+            Ok(()) => break dir,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => panic!("create temp model dir: {e}"),
+        }
+    };
     copy_dir_all(&fixtures_root(), &dir).expect("copy fixture model");
     dir
 }
@@ -486,5 +503,44 @@ async fn retired_canvas_routes_are_404() {
     let (status, _) = call(&app, "GET", "/api/graph", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "/api/graph must not be registered");
 
+    let _ = std::fs::remove_dir_all(&model_root);
+}
+
+/// A layout is a Diagram's. Pinning a shape on any other element would add a stray `layout:` key.
+#[tokio::test]
+async fn patch_layout_refuses_an_element_that_is_not_a_diagram() {
+    let model_root = temp_model();
+    let app = build_app(&model_root).await;
+    let (status, resp) = call(&app, "PATCH", "/api/diagrams/layout/Basics/Widget", Some(json!({ "s-x": {"x": 1.0, "y": 1.0} }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(resp["written"], json!(false), "{resp:#?}");
+    let _ = std::fs::remove_dir_all(&model_root);
+}
+
+/// The detail panel's "Other Fields" text: a line the user deleted is removed from the file, an
+/// untouched `name` is not rewritten, and `type`/`id` cannot be deleted this way.
+#[tokio::test]
+async fn deleting_a_line_in_other_fields_removes_the_key() {
+    let model_root = temp_model();
+    std::fs::write(
+        model_root.join("Basics/Widget.md"),
+        "---\ntype: PartDef\nname: Widget\ntags: [a]\nextRef: DNG:1\n---\n\nA widget.\n",
+    )
+    .unwrap();
+    let app = build_app(&model_root).await;
+    let original = "type: PartDef\ntags:\n- a\nextRef: DNG:1\n";
+    let (_, resp) = call(&app, "PUT", "/api/elements/Basics/Widget", Some(json!({
+        "fields": {}, "extraYaml": "type: PartDef\nextRef: DNG:1\n", "extraYamlOriginal": original, "dryRun": false
+    }))).await;
+    assert_eq!(resp["written"], json!(true), "{resp:#?}");
+    let content = std::fs::read_to_string(model_root.join("Basics/Widget.md")).unwrap();
+    assert!(!content.contains("tags"), "the deleted key is gone:\n{content}");
+    assert!(content.contains("extRef") && content.contains("name: Widget"), "{content}");
+
+    let (_, resp) = call(&app, "PUT", "/api/elements/Basics/Widget", Some(json!({
+        "fields": {}, "extraYaml": "extRef: DNG:1\n", "extraYamlOriginal": "type: PartDef\nextRef: DNG:1\n", "dryRun": false
+    }))).await;
+    assert_eq!(resp["written"], json!(false), "removing type must be refused: {resp:#?}");
+    assert!(resp["reason"].as_str().unwrap().contains("cannot be removed"));
     let _ = std::fs::remove_dir_all(&model_root);
 }

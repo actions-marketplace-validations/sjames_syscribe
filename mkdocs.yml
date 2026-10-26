@@ -1,7 +1,8 @@
 site_name: Syscribe
 site_description: >-
-  A Markdown-native SysMLv2 modeling format for systems engineers.
-  Human-readable, LLM-friendly, version-controlled, fully traceable.
+  Structured project knowledge your AI agent can safely edit. Git-native
+  Markdown models with guarded MCP writes: every change is dry-run and
+  validated before it is committed.
 site_url: https://sjames.github.io/syscribe
 repo_url: https://github.com/sjames/syscribe
 repo_name: sjames/syscribe
@@ -59,12 +60,20 @@ nav:
       - Traceability: model-guide/traceability.md
       - Architecture Decisions: model-guide/adrs.md
       - State Machines: model-guide/state-machines.md
+      - Action Flows: model-guide/action-flows.md
+      - System Composition: model-guide/system-composition.md
+      - Behavioural Models (models:): model-guide/behaviour-models.md
+      - Executable Evidence: model-guide/executable-evidence.md
+      - FMU Plants (FMI): model-guide/fmi-plants.md
+      - In-process Plants: model-guide/plant-models.md
       - Safety & Security Analysis: model-guide/safety-analysis.md
       - Variability & Product Lines: model-guide/variability.md
       - Build System Integration: model-guide/build-export.md
+      - User-Defined Link Types: model-guide/link-types.md
       - Multi-Repository Composition: model-guide/multi-repo.md
       - Native SysMLv2 Submodels: model-guide/sysmlv2-submodel.md
       - Foreign-Format Plugins (stdio): model-guide/stdio-plugins.md
+      - Annotated-Source Ingestion: model-guide/annotated-source.md
       - MagicGrid: model-guide/magicgrid.md
       - Custom Fields: model-guide/custom-fields.md
       - LLM-Assisted Modeling: model-guide/llm-workflow.md
@@ -78,6 +87,7 @@ nav:
       - Engine ECU (ISO 26262): demo-model/engine-ecu.md
       - SIL 4 Interlocking: demo-model/interlocking.md
       - UAV Autonomous Flight: demo-model/uav.md
+      - Grid-Tie Inverter (US / India): demo-model/grid-tie-inverter.md
   - Practitioner Guide:
       - guides/index.md
       - Introduction: guides/introduction.md
@@ -92,13 +102,22 @@ nav:
       - Part IX — Software Architecture: guides/software-architecture.md
       - Part X — Feature Modeling: guides/feature-modeling.md
       - Appendix A — Tool Mapping: guides/tool-mapping.md
-      - Appendix B — Validation Codes: validation/rules.md
       - Appendix C — Quick Reference: guides/quick-reference.md
       - Appendix D — Scripting: guides/scripting.md
   - Web Browser:
       - browser/index.md
   - Tool Qualification:
       - tool-qualification/index.md
+  - Design Notes:
+      - Suspect Links: design/suspect-links.md
+      - Visualisation: design/visualisation.md
+      - MCP Memory: design/mcp-memory.md
+      - Feature Model Editor: design/feature-model-editor.md
+      - Fault Injection: design/fault-injection.md
+      - FMI Plant Co-simulation: design/fmi-plant-cosimulation.md
+      - State Machine Execution Semantics: design/state-machine-execution-semantics.md
+      - Static Typing: design/static-typing.md
+      - System Composition: design/system-composition.md
   - Releases: releases/index.md
 
 extra_css:
@@ -107,7 +126,7 @@ extra_css:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/sjames/llm-arch-model
+      link: https://github.com/sjames/syscribe
 
 markdown_extensions:
   - admonition

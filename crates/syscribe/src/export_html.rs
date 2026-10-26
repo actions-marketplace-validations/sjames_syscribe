@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 
 use syscribe_model::config::ValidateConfig;
 use syscribe_model::element::{ElementType, RawElement, RawFrontmatter};
-use syscribe_model::renderer::render_diagram;
 use syscribe_model::resolver::Resolver;
 use syscribe_model::validator::{self, Severity, ValidationResult};
 
@@ -58,6 +57,27 @@ fn type_str(fm: &RawFrontmatter) -> Option<String> {
         .and_then(|v| v.as_str().map(String::from))
 }
 
+/// Model text is not trusted (peer repos, plugins and annotated source feed it), and the result is
+/// emitted unescaped into the page, so raw HTML in a body is shown as text and a link or image
+/// whose target uses a script-capable scheme is pointed at `#`.
+fn neutralize<'a>(event: pulldown_cmark::Event<'a>) -> pulldown_cmark::Event<'a> {
+    use pulldown_cmark::{CowStr, Event, Tag};
+    let unsafe_target = |d: &str| {
+        let t: String = d.chars().filter(|c| !c.is_whitespace() && !c.is_control()).collect::<String>().to_ascii_lowercase();
+        t.starts_with("javascript:") || t.starts_with("vbscript:") || t.starts_with("data:")
+    };
+    match event {
+        Event::Html(s) | Event::InlineHtml(s) => Event::Text(s),
+        Event::Start(Tag::Link { link_type, dest_url, title, id }) if unsafe_target(&dest_url) => {
+            Event::Start(Tag::Link { link_type, dest_url: CowStr::Borrowed("#"), title, id })
+        }
+        Event::Start(Tag::Image { link_type, dest_url, title, id }) if unsafe_target(&dest_url) => {
+            Event::Start(Tag::Image { link_type, dest_url: CowStr::Borrowed("#"), title, id })
+        }
+        other => other,
+    }
+}
+
 /// Render Markdown to HTML. Fenced ` ```mermaid ` blocks become
 /// `<pre class="mermaid">…</pre>` (rendered client-side); everything else goes
 /// through pulldown-cmark with tables/strikethrough/tasklists enabled. Mirrors
@@ -91,7 +111,7 @@ fn markdown_to_html(md: &str) -> String {
             Event::Text(t) if in_mermaid => {
                 events.push(Event::Html(CowStr::Boxed(esc(t).into_boxed_str())));
             }
-            _ => events.push(event),
+            _ => events.push(neutralize(event)),
         }
     }
 
@@ -163,32 +183,43 @@ fn render_refs(
 
 // ── navigation ───────────────────────────────────────────────────────────────
 
-/// Build the `<nav class="sitenav">` namespace tree, shared by every page.
-/// `current` marks the active element page (empty for non-element pages).
+/// Build the `<nav class="sitenav">` namespace tree. `current` marks the active
+/// element page (empty for non-element pages).
+///
+/// The tree is *focused*, not complete (GH #225): embedding every qualified name
+/// in every page made the site O(N²). A page lists the top-level packages, the
+/// siblings along the path to `current`, and `current`'s own children; the full
+/// listing lives once in `all-elements.html`.
 fn build_nav(elements: &[RawElement], rel_root: &str, current: &str) -> String {
-    let mut qnames: Vec<&str> = elements.iter().map(|e| e.qualified_name.as_str()).collect();
+    let mut qnames: Vec<&str> = elements
+        .iter()
+        .map(|e| e.qualified_name.as_str())
+        .filter(|q| !q.is_empty())
+        .collect();
     qnames.sort_unstable();
+
+    // `q` is shown when its parent is the root, or is `current` or one of its ancestors.
+    let shown = |q: &str| match q.rsplit_once("::") {
+        None => true,
+        Some((parent, _)) => {
+            current == parent || current.strip_prefix(parent).is_some_and(|r| r.starts_with("::"))
+        }
+    };
 
     let mut out = String::from("<nav class=\"sitenav\">\n<h2>Model</h2>\n<ul>\n");
     out.push_str(&format!(
-        "<li><a href=\"{rel_root}index.html\" class=\"pkg\">Overview</a></li>\n"
+        "<li><a href=\"{rel_root}index.html\" class=\"pkg\">Overview</a></li>\n\
+<li><a href=\"{rel_root}all-elements.html\" class=\"pkg\">All elements</a></li>\n"
     ));
-    for q in qnames {
-        let depth = q.matches("::").count();
-        let leaf = q.rsplit("::").next().unwrap_or(q);
-        let active = if q == current { " active" } else { "" };
-        out.push_str(&format!(
-            "<li style=\"padding-left:{}rem\"><a class=\"el{active}\" href=\"{rel_root}elements/{}.html\">{}</a></li>\n",
-            depth as f32 * 0.6,
-            sanitize(q),
-            esc(leaf),
-        ));
+    for q in qnames.into_iter().filter(|q| shown(q)) {
+        out.push_str(&nav_item(q, rel_root, current));
     }
     out.push_str("</ul>\n<h2>Reports</h2>\n<ul>\n");
     for (name, label) in [
         ("validation", "Validation"),
         ("coverage", "Coverage"),
         ("traceability", "Traceability"),
+        ("heat", "Heat tables"),
     ] {
         out.push_str(&format!(
             "<li><a href=\"{rel_root}reports/{name}.html\">{label}</a></li>\n"
@@ -196,6 +227,35 @@ fn build_nav(elements: &[RawElement], rel_root: &str, current: &str) -> String {
     }
     out.push_str("</ul>\n</nav>\n");
     out
+}
+
+fn nav_item(q: &str, rel_root: &str, current: &str) -> String {
+    let depth = q.matches("::").count();
+    let leaf = q.rsplit("::").next().unwrap_or(q);
+    let active = if q == current { " active" } else { "" };
+    format!(
+        "<li style=\"padding-left:{}rem\"><a class=\"el{active}\" href=\"{rel_root}elements/{}.html\">{}</a></li>\n",
+        depth as f32 * 0.6,
+        sanitize(q),
+        esc(leaf),
+    )
+}
+
+/// The complete, indented element listing, written once (GH #225).
+fn all_elements_page(elements: &[RawElement]) -> String {
+    let rel_root = "";
+    let mut qnames: Vec<&str> = elements
+        .iter()
+        .map(|e| e.qualified_name.as_str())
+        .filter(|q| !q.is_empty())
+        .collect();
+    qnames.sort_unstable();
+    let mut body = String::from("<h1>All elements</h1>\n<ul class=\"allel\" style=\"list-style:none\">\n");
+    for q in qnames {
+        body.push_str(&nav_item(q, rel_root, ""));
+    }
+    body.push_str("</ul>\n");
+    page_shell("All elements", rel_root, &build_nav(elements, rel_root, ""), &body, "", "")
 }
 
 // ── page shell ───────────────────────────────────────────────────────────────
@@ -226,6 +286,42 @@ fn page_shell(
 }
 
 // ── element pages ─────────────────────────────────────────────────────────────
+
+/// The user-defined links entering `target`, grouped by label (the declared
+/// `inverse`, else `<type> (inbound)`), each a sorted list of source labels (id,
+/// else qname). Ordered by label.
+fn inbound_custom_links(
+    target: &RawElement,
+    elements: &[RawElement],
+    resolver: &Resolver,
+) -> Vec<(String, Vec<String>)> {
+    use syscribe_model::link_types::{active, label, parse_links, LinksField};
+    let reg = active();
+    let mut by_label: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for src in elements {
+        let LinksField::Entries(entries) = parse_links(&src.frontmatter) else { continue };
+        for entry in entries.into_iter().filter(|e| e.key_ok) {
+            let hits = entry.targets.unwrap_or_default().iter().any(|t| {
+                resolver.resolve_ref(elements, t).is_some_and(|x| x.qualified_name == target.qualified_name)
+            });
+            if hits {
+                let l = reg
+                    .get(&entry.key)
+                    .map(|d| d.inbound_label())
+                    .unwrap_or_else(|| format!("{} (inbound)", entry.key));
+                by_label.entry(l).or_default().push(label(src));
+            }
+        }
+    }
+    by_label
+        .into_iter()
+        .map(|(l, mut v)| {
+            v.sort();
+            v.dedup();
+            (l, v)
+        })
+        .collect()
+}
 
 fn element_page(
     elem: &RawElement,
@@ -271,8 +367,9 @@ fn element_page(
     if let serde_json::Value::Object(map) = &fm_json {
         let mut rows = String::new();
         for (key, val) in map {
-            // Identity already shown in the header / meta line.
-            if matches!(key.as_str(), "type" | "name" | "id" | "status") {
+            // Identity already shown in the header / meta line; `links` is
+            // rendered per link type below.
+            if matches!(key.as_str(), "type" | "name" | "id" | "status" | "links") {
                 continue;
             }
             let cell = if REF_KEYS.contains(&key.as_str()) {
@@ -288,6 +385,23 @@ fn element_page(
                 esc(key),
                 cell
             ));
+        }
+        // User-defined links (REQ-TRS-LINKTYPE-009): one row per link type,
+        // `links.<type>`, its targets rendered as linked refs like `satisfies`.
+        if let syscribe_model::link_types::LinksField::Entries(entries) =
+            syscribe_model::link_types::parse_links(fm)
+        {
+            for entry in entries.into_iter().filter(|e| e.key_ok) {
+                let targets = entry.targets.unwrap_or_default();
+                if targets.is_empty() {
+                    continue;
+                }
+                rows.push_str(&format!(
+                    "<tr><td>links.{}</td><td>{}</td></tr>\n",
+                    esc(&entry.key),
+                    render_refs(&targets, elements, resolver, rel_root)
+                ));
+            }
         }
         if !rows.is_empty() {
             body.push_str("<h2>Frontmatter</h2>\n<table class=\"fm-table\">\n");
@@ -313,6 +427,11 @@ fn element_page(
     add_computed("verifiedBy", result.verified_by.get(key));
     add_computed("derivedChildren", result.derived_children.get(key));
     add_computed("allocatedFrom", result.allocated_from.get(key));
+    // Inbound user-defined links (REQ-TRS-LINKTYPE-009), under the type's inverse
+    // or `<type> (inbound)` — as the `links` command lists them.
+    for (label, sources) in inbound_custom_links(elem, elements, resolver) {
+        add_computed(&esc(&label), Some(&sources));
+    }
     if !computed.is_empty() {
         body.push_str("<h2>Computed references</h2>\n<table class=\"fm-table\">\n");
         body.push_str(&computed);
@@ -326,19 +445,137 @@ fn element_page(
         body.push_str("</div>\n");
     }
 
-    // Diagrams: Mermaid is already in the rendered doc; otherwise inline the SVG.
-    if matches!(fm.element_type, Some(ElementType::Diagram))
-        && fm.diagram_kind.as_deref() != Some("Mermaid")
-    {
-        if let Some(svg) = render_diagram(elem, resolver, elements) {
-            body.push_str("<div class=\"diagram\">\n");
-            body.push_str(&svg);
-            body.push_str("\n</div>\n");
+    // Members (REQ-TRS-PKG-001, GH #120) — the element's direct children, generated
+    // from the directory tree (never from `_index.md` prose), each linking to its
+    // element page. Always present for a package (explicit empty state); for any
+    // other type only when it owns children — the same rule as `show`.
+    let members = syscribe_model::members::direct_members(elements, &elem.qualified_name);
+    if syscribe_model::members::is_package(elem) || !members.is_empty() {
+        body.push_str(&format!("<section id=\"members\">\n<h2>Members ({})</h2>\n", members.len()));
+        if members.is_empty() {
+            body.push_str("<p class=\"empty\">No members.</p>\n");
+        } else {
+            body.push_str("<table class=\"fm-table\">\n<tr><th>Element</th><th>Type</th><th>Name</th><th>Status</th></tr>\n");
+            for m in &members {
+                body.push_str(&format!(
+                    "<tr><td><a href=\"{}elements/{}.html\">{}</a></td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                    rel_root,
+                    sanitize(&m.qualified_name),
+                    esc(syscribe_model::members::member_label(m)),
+                    esc(&type_str(&m.frontmatter).unwrap_or_else(|| "—".to_string())),
+                    esc(m.frontmatter.name.as_deref().unwrap_or("—")),
+                    esc(m.frontmatter.status.as_deref().unwrap_or("—")),
+                ));
+            }
+            body.push_str("</table>\n");
         }
+        body.push_str("</section>\n");
+    }
+
+    // Diagrams: Mermaid is already in the rendered doc; an inline `PlantUML`
+    // body likewise. Everything else follows the `REQ-TRS-VIS-010` fallback
+    // chain: a fully pinned IR drawn by `vis::svg`, else a companion SVG, else
+    // a PlantUML-rendered SVG, else a placeholder — the server never computes
+    // a layout.
+    if matches!(fm.element_type, Some(ElementType::Diagram))
+        && !matches!(fm.diagram_kind.as_deref(), Some("Mermaid") | Some("PlantUML"))
+    {
+        body.push_str(&diagram_embed(elem, elements, resolver, config));
     }
 
     let nav = build_nav(elements, rel_root, &elem.qualified_name);
     page_shell(&name, rel_root, &nav, &body, "", "")
+}
+
+// ── diagrams ───────────────────────────────────────────────────────────────
+
+/// The `<div class="diagram …">` for a `Diagram` element, by the first
+/// applicable rule of `REQ-TRS-VIS-010`'s fallback chain as `REQ-TRS-VIS-016`
+/// reduced it:
+///
+/// 1. the Diagram IR has shapes: it is drawn by `vis::svg` — from its pins
+///    when fully pinned, else laid out by the embedded ELK — with `[links]`
+///    hyperlinks on the shapes;
+/// 2. else a companion SVG (`svgMode: companion` or `svgFile:` set; default
+///    `<stem>.svg` beside the `.md`) that exists on disk is embedded;
+/// 3. else a PlantUML-rendered `.svg` beside the companion `.puml`
+///    (`pumlFile:`, default `<stem>.puml`, same stem with `.svg`) is embedded;
+/// 4. else a placeholder names the diagram, its kind and subject and points
+///    the reader at the syscribe-server browser.
+fn diagram_embed(elem: &RawElement, elements: &[RawElement], resolver: &Resolver, config: &ValidateConfig) -> String {
+    let fm = &elem.frontmatter;
+    let md_path = Path::new(&elem.file_path);
+    let md_dir = md_path.parent().unwrap_or(Path::new("."));
+
+    if let Some((mut graph, _issues)) = syscribe_model::vis::build_graph_with(elem, elements, resolver, &config.cyber) {
+        if let Some(root) = config.model_root.as_deref() {
+            syscribe_model::vis::flow::apply(&mut graph, &syscribe_model::vis::flow::DiagramConfig::load(root));
+        }
+        if !graph.nodes.is_empty() {
+            let links = crate::diagram_export::link_resolver(elements, resolver, config);
+            match syscribe_model::vis::render_svg(&graph, &links) {
+                Ok(svg) => {
+                    let class = if graph.is_fully_pinned() { "diagram diagram-pinned" } else { "diagram diagram-laid-out" };
+                    return format!("<div class=\"{class}\">\n{}\n</div>\n", svg.trim());
+                }
+                Err(e) => eprintln!("warning: {}: {e}; falling back to a companion picture", elem.qualified_name),
+            }
+        }
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if fm.svg_mode.as_deref() == Some("companion") || fm.svg_file.is_some() {
+        candidates.push(match &fm.svg_file {
+            Some(sf) => md_dir.join(sf.trim_start_matches("./")),
+            None => md_path.with_extension("svg"),
+        });
+    }
+    let puml = match &fm.puml_file {
+        Some(pf) => md_dir.join(pf.trim_start_matches("./")),
+        None => md_path.with_extension("puml"),
+    };
+    candidates.push(puml.with_extension("svg"));
+
+    for path in candidates {
+        if let Ok(svg) = std::fs::read_to_string(&path) {
+            let svg = strip_xml_prolog(&svg);
+            if svg.contains("<svg") {
+                return format!("<div class=\"diagram\">\n{}\n</div>\n", svg.trim());
+            }
+        }
+    }
+
+    let name = fm.name.clone().unwrap_or_else(|| elem.qualified_name.rsplit("::").next().unwrap_or(&elem.qualified_name).to_string());
+    let kind = fm.diagram_kind.as_deref().unwrap_or("Custom");
+    let subject = fm.subject.as_deref().unwrap_or("—");
+    format!(
+        "<div class=\"diagram diagram-placeholder\">\n<p><strong>{}</strong> · {} diagram · subject <code>{}</code></p>\n<p>Open this diagram in the syscribe-server browser to lay it out.</p>\n</div>\n",
+        esc(&name),
+        esc(kind),
+        esc(subject),
+    )
+}
+
+/// Drop a leading `<?xml …?>` declaration and `<!DOCTYPE …>` so a standalone
+/// SVG file can be inlined into an HTML document.
+fn strip_xml_prolog(svg: &str) -> String {
+    let mut s = svg.trim_start();
+    loop {
+        if s.starts_with("<?xml") {
+            match s.find("?>") {
+                Some(i) => s = s[i + 2..].trim_start(),
+                None => break,
+            }
+        } else if s.starts_with("<!DOCTYPE") {
+            match s.find('>') {
+                Some(i) => s = s[i + 1..].trim_start(),
+                None => break,
+            }
+        } else {
+            break;
+        }
+    }
+    s.to_string()
 }
 
 // ── reports ────────────────────────────────────────────────────────────────
@@ -438,6 +675,19 @@ fn coverage_report(elements: &[RawElement], result: &ValidationResult) -> String
 
     let nav = build_nav(elements, rel_root, "");
     page_shell("Coverage", rel_root, &nav, &body, "", "")
+}
+
+/// FMEA / HARA / TARA heat tables (GH #223) as one report page.
+fn heat_report(elements: &[RawElement], cfg: &syscribe_model::cyber_config::CyberConfig) -> String {
+    use syscribe_model::heat;
+    let rel_root = "../";
+    let mut body = String::from("<h1>Heat tables</h1>\n");
+    for g in [heat::hara_grid(elements), heat::fmea_grid(elements, None), heat::tara_grid(elements, cfg)] {
+        body.push_str(&g.to_html_fragment());
+    }
+    let head = format!("<style>{}</style>\n", heat::HEAT_CSS);
+    let nav = build_nav(elements, rel_root, "");
+    page_shell("Heat tables", rel_root, &nav, &body, &head, "")
 }
 
 fn traceability_report(
@@ -558,18 +808,19 @@ pub fn cmd_export_html(
     elements: &[RawElement],
     resolver: &Resolver,
     config: &ValidateConfig,
+    cyber: &syscribe_model::cyber_config::CyberConfig,
     args: &[String],
 ) {
     let (out_dir, css) = parse_args(args);
     let result = validator::validate_with_config(elements, config);
 
-    if let Err(e) = write_site(elements, resolver, config, &result, &out_dir, css.as_deref()) {
+    if let Err(e) = write_site(elements, resolver, config, cyber, &result, &out_dir, css.as_deref()) {
         eprintln!("Error: export-html failed: {e}");
         std::process::exit(1);
     }
 
-    // index + one per element + three reports.
-    let pages = 1 + elements.len() + 3;
+    // index + one per element + four reports.
+    let pages = 1 + elements.len() + 4;
     println!("Wrote {} pages to {}", pages, out_dir.display());
 }
 
@@ -578,6 +829,7 @@ fn write_site(
     elements: &[RawElement],
     resolver: &Resolver,
     config: &ValidateConfig,
+    cyber: &syscribe_model::cyber_config::CyberConfig,
     result: &ValidationResult,
     out_dir: &Path,
     css: Option<&Path>,
@@ -603,6 +855,8 @@ fn write_site(
     // Index page.
     std::fs::write(out_dir.join("index.html"), index_page(elements, &index_json))?;
 
+    std::fs::write(out_dir.join("all-elements.html"), all_elements_page(elements))?;
+
     // Element pages.
     for elem in elements {
         let file = elements_dir.join(format!("{}.html", sanitize(&elem.qualified_name)));
@@ -626,6 +880,7 @@ fn write_site(
         reports_dir.join("traceability.html"),
         traceability_report(elements, resolver, result),
     )?;
+    std::fs::write(reports_dir.join("heat.html"), heat_report(elements, cyber))?;
 
     Ok(())
 }

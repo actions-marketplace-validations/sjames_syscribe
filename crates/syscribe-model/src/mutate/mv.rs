@@ -43,6 +43,8 @@ pub enum MoveError {
     SourceHasNoFile(String),
     #[error("Source '{qname}' is synthesized from a shared sheet file ({file}) — moving it would relocate every sibling entry in that file; edit the sheet directly instead.")]
     SourceIsSynthesized { qname: String, file: String },
+    #[error("'{0}' is built into the tool and read-only; specialise it in a package of your own project instead.")]
+    SourceIsBuiltin(String),
     #[error("Invalid destination qualified name: '{0}'")]
     InvalidDestination(String),
     #[error("Destination equals source ('{0}') — nothing to do.")]
@@ -83,6 +85,21 @@ pub fn valid_qname(q: &str) -> bool {
         })
 }
 
+/// True when `q` is a valid *move destination*: every segment a basic name, except
+/// that the **last** may instead be a stable id (`Pkg::REQ-X-001`), which is how an
+/// id-identified element's `<id>.md` file is addressed (GH #185). Hyphens are
+/// otherwise rejected, and `..`/`.` traversal is still impossible (a stable id is a
+/// closed `[A-Z0-9-]` pattern).
+pub fn valid_move_dest(q: &str) -> bool {
+    if valid_qname(q) {
+        return true;
+    }
+    match q.rsplit_once("::") {
+        Some((head, leaf)) => valid_qname(head) && crate::resolver::is_stable_id(leaf),
+        None => crate::resolver::is_stable_id(q),
+    }
+}
+
 /// If `tok` is the moved qname or one of its descendants, return its rewritten form.
 fn rewrite_qname(tok: &str, old: &str, new: &str) -> Option<String> {
     if tok == old {
@@ -109,7 +126,9 @@ fn collect_refs(
                     return;
                 }
             }
-            if let Some(rewritten) = rewrite_qname(s, old, new) {
+            // A whole-scalar reference, or an expression that mentions one (`appliesWhen:
+            // "F::A and not F::B"`, a `parameterConstraints:` formula): token-scanned like prose.
+            if let Some(rewritten) = rewrite_qname(s, old, new).or_else(|| rewrite_qname_text(s, old, new)) {
                 out.insert(s.clone(), rewritten);
             }
         }
@@ -120,6 +139,17 @@ fn collect_refs(
         }
         serde_yaml::Value::Mapping(map) => {
             for (k, v) in map {
+                // A key can be a reference too: a `Configuration`'s `features:` and
+                // `parameterBindings:` maps are keyed by feature qualified name
+                // (`Pkg::Feature`, or `Pkg::Feature.parameter` for a binding).
+                if let Some(ks) = k.as_str() {
+                    let rewritten = rewrite_qname(ks, old, new).or_else(|| {
+                        ks.strip_prefix(old).filter(|rest| rest.starts_with('.')).map(|rest| format!("{new}{rest}"))
+                    });
+                    if let Some(rw) = rewritten {
+                        out.insert(ks.to_string(), rw);
+                    }
+                }
                 collect_refs(v, k.as_str(), old, new, out);
             }
         }
@@ -141,12 +171,37 @@ fn replace_whole_token(text: &str, old: &str, new: &str) -> String {
         let before = &rest[..pos];
         let after = &rest[pos + old.len()..];
         let prev_ok = before.chars().next_back().is_none_or(|c| !is_q(c));
-        let next_ok = after.chars().next().is_none_or(|c| !is_q(c));
+        // A single `:` after the token is a YAML key's terminator (`Pkg::Feature: true`),
+        // not part of a qualified name, whose separator is `::`.
+        let next_ok = match after.chars().next() {
+            None => true,
+            Some(':') => !after.starts_with("::"),
+            Some(c) => !is_q(c),
+        };
         out.push_str(before);
         out.push_str(if prev_ok && next_ok { new } else { old });
         rest = after;
     }
     out.push_str(rest);
+    out
+}
+
+/// As [`replace_whole_token`], but a line that is a `name:`-like entry (`NON_REF_KEYS`, with or
+/// without a list dash) is left alone: the YAML walk skipped that value as a label, and the textual
+/// pass must not rewrite it just because the same token is a real reference somewhere else.
+fn replace_line_tokens(text: &str, old: &str, new: &str) -> String {
+    let is_label_line = |line: &str| {
+        let t = line.trim_start().trim_start_matches("- ").trim_start();
+        NON_REF_KEYS.iter().any(|k| t.strip_prefix(k).is_some_and(|r| r.trim_start().starts_with(':')))
+    };
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        if is_label_line(line) {
+            out.push_str(line);
+        } else {
+            out.push_str(&replace_whole_token(line, old, new));
+        }
+    }
     out
 }
 
@@ -165,7 +220,7 @@ fn rewrite_frontmatter(fm: &str, old: &str, new: &str) -> Option<String> {
     keys.sort_by_key(|k| std::cmp::Reverse(k.len()));
     let mut out = fm.to_string();
     for k in keys {
-        out = replace_whole_token(&out, k, &refs[k]);
+        out = replace_line_tokens(&out, k, &refs[k]);
     }
     (out != fm).then_some(out)
 }
@@ -269,6 +324,9 @@ pub fn move_element(
     // `file_path` is the *sheet's* file, shared with every sibling entry.
     // Moving it by that path would relocate the whole sheet, mislabeled as
     // renaming one entry — refuse instead of silently doing that.
+    if let Some(e) = resolved.filter(|e| e.file_path.starts_with(crate::tagged_values::BUILTIN_PREFIX)) {
+        return Err(MoveError::SourceIsBuiltin(e.qualified_name.clone()));
+    }
     if let (Some(e), Some(f)) = (resolved, &src_file) {
         let rel = f.strip_prefix(model_root).unwrap_or(f);
         if is_synthesized(e, rel) {
@@ -279,7 +337,7 @@ pub fn move_element(
     let new = dest.replace('/', "::");
 
     // ── Validate destination ────────────────────────────────────────────────
-    if !valid_qname(&new) {
+    if !valid_move_dest(&new) {
         return Err(MoveError::InvalidDestination(new));
     }
     if new == old {
@@ -292,6 +350,10 @@ pub fn move_element(
     // ── Determine filesystem source/target (file vs package directory) ────────
     let dir_path = model_root.join(old.replace("::", "/"));
     let is_pkg = dir_path.is_dir();
+    if is_pkg && !valid_qname(&new) {
+        // A directory (package) is always a basic name; only a file may be `<id>.md`.
+        return Err(MoveError::InvalidDestination(new));
+    }
     let old_fs = if is_pkg {
         dir_path
     } else {
@@ -310,39 +372,21 @@ pub fn move_element(
         return Err(MoveError::DestinationExists(new_fs.display().to_string()));
     }
 
-    // ── Compute every planned reference-rewrite (across all model files) ───────
-    let mut edits: Vec<(PathBuf, String, String)> = Vec::new();
-    let mut seen: HashSet<PathBuf> = HashSet::new();
-    // Element (.md) files: frontmatter (structural) + body (incl. inline SVG).
-    for e in elements {
-        let p = PathBuf::from(&e.file_path);
-        if !seen.insert(p.clone()) {
-            continue;
-        }
-        if let Some((orig, updated)) = rewrite_file(&p, &old, &new) {
-            edits.push((p, orig, updated));
-        }
-    }
-    // Companion SVG files: rewrite qname references in `sysml:ref` / `data-qname`
-    // / `href` attributes and the like.
-    for entry in walkdir::WalkDir::new(model_root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-    {
-        let p = entry.path();
-        if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("svg")) {
-            let pb = p.to_path_buf();
-            if !seen.insert(pb.clone()) {
-                continue;
+    // An element that is a plain `Name.md` with a `Name/` directory of children beside it owns
+    // both: moving only the directory would strand the file under the old name while every
+    // reference was rewritten to the new one.
+    let sibling_file: Option<(PathBuf, PathBuf)> = match (&src_file, is_pkg) {
+        (Some(f), true) if f.file_name().is_some_and(|n| n != "_index.md") && f.is_file() => {
+            let to = model_root.join(format!("{}.md", new.replace("::", "/")));
+            if to.exists() {
+                return Err(MoveError::DestinationExists(to.display().to_string()));
             }
-            if let Ok(content) = std::fs::read_to_string(p) {
-                if let Some(updated) = rewrite_qname_text(&content, &old, &new) {
-                    edits.push((pb, content, updated));
-                }
-            }
+            Some((f.clone(), to))
         }
-    }
+        _ => None,
+    };
+
+    let edits = reference_edits(model_root, elements, &old, &new);
 
     let rewritten_files: Vec<PathBuf> = edits.iter().map(|(p, _, _)| p.clone()).collect();
 
@@ -384,6 +428,13 @@ pub fn move_element(
         rollback(&backups);
         return Err(MoveError::RelocationFailed { io: e });
     }
+    if let Some((from, to)) = &sibling_file {
+        if let Err(e) = std::fs::rename(from, to) {
+            let _ = std::fs::rename(&new_fs, &old_fs);
+            rollback(&backups);
+            return Err(MoveError::RelocationFailed { io: e });
+        }
+    }
 
     Ok(MoveReport {
         from: old,
@@ -395,9 +446,86 @@ pub fn move_element(
     })
 }
 
+/// Every file edit that rewrites references to `old` (a qualified name, or the prefix
+/// of qualified names) so they name `new`: structural frontmatter references, map
+/// keys, qualified names in Markdown bodies and companion SVG files. Returns
+/// `(path, original content, rewritten content)` for each file that changes; nothing
+/// is written (see [`apply_edits`]).
+pub fn reference_edits(model_root: &Path, elements: &[RawElement], old: &str, new: &str) -> Vec<(PathBuf, String, String)> {
+    let mut edits: Vec<(PathBuf, String, String)> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    // Element (.md) files: frontmatter (structural) + body (incl. inline SVG).
+    for e in elements {
+        let p = PathBuf::from(&e.file_path);
+        if !seen.insert(p.clone()) {
+            continue;
+        }
+        if let Some((orig, updated)) = rewrite_file(&p, old, new) {
+            edits.push((p, orig, updated));
+        }
+    }
+    // Companion SVG files: rewrite qname references in `sysml:ref` / `data-qname`
+    // / `href` attributes and the like.
+    for entry in walkdir::WalkDir::new(model_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let p = entry.path();
+        if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("svg")) {
+            let pb = p.to_path_buf();
+            if !seen.insert(pb.clone()) {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(p) {
+                if let Some(updated) = rewrite_qname_text(&content, old, new) {
+                    edits.push((pb, content, updated));
+                }
+            }
+        }
+    }
+    edits
+}
+
+/// Write the edits of [`reference_edits`], restoring every file if one write fails.
+pub fn apply_edits(edits: &[(PathBuf, String, String)]) -> Result<(), MoveError> {
+    let mut backups: Vec<(PathBuf, String)> = Vec::new();
+    for (p, orig, updated) in edits {
+        backups.push((p.clone(), orig.clone()));
+        if let Err(e) = std::fs::write(p, updated) {
+            rollback(&backups);
+            return Err(MoveError::WriteFailed { path: p.display().to_string(), io: e });
+        }
+    }
+    Ok(())
+}
+
 /// Restore original file contents recorded before any write.
 fn rollback(backups: &[(PathBuf, String)]) {
     for (p, orig) in backups {
         let _ = std::fs::write(p, orig);
+    }
+}
+
+#[cfg(test)]
+mod key_rewrite_tests {
+    use super::*;
+
+    #[test]
+    fn map_keys_that_name_the_moved_element_or_its_descendants_are_rewritten() {
+        // A Configuration is keyed by feature qualified name; a binding by `feature.parameter`.
+        let fm = "type: Configuration\nfeatures:\n  Features::Car: true\n  Features::Car::Engine: false\n  Features::Carpet: true\nparameterBindings:\n  Features::Car.speed: 3\n  Features::Car::Engine.power: 9\n";
+        let out = rewrite_frontmatter(fm, "Features::Car", "Features::Vehicle").unwrap();
+        assert!(out.contains("Features::Vehicle: true"), "{out}");
+        assert!(out.contains("Features::Vehicle::Engine: false"), "{out}");
+        assert!(out.contains("Features::Vehicle.speed: 3"), "{out}");
+        assert!(out.contains("Features::Vehicle::Engine.power: 9"), "{out}");
+        assert!(out.contains("Features::Carpet: true"), "a sibling that merely shares the prefix is left alone: {out}");
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_qualified_name_is_untouched() {
+        let fm = "type: Diagram\nlayout:\n  s-features-car: {x: 1, y: 2}\n";
+        assert!(rewrite_frontmatter(fm, "Features::Car", "Features::Vehicle").is_none());
     }
 }

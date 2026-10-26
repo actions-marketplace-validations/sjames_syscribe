@@ -23,7 +23,7 @@ pipelines. The format never changes without a version bump.
 | `audit --json` | Full readiness rollup with status split, coverage, orphans, verdict | Safety dashboard; go/no-go gate |
 | `metrics --json` | Array of `{id, sil, asil, spfm, lfm, pmhf, pass}` | PMHF trend charts; FMEDA evidence |
 | `cyber-risk --json` | Array of `{id, severity, feasibility, risk, treatment, addressed, flag}` | Security dashboards; untreated-threat alerting |
-| `verification-depth --json` | Array of `{id, silLevel, asilLevel, count, levels[], flag}` | Single-level coverage gap detection |
+| `verification-depth --json` | Array of `{id, silLevel, asilLevel, count, levels[], failing[], notRun[], flag}` | Single-level coverage gap detection |
 | `co-analysis --json` | Safety↔security overlap per goal | Co-engineering reporting |
 | `safety-case --json` | GSN tree per SafetyGoal with evidence nodes | Safety case document generation |
 | `features --json` | Feature model with groupKind, requires/excludes, selected-in counts | Product line dashboards |
@@ -74,8 +74,8 @@ frontmatter as parsed. This gives a script complete, structured access to the mo
 without having to parse Markdown files directly.
 
 ```bash
-# Full graph as JSON (all 405 elements in one document)
-syscribe -m model export --json > model-graph.json
+# Full graph as JSON (all elements in one document)
+syscribe -m model export > model-graph.json
 
 # Streaming NDJSON — one JSON object per line; memory-efficient for large models
 # First line is a header: {"kind":"header","elementCount":N,"schemaVersion":"1.0"}
@@ -103,7 +103,7 @@ syscribe -m model export --ndjson | grep '"type":"Requirement"' | jq '.frontmatt
 - **Graph analysis**: load the full element graph into a network-analysis library (NetworkX,
   igraph) to run custom connectivity, centrality, or shortest-path queries beyond what the
   CLI commands expose
-- **LLM context injection**: pipe `export --json` for a specific package into an LLM
+- **LLM context injection**: pipe `export` for a specific package into an LLM
   session to give it precise, current model state without hallucinating stale content
 
 **Python example — generate a custom safety requirements PDF**:
@@ -121,7 +121,7 @@ reqs = json.loads(result.stdout)
 
 # Get the full frontmatter for each (via export)
 model = json.loads(subprocess.run(
-    ["syscribe", "-m", "model", "export", "--json"],
+    ["syscribe", "-m", "model", "export"],
     capture_output=True, text=True
 ).stdout)
 by_qname = {e["qname"]: e for e in model["elements"]}
@@ -394,7 +394,7 @@ extRef: "JIRA://SAFE-1234"
 syscribe -m model extref "DOORS://Safety_Requirements#REQ-UAV-SAFE-001"
 
 # Find all elements with Jira references (for a sync script)
-syscribe -m model export --json \
+syscribe -m model export \
   | jq '.elements[] | select(.frontmatter.extRef | type == "string"
         and startswith("JIRA://")) | {qname, extRef: .frontmatter.extRef}'
 ```
@@ -405,7 +405,7 @@ model, diffs it against the DOORS snapshot, and posts changes to the external to
 
 ```bash
 # Export current model state for DOORS-linked requirements
-syscribe -m model export --json \
+syscribe -m model export \
   | jq '.elements[] | select(.frontmatter.extRef | strings | startswith("DOORS://"))
         | {id: .frontmatter.id, name: .frontmatter.name,
            status: .frontmatter.status, extRef: .frontmatter.extRef}' \
@@ -421,23 +421,27 @@ imported content before switching over entirely.
 
 ### D.9 Summary: the extensibility model
 
-syscribe's extensibility rests on four surfaces that compose cleanly:
+syscribe's extensibility rests on the surfaces below, which compose cleanly:
 
 | Surface | Interface | Use for |
 |---|---|---|
 | **JSON output** | `--json` on every command | Scripts, dashboards, LLM context, CI parsing |
-| **Model graph** | `export --json` / `--ndjson` | Custom reports, external sync, graph analysis |
+| **Model graph** | `export` / `export --ndjson` | Custom reports, external sync, graph analysis |
 | **Result ingestion** | `ingest-results` / `--results` | Live coverage tracking from CI test runs |
 | **Gate policy** | `.syscribe.toml` profiles + `--profile` | Project-specific CI gates, ASPICE/SIL/ASIL profiles |
 | **Scaffolding** | `template`, `scaffold-gherkin`, `next-id`, `path-for` | Code generation, LLM authoring pipelines |
 | **LLM context** | `--agent-instructions [topic]` | LLM system prompt for model authoring sessions |
 | **External refs** | `extRef:` field + `extref` command | DOORS/Polarion/Jira bridges |
 | **Graph rendering** | `connectivity --format dot`, `fault-tree render` | Automated diagram generation |
+| **Foreign-format plugins** | `foreignFormat:` + `[plugins.<alias>]` stdio subprocess | Ingest a custom notation in any language (see model-guide/stdio-plugins.md) |
+| **Annotated source** | `annotationFormat:` + `marker:` | Pull model elements out of source-code comments (see model-guide/annotated-source.md) |
 
 The design principle is that syscribe remains a focused validator and analysis engine —
 it does not try to be a report generator, a dashboard, or an external tool adapter.
 Those responsibilities belong to the scripts and pipelines that consume its JSON output.
 This keeps the tool simple, fast, and predictable, and means any language or framework
-can integrate with it without waiting for a plugin system.
+can consume it through these surfaces; where a custom input notation is needed, stdio
+`foreignFormat:` plugins and `annotationFormat:` source ingestion bring it in without
+modifying syscribe.
 
 ---

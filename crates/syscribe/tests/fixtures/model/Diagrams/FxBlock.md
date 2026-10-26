@@ -14,14 +14,9 @@ edges:
   e-spec:
     source: s-derived
     target: s-base
-    kind: supertype
-layout:
-  s-base:
-    x: 40
-    y: 40
-  s-derived:
-    x: 40
-    y: 220
+    kind: inheritance
 ---
 
-Block diagram of the fixture parts (SVG-rendered).
+Block diagram of the fixture parts: a manifest with no `layout:`, so it is
+not pinned — `export-html` and `--format svg` lay it out with the embedded
+ELK (REQ-TRS-VIS-016).

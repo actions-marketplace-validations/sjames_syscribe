@@ -102,10 +102,24 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
     let ignore_patterns = load_sysmlignore(model_root);
 
     // Two-pass: collect all paths first, sort so _index.md comes before siblings
-    let mut paths: Vec<PathBuf> = WalkDir::new(model_root)
-        .follow_links(false)
+    // An unreadable directory is an error, not a silent gap: skipping it would
+    // present a model with whole subtrees missing (and make a failed LSP reload
+    // replace a good store with a truncated one).
+    let mut entries = Vec::new();
+    for e in WalkDir::new(model_root).follow_links(false) {
+        match e {
+            Ok(e) => entries.push(e),
+            Err(err) => {
+                return Err(anyhow::anyhow!(
+                    "cannot read {}: {}",
+                    err.path().map(|p| p.display().to_string()).unwrap_or_default(),
+                    err
+                ))
+            }
+        }
+    }
+    let mut paths: Vec<PathBuf> = entries
         .into_iter()
-        .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "md"))
         .filter(|e| {
@@ -150,7 +164,7 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
                 Ok(fm) => (fm, None),
                 Err(e) => {
                     warn!("Frontmatter parse error in {}: {}", file_path, e);
-                    (Default::default(), Some(ParseIssue::YamlError(e.to_string())))
+                    (Default::default(), Some(ParseIssue::YamlError(format!("{:#}", e))))
                 }
             }
         };
@@ -163,9 +177,14 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
             parse_issue,
             derived: Default::default(),
             derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
         });
     }
 
+    // §3.10 locale documentation variants: fold each `locale:` + `qualifiedName:`
+    // file into its target's `locale_docs` before any synthesis pass runs.
+    attach_locale_variants(&mut elements);
     explode_fmea_entries(&mut elements);
     explode_tara_entries(&mut elements);
     explode_feature_model_trees(&mut elements);
@@ -179,9 +198,340 @@ pub fn walk_model(model_root: &Path) -> Result<Vec<RawElement>> {
     crate::plugins::apply_foreign_plugins(&mut elements, model_root);
     // Annotated-source ingestion: in-process comment-marker scan (ADR-SYS-ANNOTATE-001).
     crate::annotations::apply_annotation_scans(&mut elements, model_root);
+    // Stereotype profiles enabled in `[metadata]`, and the built-in `StdMetadata` library.
+    crate::tagged_values::finish_walk(&mut elements, model_root);
+    // §3.10 `about:` comments (REQ-TRS-PARSE-011): after every synthesis pass
+    // so a comment can annotate a synthesized element too.
+    attach_about_comments(&mut elements);
     // Derive pass: evaluate `derive:` blocks; findings stored in each element's derive_findings.
     crate::derive::derive_pass(&mut elements);
+    // Configuration inheritance through `derivedFrom:` (§9.8, GH #137): after
+    // every other pass so a plugin-/sheet-synthesized Configuration takes part.
+    crate::config_inherit::apply_configuration_inheritance(&mut elements);
+    // A pass that took a mutable view of a rarely-set field may have left its block
+    // allocated but empty; drop it so the element stays one pointer wide.
+    for e in &mut elements {
+        e.frontmatter.shrink();
+    }
     Ok(elements)
+}
+
+/// Frontmatter keys a §3.10 locale variant may carry. Anything else would
+/// redefine the element's structure, which a variant never does (W051).
+const LOCALE_VARIANT_KEYS: &[&str] = &["type", "name", "locale", "qualifiedName"];
+
+/// True when `elem` is a §3.10 locale documentation variant: it carries both
+/// `locale:` and a `qualifiedName:` naming the element it documents.
+pub fn is_locale_variant(elem: &RawElement) -> bool {
+    elem.frontmatter.locale.is_some() && elem.frontmatter.qualified_name.is_some()
+}
+
+/// Top-level frontmatter keys of `file` outside `allowed`, sorted. Re-reads
+/// the file: variants and `about:` comments are rare, and the typed
+/// `RawFrontmatter` cannot tell an authored key from a defaulted one.
+fn frontmatter_extra_keys(file: &str, allowed: &[&str]) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(file) else { return Vec::new() };
+    let (Some(yaml), _) = split_frontmatter(&content) else { return Vec::new() };
+    let Ok(map) = serde_yaml::from_str::<serde_yaml::Mapping>(yaml) else { return Vec::new() };
+    let mut keys: Vec<String> = map
+        .keys()
+        .filter_map(|k| k.as_str())
+        .filter(|k| !allowed.contains(k))
+        .map(str::to_string)
+        .collect();
+    keys.sort();
+    keys
+}
+
+/// §3.10 locale documentation variants (REQ-TRS-PARSE-010, GH #160).
+///
+/// A file with both `locale:` and `qualifiedName:` contributes its Markdown
+/// body as the `locale` documentation of the file-backed element whose
+/// (path-derived) qualified name equals `qualifiedName:`; it does not define
+/// an element of its own, so it is removed from `elements`. Findings go to
+/// the target's `derive_findings`, filed against the variant's path:
+///
+/// - `W051` — the target already has documentation for that locale (an
+///   earlier variant in walk order, or the element's own `locale:`; the
+///   first wins), the variant's `type:` differs from the target's, or the
+///   variant declares fields other than [`LOCALE_VARIANT_KEYS`] (ignored).
+/// - `E026` — `qualifiedName:` names no element. The variant is then kept as
+///   its own element (the pre-#160 behaviour) carrying the error, so it is
+///   never silently dropped.
+fn attach_locale_variants(elements: &mut Vec<RawElement>) {
+    if !elements.iter().any(is_locale_variant) {
+        return;
+    }
+    // Targets: every non-variant element by qualified name (first wins on a
+    // duplicate, which is E108 anyway).
+    let mut by_qname: HashMap<String, usize> = HashMap::new();
+    for (i, e) in elements.iter().enumerate() {
+        if !is_locale_variant(e) {
+            by_qname.entry(e.qualified_name.clone()).or_insert(i);
+        }
+    }
+
+    let mut attached: Vec<usize> = Vec::new();
+    for i in 0..elements.len() {
+        if !is_locale_variant(&elements[i]) {
+            continue;
+        }
+        let variant = &elements[i];
+        let file = variant.file_path.clone();
+        let locale = variant.frontmatter.locale.clone().unwrap_or_default().trim().to_string();
+        let target_q = variant.frontmatter.qualified_name.clone().unwrap_or_default().trim().to_string();
+
+        let Some(&t) = by_qname.get(&target_q) else {
+            let msg = format!(
+                "locale variant (locale '{}') names `qualifiedName: {}`, which resolves to no element — \
+                 its documentation cannot be attached, so the file is treated as its own element (§3.10)",
+                locale, target_q
+            );
+            elements[i].derive_findings.push(("E026".to_string(), file, msg));
+            continue;
+        };
+
+        let mut findings: Vec<(String, String, String)> = Vec::new();
+        let extras = frontmatter_extra_keys(&file, LOCALE_VARIANT_KEYS);
+        if !extras.is_empty() {
+            findings.push((
+                "W051".to_string(),
+                file.clone(),
+                format!(
+                    "locale variant of '{}' declares {} — a variant contributes documentation only and never \
+                     redefines the element's structure; ignored (allowed: type, name, locale, qualifiedName)",
+                    target_q,
+                    extras.iter().map(|k| format!("'{}'", k)).collect::<Vec<_>>().join(", ")
+                ),
+            ));
+        }
+        if let (Some(vt), Some(tt)) =
+            (&variant.frontmatter.element_type, &elements[t].frontmatter.element_type)
+        {
+            if vt != tt {
+                findings.push((
+                    "W051".to_string(),
+                    file.clone(),
+                    format!(
+                        "locale variant declares `type: {}` but its target '{}' is a {}; the variant's type is ignored",
+                        vt.name(),
+                        target_q,
+                        tt.name()
+                    ),
+                ));
+            }
+        }
+        let body = variant.doc.clone();
+        let target = &mut elements[t];
+        let own_locale = target.frontmatter.locale.as_deref().map(str::trim) == Some(locale.as_str());
+        if own_locale || target.locale_docs.contains_key(&locale) {
+            findings.push((
+                "W051".to_string(),
+                file.clone(),
+                format!(
+                    "'{}' already has '{}' documentation ({}); this locale variant is ignored",
+                    target_q,
+                    locale,
+                    if own_locale { "its own body is tagged with that locale" } else { "from an earlier variant file" }
+                ),
+            ));
+        } else {
+            target.locale_docs.insert(locale, body);
+        }
+        target.derive_findings.extend(findings);
+        attached.push(i);
+    }
+
+    for i in attached.into_iter().rev() {
+        elements.remove(i);
+    }
+}
+
+/// Frontmatter keys a §3.10 `about:` comment may carry. A comment defines no
+/// element, so anything else would be silently meaningless (W052).
+const ABOUT_COMMENT_KEYS: &[&str] = &["type", "name", "about", "locale"];
+
+fn is_index_file(elem: &RawElement) -> bool {
+    Path::new(&elem.file_path).file_name().is_some_and(|n| n == "_index.md")
+}
+
+/// True when `elem` is a §3.10 `about:` comment: a file (not a package
+/// `_index.md`, which defines its package) whose frontmatter carries
+/// `about:` and which is not a locale variant.
+pub fn is_about_comment(elem: &RawElement) -> bool {
+    elem.frontmatter.about.is_some() && !is_locale_variant(elem) && !is_index_file(elem)
+}
+
+/// The entries of an `about:` value (a string or a list): the usable
+/// (non-empty string) entries, and a description of each unusable one.
+fn about_entries(v: &serde_yaml::Value) -> (Vec<String>, Vec<String>) {
+    let items: Vec<&serde_yaml::Value> = match v {
+        serde_yaml::Value::Sequence(seq) => seq.iter().collect(),
+        other => vec![other],
+    };
+    let mut ok = Vec::new();
+    let mut bad = Vec::new();
+    for item in items {
+        match item.as_str().map(str::trim) {
+            Some(s) if !s.is_empty() => ok.push(s.to_string()),
+            _ => bad.push(
+                serde_yaml::to_string(item).unwrap_or_default().trim().replace('\n', " "),
+            ),
+        }
+    }
+    (ok, bad)
+}
+
+/// §3.10 `about:` comments (REQ-TRS-PARSE-011, GH #164).
+///
+/// A file (other than a package `_index.md`) carrying `about:` and not a
+/// locale variant is a cross-element comment — SysML v2 `comment … about
+/// X, Y`. Each `about:` entry resolves against the elements' qualified names,
+/// falling back to a stable `id:`; the comment (name, file, locale, body) is
+/// attached as an [`AboutNote`](crate::element::AboutNote) to every resolved
+/// element and the file is removed from `elements`. Findings, filed against
+/// the comment's path, go to the first resolved target's `derive_findings`:
+///
+/// - `E027` — an entry resolves to no element. When no entry resolves the
+///   comment is kept as its own element (carrying the errors) so it is never
+///   silently dropped.
+/// - `W052` — the comment declares fields other than [`ABOUT_COMMENT_KEYS`]
+///   (ignored), or an entry is not a non-empty string; and, on a package
+///   `_index.md` (which stays the package), the `about:` field itself.
+fn attach_about_comments(elements: &mut Vec<RawElement>) {
+    // `about:` on a package `_index.md`: the file defines its package and is
+    // never a comment — report and ignore the field.
+    for e in elements.iter_mut() {
+        if e.frontmatter.about.is_some() && is_index_file(e) && !is_locale_variant(e) {
+            let file = e.file_path.clone();
+            e.derive_findings.push((
+                "W052".to_string(),
+                file,
+                format!(
+                    "`about:` on a package `_index.md` is ignored — the `_index.md` defines the package '{}' \
+                     and is never a comment; put the comment in its own file (§3.10)",
+                    e.qualified_name
+                ),
+            ));
+        }
+    }
+    if !elements.iter().any(is_about_comment) {
+        return;
+    }
+    // Targets: every non-comment element, by qualified name and by stable id
+    // (first wins on a duplicate, which E108/E101 report anyway).
+    let mut by_qname: HashMap<String, usize> = HashMap::new();
+    let mut by_id: HashMap<String, usize> = HashMap::new();
+    for (i, e) in elements.iter().enumerate() {
+        if is_about_comment(e) {
+            continue;
+        }
+        by_qname.entry(e.qualified_name.clone()).or_insert(i);
+        if let Some(id) = e.frontmatter.id.as_deref() {
+            by_id.entry(id.trim().to_string()).or_insert(i);
+        }
+    }
+
+    let mut attached: Vec<usize> = Vec::new();
+    for i in 0..elements.len() {
+        if !is_about_comment(&elements[i]) {
+            continue;
+        }
+        let comment = &elements[i];
+        let file = comment.file_path.clone();
+        let (entries, bad) = about_entries(comment.frontmatter.about.as_ref().unwrap_or(&serde_yaml::Value::Null));
+
+        let mut findings: Vec<(String, String, String)> = Vec::new();
+        let extras = frontmatter_extra_keys(&file, ABOUT_COMMENT_KEYS);
+        if !extras.is_empty() {
+            findings.push((
+                "W052".to_string(),
+                file.clone(),
+                format!(
+                    "`about:` comment declares {} — a comment annotates the elements it lists and defines no \
+                     element of its own; ignored (allowed: type, name, about, locale)",
+                    extras.iter().map(|k| format!("'{}'", k)).collect::<Vec<_>>().join(", ")
+                ),
+            ));
+        }
+        for b in &bad {
+            findings.push((
+                "W052".to_string(),
+                file.clone(),
+                format!("`about:` entry `{}` is not a qualified name or id (a non-empty string); ignored", b),
+            ));
+        }
+        let mut targets: Vec<usize> = Vec::new();
+        for entry in &entries {
+            match by_qname.get(entry).or_else(|| by_id.get(entry)) {
+                Some(&t) => {
+                    if !targets.contains(&t) {
+                        targets.push(t);
+                    }
+                }
+                None => findings.push((
+                    "E027".to_string(),
+                    file.clone(),
+                    format!(
+                        "`about:` comment names '{}', which resolves to no element — the comment cannot be \
+                         attached to it (§3.10)",
+                        entry
+                    ),
+                )),
+            }
+        }
+
+        let Some(&first) = targets.first() else {
+            // Nothing to attach to: keep the file as its own element so it is
+            // never silently lost.
+            if entries.is_empty() && bad.is_empty() {
+                findings.push((
+                    "W052".to_string(),
+                    file.clone(),
+                    "`about:` lists no element; the file is treated as its own element (§3.10)".to_string(),
+                ));
+            }
+            elements[i].derive_findings.extend(findings);
+            continue;
+        };
+        let stem = Path::new(&file)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let note = crate::element::AboutNote {
+            name: comment.frontmatter.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or(stem),
+            file: file.clone(),
+            locale: comment.frontmatter.locale.as_ref().map(|l| l.trim().to_string()),
+            body: comment.doc.clone(),
+        };
+        for &t in &targets {
+            elements[t].about_notes.push(note.clone());
+        }
+        elements[first].derive_findings.extend(findings);
+        attached.push(i);
+    }
+
+    for i in attached.into_iter().rev() {
+        elements.remove(i);
+    }
+}
+
+/// Common fields a sheet states once for all its rows (GH #229, REQ-TRS-SHEET-001):
+/// `responsibility`, `appliesWhen` and `tags` are inherited by a row that does not set
+/// them; a row's own value (including its own `tags` list) wins. For TARA rows that is any
+/// of the three; FMEA entries have no per-row keys for them, so they always inherit. `status` is handled by
+/// the callers.
+fn inherit_sheet_common_fields(row: &mut RawFrontmatter, sheet: &RawFrontmatter) {
+    if row.responsibility.is_none() {
+        row.responsibility = sheet.responsibility.clone();
+    }
+    if row.applies_when.is_none() && sheet.applies_when.is_some() {
+        row.applies_when = sheet.applies_when.clone();
+        row.applies_when_inherited = true;
+    }
+    if row.tags.is_none() {
+        row.tags = sheet.tags.clone();
+    }
 }
 
 /// Post-processing pass: for each TARASheet, synthesise DamageScenario, ThreatScenario,
@@ -200,6 +550,10 @@ fn explode_tara_entries(elements: &mut Vec<RawElement>) {
         }
 
         let sections: &[(&[serde_yaml::Value], ElementType)] = &[
+            (
+                sheet.frontmatter.asset_table.as_deref().unwrap_or(&[]),
+                ElementType::Asset,
+            ),
             (
                 sheet.frontmatter.damage_table.as_deref().unwrap_or(&[]),
                 ElementType::DamageScenario,
@@ -238,6 +592,7 @@ fn explode_tara_entries(elements: &mut Vec<RawElement>) {
                 if fm.status.is_none() {
                     fm.status = sheet.frontmatter.status.clone();
                 }
+                inherit_sheet_common_fields(&mut fm, &sheet.frontmatter);
 
                 synthetic.push(RawElement {
                     qualified_name: format!("{}::{}", sheet.qualified_name, entry_id),
@@ -247,6 +602,8 @@ fn explode_tara_entries(elements: &mut Vec<RawElement>) {
                     parse_issue: None,
                     derived: Default::default(),
                     derive_findings: Vec::new(),
+                    locale_docs: Default::default(),
+                    about_notes: Default::default(),
                 });
             }
         }
@@ -257,7 +614,9 @@ fn explode_tara_entries(elements: &mut Vec<RawElement>) {
 
 /// Post-processing pass: for each FMEASheet, synthesise a FMEAEntry RawElement
 /// for every item in its `entries:` list.  Each entry must have an `id` key;
-/// entries without one are silently skipped (the validator will warn).
+/// entries without one are dropped here and reported by the validator as
+/// `E923` on the sheet (GH #132). When S, O and D are all present the computed
+/// RPN wins over an explicit `rpn:`; a disagreeing explicit value is `W928`.
 fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
     let mut synthetic: Vec<RawElement> = Vec::new();
 
@@ -286,6 +645,9 @@ fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
                 map.get(serde_yaml::Value::String(key.into()))
                     .and_then(|v| v.as_u64())
                     .map(|n| n.min(255) as u8)
+            };
+            let f64_val = |key: &str| -> Option<f64> {
+                map.get(serde_yaml::Value::String(key.into())).and_then(|v| v.as_f64())
             };
             let strings_val = |key: &str| -> Option<Vec<String>> {
                 match map.get(serde_yaml::Value::String(key.into())) {
@@ -324,6 +686,8 @@ fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
                 "id", "ref", "name", "failureMode", "status", "effect", "cause",
                 "fmeaSeverity", "severity", "occurrence", "detection", "rpn",
                 "recommendedAction", "satisfies", "ftaRef",
+                "failureRate", "diagnosticCoverage", "latentDiagnosticCoverage",
+                "injection", "appliesWhen", "rateSource", "rateStatus",
             ];
             let unknown_fmea_keys: Vec<String> = map
                 .keys()
@@ -332,24 +696,37 @@ fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
                 .map(String::from)
                 .collect();
 
-            let fm = RawFrontmatter {
+            let fm = {
+                let mut fm = RawFrontmatter {
                 element_type: Some(ElementType::FMEAEntry),
                 id: Some(entry_id.clone()),
                 name: Some(label),
                 status: str_val("status").or_else(|| sheet.frontmatter.status.clone()),
                 subject: str_val("ref"),
-                failure_mode,
-                effect: str_val("effect"),
-                cause: str_val("cause"),
-                fmea_severity: s,
-                occurrence: o,
-                detection: d,
-                rpn,
-                recommended_action: str_val("recommendedAction"),
-                fta_ref: str_val("ftaRef"),
                 satisfies: strings_val("satisfies"),
-                unknown_fmea_keys,
                 ..Default::default()
+                };
+                fm.failure_mode = failure_mode;
+                fm.effect = str_val("effect");
+                fm.cause = str_val("cause");
+                fm.fmea_severity = s;
+                fm.occurrence = o;
+                fm.detection = d;
+                fm.rpn = rpn;
+                fm.recommended_action = str_val("recommendedAction");
+                fm.fta_ref = str_val("ftaRef");
+                // FMEDA data on a row (GH #218): feeds `metrics` via `ftaRef`.
+                fm.failure_rate = f64_val("failureRate");
+                fm.diagnostic_coverage = f64_val("diagnosticCoverage");
+                fm.latent_diagnostic_coverage = f64_val("latentDiagnosticCoverage");
+                fm.rate_source = str_val("rateSource");
+                fm.rate_status = str_val("rateStatus");
+                fm.injection = map.get(serde_yaml::Value::String("injection".into())).cloned();
+                // a row may be gated by its own `appliesWhen:` (GH #313); else it follows the sheet
+                fm.applies_when = map.get(serde_yaml::Value::String("appliesWhen".into())).cloned();
+                fm.unknown_fmea_keys = unknown_fmea_keys;
+                inherit_sheet_common_fields(&mut fm, &sheet.frontmatter);
+                fm
             };
 
             synthetic.push(RawElement {
@@ -360,6 +737,8 @@ fn explode_fmea_entries(elements: &mut Vec<RawElement>) {
                 parse_issue: None,
                 derived: Default::default(),
                 derive_findings: Vec::new(),
+                locale_docs: Default::default(),
+                about_notes: Default::default(),
             });
         }
     }
@@ -436,10 +815,20 @@ fn explode_feature_model_trees(elements: &mut Vec<RawElement>) {
         // range is what `crossTreeConstraints:` below is allowed to attach to.
         let sheet_start = synthetic.len();
         if let Some(tree) = &sheet.frontmatter.feature_tree {
+            // The qnames this sheet's entries will get, so an inline
+            // requires:/excludes: path can be checked against siblings that are
+            // exploded after the entry naming them.
+            let sheet_entries: HashSet<String> = tree
+                .iter()
+                .filter_map(|e| e.get("name").and_then(|v| v.as_str()))
+                .filter(|n| !n.split('.').any(str::is_empty))
+                .map(|n| join_under_sheet(&sheet.qualified_name, &n.split('.').collect::<Vec<_>>().join("::")))
+                .collect();
             for entry in tree {
                 explode_feature_entry(
                     entry,
                     &sheet.qualified_name,
+                    &sheet_entries,
                     &sheet.file_path,
                     idx,
                     &mut seen_qnames,
@@ -499,6 +888,7 @@ fn resolve_feature_ref(raw: &str, sheet_qname: &str) -> Option<String> {
 fn explode_feature_entry(
     entry: &serde_yaml::Value,
     sheet_qname: &str,
+    sheet_entries: &HashSet<String>,
     sheet_file: &str,
     sheet_idx: usize,
     seen_qnames: &mut HashSet<String>,
@@ -574,13 +964,36 @@ fn explode_feature_entry(
     };
     if id_absent {
         let seg_id = |s: &str| -> String {
-            s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_uppercase()
+            // GH #227: a FEAT id segment is 2-12 characters, so a long name is
+            // cut to 12 (a resulting collision is E101); a 1-character name
+            // still needs an explicit `id:` and is reported by E006.
+            s.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect::<String>().to_uppercase()
         };
         let derived_id = format!("FEAT-{}", segments.iter().map(|s| seg_id(s)).collect::<Vec<_>>().join("-"));
         map.insert("id".into(), derived_id.into());
     }
 
     map.insert("name".into(), leaf_name.into());
+    // GH #325: inside the sheet a feature is *named* by its dotted tree path, so
+    // an inline `requires:`/`excludes:` may name a sibling that way
+    // (`Protection.Afci`), as a `crossTreeConstraints:` value can. The path is
+    // rewritten only when it names an entry of this sheet; anything else
+    // (a qname, a `FEAT-` id, a feature outside the sheet) is left as written,
+    // so a reference that resolved before still means the same feature.
+    for key in ["requires", "excludes"] {
+        let to_qname = |v: &mut serde_yaml::Value| {
+            if let serde_yaml::Value::String(r) = v {
+                if let Some(q) = resolve_feature_ref(r, sheet_qname).filter(|q| sheet_entries.contains(q)) {
+                    *r = q;
+                }
+            }
+        };
+        match map.get_mut(key) {
+            Some(serde_yaml::Value::Sequence(seq)) => seq.iter_mut().for_each(to_qname),
+            Some(v) => to_qname(v),
+            None => {}
+        }
+    }
     // A type-mismatched field anywhere in the entry (e.g. `mandatory: "yes"`)
     // fails the *whole* deserialize — `unwrap_or_default()` would silently
     // discard every other field (id, groupKind, requires, ...) with no
@@ -599,6 +1012,8 @@ fn explode_feature_entry(
                 parse_issue: None,
                 derived: Default::default(),
                 derive_findings: Vec::new(),
+                locale_docs: Default::default(),
+                about_notes: Default::default(),
             });
         }
         Err(e) => {
@@ -610,6 +1025,8 @@ fn explode_feature_entry(
                 parse_issue: Some(ParseIssue::YamlError(format!("featureTree: entry '{}': {}", raw_name, e))),
                 derived: Default::default(),
                 derive_findings: Vec::new(),
+                locale_docs: Default::default(),
+                about_notes: Default::default(),
             });
         }
     }

@@ -1,9 +1,9 @@
 # Tool Validation Report
 
 **Tool:** syscribe CLI validator  
-**Version:** syscribe 0.38.0  
+**Version:** syscribe 0.43.0  
 **Standard:** ISO 26262:2018 Part 8 §11 (TCL2), IEC 61508:2010 Part 3 Annex D  
-**Date:** 2026-08-24  
+**Date:** 2026-09-26  
 **TRS:** `qual/Requirements/`  **Test cases:** `qual/TestCases/`
 
 ---
@@ -12,14 +12,27 @@
 
 | Metric | Value |
 |---|---|
-| Total test cases | 281 |
-| Passed | 281 |
+| Total test cases | 341 |
+| Passed | 341 |
 | Failed | 0 |
 | Overall verdict | **PASS** |
 
 ---
 
 ## 2. Results
+
+### TC-TRS-ADR-001 — Verify the ADR deciders: field is accepted without W047 and shown by show, and stays W047 on other types.
+
+**Verifies:** REQ-TRS-ADR-001  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| deciders on an ADR is a recognized field | ✓ PASS |
+| show displays the deciders and the date | ✓ PASS |
+| deciders on a non-ADR element is still unrecognized | ✓ PASS |
+
+---
 
 ### TC-TRS-ALLOC-001 — Verify two allocation forms over one edge model: allocatedTo-on-source clears MG041/MG081 + derives allocatedFrom; type-less legacy features are edges; E503 unresolved; W503 redundant duplicate.
 
@@ -29,6 +42,34 @@
 | Scenario | Result |
 |---|---|
 | the same edge in both forms raises W503 | ✓ PASS |
+
+---
+
+### TC-TRS-ALLOC-002 — Verify E314 and W034 consume the §12.9 unified allocation-edge set (allocatedTo, features-form and top-level Allocation elements, legacy authored allocatedFrom), and the legacy form reaches matrix --allocations and W503.
+
+**Verifies:** REQ-TRS-TRACE-008,REQ-TRS-ALLOC-001  
+**Result:** ✓ PASS (14 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| allocatedTo on the deployment package clears E314 | ✓ PASS |
+| a features-form Allocation element clears E314 | ✓ PASS |
+| a legacy authored allocatedFrom on the hardware target clears E314 | ✓ PASS |
+| an allocation to a software element still raises E314 | ✓ PASS |
+| W034 sees the sources of standalone Allocation elements | ✓ PASS |
+| a legacy authored allocatedFrom reaches the matrix and W503 | ✓ PASS |
+
+---
+
+### TC-TRS-ALLOC-003 — Verify a features-form allocation on a non-Allocation element raises W930 and contributes no allocation edge, while the same entry on a type: Allocation element is an edge with no W930.
+
+**Verifies:** REQ-TRS-ALLOC-001  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a features-form allocation on a PartDef raises W930 | ✓ PASS |
+| the same entry on an Allocation element is an edge | ✓ PASS |
 
 ---
 
@@ -85,11 +126,11 @@
 ### TC-TRS-CFLD-002 — Verify the --where custom-field query: exact, regex, list-membership, presence, and bad-predicate exit.
 
 **Verifies:** REQ-TRS-CFLD-002  
-**Result:** ✓ PASS (8 passed, 0 failed)
+**Result:** ✓ PASS (17 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| unparseable predicate exits non-zero | ✓ PASS |
+| unsupported operators are usage errors (issue #129) | ✓ PASS |
 
 ---
 
@@ -173,7 +214,7 @@
 ### TC-TRS-CLI-007 — Verify version reporting via --version, -V, and the version subcommand (exit 0, no model dir).
 
 **Verifies:** REQ-TRS-CLI-007  
-**Result:** ✓ PASS (4 passed, 0 failed)
+**Result:** ✓ PASS (7 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
@@ -189,6 +230,43 @@
 | Scenario | Result |
 |---|---|
 | explicit 'report' runs the default validation report | ✓ PASS |
+
+---
+
+### TC-TRS-CLI-009 — Verify invalid option values and unknown options are usage errors (exit 1, empty stdout, named option), and valid options still work.
+
+**Verifies:** REQ-TRS-CLI-009  
+**Result:** ✓ PASS (65 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| valid options still work | ✓ PASS |
+
+---
+
+### TC-TRS-CLI-010 — Verify template works for every element type, uses the current schema, and lists known types from the same source.
+
+**Verifies:** REQ-TRS-CLI-010  
+**Result:** ✓ PASS (18 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| every element type has a template | ✓ PASS |
+| the Baseline template carries the baseline create fields | ✓ PASS |
+| all templates validate together with only placeholder findings | ✓ PASS |
+| the unknown-type error lists every known type | ✓ PASS |
+
+---
+
+### TC-TRS-CLI-011 — Verify list matches every element type by its canonical name, including Zone, Conduit and TestPlan.
+
+**Verifies:** REQ-TRS-CLI-011  
+**Result:** ✓ PASS (6 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| list finds Zone, Conduit and TestPlan elements | ✓ PASS |
+| list finds an element of every type in the inventory | ✓ PASS |
 
 ---
 
@@ -252,25 +330,52 @@
 
 ---
 
-### TC-TRS-DERIVE-004 — Invalid derive formula emits E501 parse error
+### TC-TRS-DERIVE-004 — Invalid derive formula emits E505 parse error
 
 **Verifies:**   
-**Result:** ✓ PASS (2 passed, 0 failed)
+**Result:** ✓ PASS (3 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| E501 message names the field 'broken' | ✓ PASS |
+| E505 message names the field 'broken' | ✓ PASS |
 
 ---
 
-### TC-TRS-DERIVE-005 — Cross-element reference to unknown element emits E502
+### TC-TRS-DERIVE-005 — Cross-element reference to unknown element emits E506
 
 **Verifies:**   
-**Result:** ✓ PASS (2 passed, 0 failed)
+**Result:** ✓ PASS (3 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| E502 message names the missing element | ✓ PASS |
+| E506 message names the missing element | ✓ PASS |
+
+---
+
+### TC-TRS-DERIVE-006 — Derive codes E505/E506 and Allocation codes E500–E503 are disjoint: one model raising both families reports each under its own code
+
+**Verifies:**   
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a model raising both families reports each under its own code | ✓ PASS |
+
+---
+
+### TC-TRS-DERIVE-007 — Verify derive: is a recognised field (no W047), evaluates in dependency order, reports a malformed block as E505, and reports cyclic derive dependencies as E504 while skipping only the cyclic fields.
+
+**Verifies:** REQ-TRS-DERIVE-001,REQ-TRS-DERIVE-004  
+**Result:** ✓ PASS (13 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a derive: block raises no W047 | ✓ PASS |
+| cross-element derived fields evaluate in dependency order | ✓ PASS |
+| a malformed derive: block raises E505 | ✓ PASS |
+| a self-referential formula raises E504 | ✓ PASS |
+| mutually dependent elements raise E504 on both | ✓ PASS |
+| a valid chain and a dependent of a cycle raise no E504 | ✓ PASS |
 
 ---
 
@@ -313,6 +418,33 @@
 | W080 — nested SendAction in IfAction then-branch | ✓ PASS |
 | W080 draft-suppressed | ✓ PASS |
 | validate --deny W080 promotes to gate failure | ✓ PASS |
+
+---
+
+### TC-TRS-DIAG-003 — Verify W406/W407 are raised only for inline-SVG diagrams, not PlantUML-companion or structured diagrams.
+
+**Verifies:** REQ-TRS-DIAG-003  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a PlantUML companion diagram has no inline SVG to check | ✓ PASS |
+| a structured layout diagram has no inline SVG to check | ✓ PASS |
+| an inline SVG diagram is still checked | ✓ PASS |
+
+---
+
+### TC-TRS-DIAG-004 — Verify diagram measure, layout and compose fail with a not-found error for an unresolvable element.
+
+**Verifies:** REQ-TRS-DIAG-004  
+**Result:** ✓ PASS (12 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| measure an unknown element | ✓ PASS |
+| measure a mix of known and unknown elements | ✓ PASS |
+| measure a known element | ✓ PASS |
+| layout and compose files naming an unknown element | ✓ PASS |
 
 ---
 
@@ -678,6 +810,19 @@
 
 ---
 
+### TC-TRS-FMEA-004 — Verify an FMEA row without id raises E923 and an explicit rpn disagreeing with S×O×D raises W928.
+
+**Verifies:** REQ-TRS-FMEA-004  
+**Result:** ✓ PASS (9 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a row without id raises E923 naming the row | ✓ PASS |
+| an explicit rpn that disagrees with S×O×D raises W928 | ✓ PASS |
+| a consistent or partial rpn raises no W928 | ✓ PASS |
+
+---
+
 ### TC-TRS-FTA-001 — Verify that FaultTree, FaultTreeGate, and FaultTreeEvent validation rules E900–E909, W900–W901 are enforced.
 
 **Verifies:** REQ-TRS-FTA-001  
@@ -697,6 +842,19 @@
 | trigger E909 | ✓ PASS |
 | trigger W900 | ✓ PASS |
 | trigger W901 | ✓ PASS |
+
+---
+
+### TC-TRS-FTA-002 — Verify that FaultTreeEvent ref: is accepted, resolved (E927 on dangling) and surfaced by show, links and fault-tree render.
+
+**Verifies:** REQ-TRS-FTA-002  
+**Result:** ✓ PASS (9 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| resolving ref (qname and id) is accepted | ✓ PASS |
+| dangling ref raises E927 | ✓ PASS |
+| show, links and fault-tree render surface the ref | ✓ PASS |
 
 ---
 
@@ -752,6 +910,22 @@
 | Scenario | Result |
 |---|---|
 | a higher tier's binding never leaks down into the lower tier's own validation | ✓ PASS |
+
+---
+
+### TC-TRS-HPLE-006 — Verify subConfigurations entries and cross-tier parameterBindings keys resolve through repoImports mount paths (validate and feature-check), a nearer tier's mount-path binding closes a parameter (E523, W513), and a mount path naming nothing in its peer raises E516.
+
+**Verifies:** REQ-TRS-HPLE-001,REQ-TRS-HPLE-002  
+**Result:** ✓ PASS (8 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a mount-path subConfigurations entry and binding key resolve | ✓ PASS |
+| the mount-path binding closes the parameter | ✓ PASS |
+| feature-check resolves the mount-path binding key too | ✓ PASS |
+| a top tier consolidating through a mount path validates cleanly | ✓ PASS |
+| a nearer tier's mount-path binding counts as already closing the parameter | ✓ PASS |
+| a mount path naming nothing in its peer is dangling | ✓ PASS |
 
 ---
 
@@ -859,6 +1033,41 @@
 
 ---
 
+### TC-TRS-IMPL-003 — Verify package-registry implementedBy references are external (no W023) while missing local paths still raise W023.
+
+**Verifies:** REQ-TRS-IMPL-003  
+**Result:** ✓ PASS (6 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| registry references raise no W023 | ✓ PASS |
+| a missing local path still raises W023 | ✓ PASS |
+| sbom still maps the registry references to purls | ✓ PASS |
+
+---
+
+### TC-TRS-INGEST-001 — Verify session-log ingestion parses valid records into the results sidecar and hard-fails on malformed/missing steps, unrecognized result, or an empty array, without clobbering an existing sidecar.
+
+**Verifies:** REQ-TRS-INGEST-001  
+**Result:** ✓ PASS (21 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --format session-log is never inferred from the file extension | ✓ PASS |
+
+---
+
+### TC-TRS-INGEST-002 — Verify trace/matrix/safety-case/testplan roll up session-log scenario verdicts for a TestCase with no testFunctions, distinguishing prose-only evidence from an ingested pass, and never disturbing testFunctions-scored TestCases.
+
+**Verifies:** REQ-TRS-INGEST-002  
+**Result:** ✓ PASS (12 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a TestCase with testFunctions ignores any session-log data | ✓ PASS |
+
+---
+
 ### TC-TRS-LIB-001 — Verify built-in type recognition: ScalarValues/Base members resolve with no W404/W043; unknown members raise W043; import-only packages stay lenient.
 
 **Verifies:** REQ-TRS-LIB-001  
@@ -947,28 +1156,173 @@
 
 ---
 
-### TC-TRS-LINT-001 — Verify lint-docs scans external Markdown for unresolvable stable ID tokens and exits non-zero
+### TC-TRS-LINKTYPE-001 — Verify [linkTypes] declarations are parsed, malformed entries raise W630 and are ignored, and an unconfigured model is unaffected.
 
-**Verifies:** REQ-TRS-LINT-001  
+**Verifies:** REQ-TRS-LINKTYPE-001  
+**Result:** ✓ PASS (15 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a model without [linkTypes] is unaffected | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-002 — Verify links: entries resolve against declared link types, with E630/E631/E632 for undeclared types, malformed shapes and dangling targets.
+
+**Verifies:** REQ-TRS-LINKTYPE-002  
+**Result:** ✓ PASS (11 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| in a configuration lens a links: target inactive in the variant escapes as W019, not E632 | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-003 — Verify sourceTypes and targetTypes constraints raise E633 and E634.
+
+**Verifies:** REQ-TRS-LINKTYPE-003  
+**Result:** ✓ PASS (3 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a forbidden target type raises E634 | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-004 — Verify cardinality bounds: E635 above the upper bound, W631 below the lower bound for non-draft in-scope elements.
+
+**Verifies:** REQ-TRS-LINKTYPE-004  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a draft element under the lower bound raises nothing | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-005 — Verify acyclic link types reject cycles and self-links with E636, and non-acyclic types are not cycle-checked.
+
+**Verifies:** REQ-TRS-LINKTYPE-005  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an acyclic chain raises nothing | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-006 — Verify extends inherits base rules and reverse index, relax suppresses listed codes per type only, coverage=false withholds coverage, and mutation never rewrites into the base field.
+
+**Verifies:** REQ-TRS-LINKTYPE-006  
+**Result:** ✓ PASS (12 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| mutation does not rewrite an extending link into the base field | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-007 — Verify follow traverses custom and built-in links forward, inverse and reversed, one hop or transitively, with depth bounds, cycle termination and text/json/dot formats.
+
+**Verifies:** REQ-TRS-LINKTYPE-007  
+**Result:** ✓ PASS (16 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| unknown link or element exits non-zero | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-008 — Verify link-types lists the declared vocabulary and rules in text and JSON, omits invalid entries, and hints when none are declared.
+
+**Verifies:** REQ-TRS-LINKTYPE-008  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an unconfigured model prints a hint and exits zero | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-009 — Verify links, refs, impact, trace and show include user-defined links.
+
+**Verifies:** REQ-TRS-LINKTYPE-009  
 **Result:** ✓ PASS (8 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| file with no stable-ID tokens exits 0 and produces no output | ✓ PASS |
+| show displays links: | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-010 — Verify the MCP server exposes read-only link_types and follow tools.
+
+**Verifies:** REQ-TRS-LINKTYPE-010  
+**Result:** ✓ PASS (3 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| follow returns traversal results | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-011 — Verify custom links participate in suspect-link detection unless the type sets suspect = false.
+
+**Verifies:** REQ-TRS-LINKTYPE-011  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an opted-out type never raises W090 | ✓ PASS |
+
+---
+
+### TC-TRS-LINKTYPE-012 — Verify an LLM agent can discover link types: the prompt documents links: and link-types, and --agent-instructions with a model appends the project's declared types.
+
+**Verifies:** REQ-TRS-LINKTYPE-012  
+**Result:** ✓ PASS (3 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a model declaring none appends nothing | ✓ PASS |
+
+---
+
+### TC-TRS-LINT-001 — Verify lint-docs scans external Markdown for unresolvable stable ID tokens and exits non-zero
+
+**Verifies:** REQ-TRS-LINT-001,REQ-TRS-PKG-002  
+**Result:** ✓ PASS (16 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --deny takes a code, not a path, and makes W103 gating (issue #130) | ✓ PASS |
 
 ---
 
 ### TC-TRS-LINTDOC-001 — Verify lint-docs diagram resolution: W100 for an unresolved Mermaid qualified name, W101 for a stale SVG sysml:ref, W102 for a missing image embed; resolving refs and prose qnames are clean; --json shape.
 
 **Verifies:** REQ-TRS-LINT-002  
-**Result:** ✓ PASS (8 passed, 0 failed)
+**Result:** ✓ PASS (11 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
 | W100 — unresolved Mermaid qname + W102 missing embed | ✓ PASS |
 | W101 — stale SVG sysml:ref | ✓ PASS |
+| W101 uses validate's shape-ref ancestor rule (GH #172) | ✓ PASS |
 | resolving refs and prose qnames are clean | ✓ PASS |
 | --json shape | ✓ PASS |
+
+---
+
+### TC-TRS-MCP-049 — Verify the MCP server reloads its model automatically after an on-disk edit, and does not under --no-watch.
+
+**Verifies:** REQ-TRS-MCP-048  
+**Result:** ✓ PASS (7 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an external edit is visible without calling reload | ✓ PASS |
+| --no-watch keeps the loaded model | ✓ PASS |
 
 ---
 
@@ -1250,11 +1604,13 @@
 ### TC-TRS-OUT-001 — Verify that the tool writes its validation report to stdout in Markdown format.
 
 **Verifies:** REQ-TRS-OUT-001  
-**Result:** ✓ PASS (3 passed, 0 failed)
+**Result:** ✓ PASS (6 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
 | report is written to stdout in Markdown format | ✓ PASS |
+| report title names the model root package (GH #174) | ✓ PASS |
+| report title falls back to a neutral heading (GH #174) | ✓ PASS |
 
 ---
 
@@ -1489,6 +1845,39 @@
 
 ---
 
+### TC-TRS-OUT-021 — Verify the stats corpus-shape digest: facets, coverage/orphan rollups, --group-by, scoping filters, --config lens, JSON, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-OUT-021  
+**Result:** ✓ PASS (41 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP stats tool returns the same document as the CLI | ✓ PASS |
+
+---
+
+### TC-TRS-OUT-022 — Verify the digest bulk view: compact NDJSON rows, one-line text, paging, scoping filters, --config lens, JSON document, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-OUT-022  
+**Result:** ✓ PASS (25 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP digest tool returns the same document as the CLI | ✓ PASS |
+
+---
+
+### TC-TRS-OUT-023 — Verify the hierarchical summarize digest: per-package rollup, extractive terms, representatives, content-hash cache, scope/depth/config, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-OUT-023  
+**Result:** ✓ PASS (37 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP summarize tool matches the CLI | ✓ PASS |
+
+---
+
 ### TC-TRS-PARAM-001 — Verify FeatureDef parameter binding rules E203–E206, E222, and W017.
 
 **Verifies:** REQ-TRS-PARAM-001  
@@ -1641,6 +2030,56 @@
 |---|---|
 | file with no type: field is skipped with a warning | ✓ PASS |
 | file with type: present is processed normally | ✓ PASS |
+
+---
+
+### TC-TRS-PARSE-010 — Verify a locale variant file attaches its body to the base element (no new element, no W042), with E026/W051 for dangling, duplicate and structural variants.
+
+**Verifies:** REQ-TRS-PARSE-010  
+**Result:** ✓ PASS (9 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a variant file does not become an element | ✓ PASS |
+| the variant bodies are shown on the base element | ✓ PASS |
+| a duplicate locale and a structural field raise W051 | ✓ PASS |
+| a variant naming a missing element raises E026 | ✓ PASS |
+
+---
+
+### TC-TRS-PARSE-011 — Verify an about: comment file attaches to each listed element, is not an element itself, and reports E027/W052.
+
+**Verifies:** REQ-TRS-PARSE-011  
+**Result:** ✓ PASS (13 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an about comment does not become an element | ✓ PASS |
+| the comment is shown on every listed element | ✓ PASS |
+| an unresolved entry raises E027 | ✓ PASS |
+| ignored fields raise W052 | ✓ PASS |
+
+---
+
+### TC-TRS-PKG-001 — Verify show and export-html list a package's direct members generated from the directory.
+
+**Verifies:** REQ-TRS-PKG-001  
+**Result:** ✓ PASS (13 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| export-html package page lists members with links | ✓ PASS |
+
+---
+
+### TC-TRS-PKG-002 — Verify lint-docs flags an _index.md that hand-enumerates three or more of its own members (W103), advisory only.
+
+**Verifies:** REQ-TRS-PKG-002  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| two members, foreign ids, or a non-_index.md file raise nothing | ✓ PASS |
 
 ---
 
@@ -1809,10 +2248,43 @@
 
 ---
 
+### TC-TRS-PLANITEM-010 — Verify W310 fires for a done PlanningItem's under-verified achieves requirement, respecting the leaf/parent W002/W305 bar, and never for todo/in_progress/blocked.
+
+**Verifies:** REQ-TRS-PLANITEM-010  
+**Result:** ✓ PASS (20 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a dangling or wrong-kind achieves target is not re-flagged by W310 | ✓ PASS |
+
+---
+
+### TC-TRS-PLANITEM-011 — Verify claim/release set and clear claimedBy/claimedAt correctly, refuse on conflicting/done targets, and surface claimedBy in show/list --json.
+
+**Verifies:** REQ-TRS-PLANITEM-011  
+**Result:** ✓ PASS (31 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| release clears both fields regardless of status | ✓ PASS |
+
+---
+
+### TC-TRS-PLANITEM-012 — Verify W311 fires once per overlapping pair of active PlanningItems (shared achieves or evidence.path), and never for inactive or non-overlapping pairs.
+
+**Verifies:** REQ-TRS-PLANITEM-012  
+**Result:** ✓ PASS (14 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| W311 fires once per pair, not once per side | ✓ PASS |
+
+---
+
 ### TC-TRS-PROJ-001 — Verify the --config projection lens: stored + ad-hoc selection, dormancy, unresolved error.
 
 **Verifies:** REQ-TRS-PROJ-001  
-**Result:** ✓ PASS (6 passed, 0 failed)
+**Result:** ✓ PASS (20 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
@@ -1876,6 +2348,28 @@
 
 ---
 
+### TC-TRS-PROJ-007 — Verify validate gating flags, --profile and --file in the configuration lens, and validate's usage-error exit code.
+
+**Verifies:** REQ-TRS-OUT-006,REQ-TRS-PROJ-005 REQ-TRS-PROJ-001  
+**Result:** ✓ PASS (21 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| usage errors exit 1 | ✓ PASS |
+
+---
+
+### TC-TRS-PROJ-008 — Verify the --config lens applies to trace, why, who-verifies, refs and links.
+
+**Verifies:** REQ-TRS-PROJ-001  
+**Result:** ✓ PASS (31 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| an unresolvable --config is a usage error | ✓ PASS |
+
+---
+
 ### TC-TRS-QNAME-001 — Verify that qualified names are derived correctly from directory path and filename stem.
 
 **Verifies:** REQ-TRS-QNAME-001  
@@ -1888,25 +2382,25 @@
 
 ---
 
-### TC-TRS-QNAME-002 — Verify that the name: field in _index.md overrides the directory name in qualified names.
+### TC-TRS-QNAME-002 — Verify that the qualified-name package segment is the directory name, not the _index.md name: label.
 
 **Verifies:** REQ-TRS-QNAME-002  
-**Result:** ✓ PASS (2 passed, 0 failed)
+**Result:** ✓ PASS (4 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| name: in _index.md replaces directory name in qualified names | ✓ PASS |
+| name: in _index.md does not replace the directory name | ✓ PASS |
 
 ---
 
-### TC-TRS-QNAME-003 — Verify that the name: field in element frontmatter overrides the filename stem.
+### TC-TRS-QNAME-003 — Verify that the qualified-name element segment is the filename stem, not the name: label.
 
 **Verifies:** REQ-TRS-QNAME-003  
-**Result:** ✓ PASS (2 passed, 0 failed)
+**Result:** ✓ PASS (4 passed, 0 failed)
 
 | Scenario | Result |
 |---|---|
-| name: in frontmatter replaces the filename stem | ✓ PASS |
+| name: in frontmatter does not replace the filename stem | ✓ PASS |
 
 ---
 
@@ -1918,6 +2412,30 @@
 | Scenario | Result |
 |---|---|
 | _index.md contributes no _index name segment | ✓ PASS |
+
+---
+
+### TC-TRS-QNAME-005 — Verify a qualifiedName: override never changes the path-derived qualified name and raises W049 when it differs.
+
+**Verifies:** REQ-TRS-QNAME-005  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a differing qualifiedName is reported and ignored | ✓ PASS |
+| a qualifiedName equal to the path-derived name is harmless | ✓ PASS |
+
+---
+
+### TC-TRS-QUAL-001 — Verify the qualification model validates with no errors and no W047, and the TVR version comes from the binary
+
+**Verifies:** REQ-TRS-QUAL-001  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| the qualification model validates clean of W047 | ✓ PASS |
+| the TVR version is not maintained in model data | ✓ PASS |
 
 ---
 
@@ -2189,6 +2707,39 @@
 
 ---
 
+### TC-TRS-SEARCH-001 — Verify ranked full-text search: BM25 relevance ordering, snippets, type/status/config scoping, empty-query and JSON contracts, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-SEARCH-001  
+**Result:** ✓ PASS (22 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP search_text tool matches the CLI | ✓ PASS |
+
+---
+
+### TC-TRS-SEARCH-002 — Verify topics: per-package TF-IDF keywords, stopword demotion, type scoping, multi-package corpus, config lens, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-SEARCH-002  
+**Result:** ✓ PASS (25 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP topics tool matches the CLI | ✓ PASS |
+
+---
+
+### TC-TRS-SEARCH-003 — Verify clusters: TF-IDF cosine k-means grouping, deterministic init, k clamping/validation, cosine separation, config lens, and CLI/MCP parity.
+
+**Verifies:** REQ-TRS-SEARCH-003  
+**Result:** ✓ PASS (20 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| The MCP clusters tool matches the CLI | ✓ PASS |
+
+---
+
 ### TC-TRS-SEC-001 — Verify safety↔security co-engineering: hazardRef, E844, W030, and the co-analysis view.
 
 **Verifies:** REQ-TRS-SEC-001  
@@ -2278,6 +2829,54 @@
 | Scenario | Result |
 |---|---|
 | invalid securityTestMethod triggers W809 | ✓ PASS |
+
+---
+
+### TC-TRS-SEC-009 — Verify the attack-tree feasibility roll-up starts at the tree's root node, independent of file order.
+
+**Verifies:** REQ-TRS-SEC-009  
+**Result:** ✓ PASS (3 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| the roll-up starts at the gate no other gate lists as an input, not the first in file order | ✓ PASS |
+| a mismatch is still reported against the root's value | ✓ PASS |
+
+---
+
+### TC-TRS-SET-001 — Verify set status=<value> validates per-type enum, splices byte-preservingly, cross-checks PlanningItem done against W310, and supports --dry-run.
+
+**Verifies:** REQ-TRS-SET-001  
+**Result:** ✓ PASS (19 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --dry-run previews without writing | ✓ PASS |
+
+---
+
+### TC-TRS-SET-002 — Verify achieves.add and evidence.add validate their target before writing and append without disturbing existing order.
+
+**Verifies:** REQ-TRS-SET-002  
+**Result:** ✓ PASS (42 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| --dry-run previews achieves.add and evidence.add without writing | ✓ PASS |
+
+---
+
+### TC-TRS-SET-003 — Verify set evidence.add is a no-op for an existing entry and the list operations preserve YAML comments.
+
+**Verifies:** REQ-TRS-SET-003  
+**Result:** ✓ PASS (20 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| evidence.add of an existing ref is a reported no-op | ✓ PASS |
+| evidence.add of an existing path is a reported no-op | ✓ PASS |
+| evidence.add of a new entry preserves YAML comments and every other line | ✓ PASS |
+| achieves.add of a new requirement preserves YAML comments | ✓ PASS |
 
 ---
 
@@ -2372,6 +2971,20 @@
 
 ---
 
+### TC-TRS-SM-007 — Verify W929 fires for a top-level transition without source and a transition without target, not for a nested transition with an implicit source; draft-suppressed; gateable.
+
+**Verifies:** REQ-TRS-SM-009  
+**Result:** ✓ PASS (6 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a top-level transition without source raises W929 | ✓ PASS |
+| a transition without target raises W929 | ✓ PASS |
+| a nested transition with an implicit source raises no W929 | ✓ PASS |
+| W929 is draft-suppressed and gateable | ✓ PASS |
+
+---
+
 ### TC-TRS-SPEC-001 — Verify the discoverable syscribe spec documents the safety/security types and analysis fields.
 
 **Verifies:** REQ-TRS-SPEC-001  
@@ -2391,6 +3004,19 @@
 | Scenario | Result |
 |---|---|
 | spec types distinguishes the constructs | ✓ PASS |
+
+---
+
+### TC-TRS-SPEC-003 — Verify explain_finding returns real explanations for every catalogued code, including three-column tables and previously missing codes.
+
+**Verifies:** REQ-TRS-SPEC-003  
+**Result:** ✓ PASS (16 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| three-column table rows explain the condition, not the severity | ✓ PASS |
+| previously missing codes are explained | ✓ PASS |
+| stale W007 and W010 rows are corrected | ✓ PASS |
 
 ---
 
@@ -2581,6 +3207,35 @@
 
 ---
 
+### TC-TRS-SYSMLV2-018 — Verify a SysMLv2 allocation def (package-level or nested in a part def) synthesizes a native AllocationDef, an allocation usage typed by it resolves (no E111), and an allocation usage typed by an unknown name raises E111.
+
+**Verifies:** REQ-TRS-SYSMLV2-029  
+**Result:** ✓ PASS (6 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a package-level allocation def maps to AllocationDef | ✓ PASS |
+| an allocation def nested in a part def maps to AllocationDef | ✓ PASS |
+| allocation usages typed by an ingested allocation def resolve | ✓ PASS |
+| an allocation usage typed by an unknown name raises E111 | ✓ PASS |
+
+---
+
+### TC-TRS-SYSMLV2-019 — Verify an ingested SysMLv2 allocation usage's allocate clause is lifted into allocatedFrom/allocatedTo with full-model endpoint resolution, feeds matrix --allocations and E314, truncates an unresolvable chain tail with W542, and reports unresolvable endpoints with E502/E503.
+
+**Verifies:** REQ-TRS-SYSMLV2-029  
+**Result:** ✓ PASS (10 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a cross-package allocate clause becomes allocatedFrom/allocatedTo | ✓ PASS |
+| the ingested allocation feeds the unified allocation set | ✓ PASS |
+| feature chains resolve through the heads' part-def types | ✓ PASS |
+| an unresolvable chain tail is truncated with W542 | ✓ PASS |
+| endpoints that resolve nowhere are reported | ✓ PASS |
+
+---
+
 ### TC-TRS-TAG-001 — Verify the generic --tag filter selects by free-text tags without affecting variant logic.
 
 **Verifies:** REQ-TRS-TAG-001  
@@ -2734,6 +3389,19 @@
 | W306 message names the sub-conditions | ✓ PASS |
 | a fully-integrated high-integrity requirement produces no W306 | ✓ PASS |
 | W306 is gateable with --deny | ✓ PASS |
+
+---
+
+### TC-TRS-TRACE-011 — Verify a requirement traced only to a SafetyGoal or CybersecurityGoal is not reported as an orphan (W005).
+
+**Verifies:** REQ-TRS-TRACE-011  
+**Result:** ✓ PASS (5 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a requirement derived only from a SafetyGoal is not an orphan | ✓ PASS |
+| a requirement derived only from a CybersecurityGoal is not an orphan | ✓ PASS |
+| a requirement with no upstream link is still an orphan | ✓ PASS |
 
 ---
 
@@ -3042,6 +3710,17 @@
 
 ---
 
+### TC-TRS-TYPE-024 — Verify repoImports mounts the peer subtree at <package>::<as> and E515 detects a stable id exported by two peers.
+
+**Verifies:** REQ-TRS-TYPE-021  
+**Result:** ✓ PASS (19 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| the local-vs-peer E515 and the repo checks are unchanged | ✓ PASS |
+
+---
+
 ### TC-TRS-VAL-001 — Verify that each parse-time error rule is triggered by the corresponding malformed input.
 
 **Verifies:** REQ-TRS-VAL-001  
@@ -3108,11 +3787,11 @@
 | trigger W006 | ✓ PASS |
 | trigger W007 | ✓ PASS |
 | trigger W300 | ✓ PASS |
-| trigger W301 | ✓ PASS |
 | trigger W302 | ✓ PASS |
 | trigger W303 | ✓ PASS |
 | trigger W304 | ✓ PASS |
 | trigger W305 | ✓ PASS |
+| leaf satisfied by more than one element (W301 retired) | ✓ PASS |
 
 ---
 
@@ -3294,6 +3973,20 @@
 
 ---
 
+### TC-TRS-VAL-018 — Verify E924 (ConfirmationMeasure status not planned/in_progress/completed), E925 (targetSL/achievedSL outside 1-4) and E926 (Zone/Conduit status not draft/review/approved/deprecated).
+
+**Verifies:** REQ-TRS-VAL-018  
+**Result:** ✓ PASS (11 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a ConfirmationMeasure status outside the documented set raises E924 | ✓ PASS |
+| a Security Level outside 1-4 raises E925 | ✓ PASS |
+| a Zone or Conduit status outside the documented set raises E926 | ✓ PASS |
+| a clean Zone/Conduit model raises none of E924-E926 | ✓ PASS |
+
+---
+
 ### TC-TRS-VAR-001 — Verify that the variability dimension is dormant unless a feature model is linked.
 
 **Verifies:** REQ-TRS-VAR-001  
@@ -3368,6 +4061,29 @@
 
 ---
 
+### TC-TRS-VAR-007 — Verify Configuration inheritance through derivedFrom: effective selection, overrides, consumers and structural checks.
+
+**Verifies:** REQ-TRS-VAR-007,REQ-TRS-HPLE-001  
+**Result:** ✓ PASS (28 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| structural problems are reported with dedicated codes | ✓ PASS |
+
+---
+
+### TC-TRS-VAR-008 — Verify the language server's rename re-derives Configuration inheritance over the full candidate model, so renaming a base Configuration's id that an inheriting child names in derivedFrom is not refused over the child losing its inherited selection.
+
+**Verifies:** REQ-TRS-VAR-007  
+**Result:** ✓ PASS (4 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| the fixture validates cleanly | ✓ PASS |
+| renaming the base id is accepted and edits base and child | ✓ PASS |
+
+---
+
 ### TC-TRS-XREF-001 — Verify that absolute qualified names are resolved correctly from the model root.
 
 **Verifies:** REQ-TRS-XREF-001  
@@ -3432,5 +4148,16 @@
 | Scenario | Result |
 |---|---|
 | an unresolved reference not starting with the root name gets no hint | ✓ PASS |
+
+---
+
+### TC-TRS-XREF-007 — Verify unresolved supertype/typedBy/subsets/redefines/satisfies raise E110–E114; every §11.5 resolution form stays clean; root-name hint applies; [repos] models use E512.
+
+**Verifies:** REQ-TRS-XREF-007  
+**Result:** ✓ PASS (18 passed, 0 failed)
+
+| Scenario | Result |
+|---|---|
+| a [repos] model reports an unresolved reference once, as E512 | ✓ PASS |
 
 ---

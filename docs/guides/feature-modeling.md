@@ -117,9 +117,13 @@ Cross-feature parameter constraints live in the Package `_index.md`:
 # model/Features/_index.md
 parameterConstraints:
   - id: PC-001
-    expression: "Features::Topology.maxCpus > 1 implies Features::Smp or Features::Amp"
-    severity: error   # E213 if violated
+    expression: "Features::Topology.maxCpus >= 2"     # comparison over dotted parameter refs only
+    appliesWhen: "Features::Smp or Features::Amp"     # boolean predicate over features
+    severity: error   # a violating Configuration is E221 (W025 with severity: warning)
 ```
+
+`feature-check` evaluates the constraint against every Configuration whose `appliesWhen:`
+holds; an unresolved parameter path in `expression:` (e.g. a bare feature name) is E213.
 
 ### 10.3 Defining product configurations
 
@@ -130,6 +134,7 @@ A `Configuration` is a feature selection that resolves the 150% model into one p
 type: Configuration
 id: CONF-RP-PICO2-AMP-001
 name: "Raspberry Pi Pico 2 (RP2350, dual Cortex-M33) AMP — HIL"
+status: approved
 featureModel: Features::Sabaton
 features:
   Features::Port: true
@@ -176,6 +181,7 @@ id: REQ-MPU-DOMAIN-001
 name: "Kernel shall enforce per-thread MPU domain isolation"
 status: approved
 asilLevel: D
+verificationMethod: test
 appliesWhen: Features::MPU and Features::CortexM33
 ---
 ```
@@ -190,6 +196,7 @@ This requirement only appears in the coverage matrix for configurations where bo
 type: PartDef
 name: MpuDomainManager
 domain: software
+asilLevel: D                # a satisfier carries the requirement's integrity level (E843)
 appliesWhen: Features::MPU
 satisfies:
   - REQ-MPU-DOMAIN-001
@@ -203,6 +210,7 @@ satisfies:
 type: TestCase
 id: TC-MPU-FAULT-HIL-001
 name: "MPU read-only region write causes MemManage trap on hardware"
+status: draft
 testLevel: L5
 appliesWhen: Features::MPU and Features::CortexM33
 verifies: [REQ-MPU-FAULT-001]
@@ -316,6 +324,7 @@ id: SG-KERNEL-001
 name: "Kernel scheduler shall not starve any safety-relevant thread"
 status: approved
 asilLevel: D
+hazardousEvents: [HE-KERNEL-001]
 ---
 
 # SafetyGoal specific to AMP variants only
@@ -325,6 +334,7 @@ id: SG-KERNEL-006
 name: "AMP core isolation shall prevent cross-core interference"
 status: approved
 asilLevel: D
+hazardousEvents: [HE-KERNEL-006]
 appliesWhen: Features::Amp
 ---
 ```
@@ -344,6 +354,7 @@ diagnosticCoverage: 0.97    # high DC because PSPLIM is available
 latentDiagnosticCoverage: 0.75
 appliesWhen: Features::StackLimit
 ---
+```
 
 ```yaml
 ---
@@ -386,7 +397,7 @@ syscribe -m model metrics --config CONF-RP-PICO2-HIL
 # Step 4: Run the safety-readiness audit for this variant
 syscribe -m model audit --config CONF-RP-PICO2-HIL
 
-# Step 5: Baseline it in git
+# Step 5: Baseline it in git (optionally also seal a first-class Baseline element, see below)
 git tag v1.0-CONF-RP-PICO2-HIL-2026-06-14
 
 # Step 6: Capture the evidence artefacts
@@ -396,7 +407,10 @@ syscribe -m model metrics --config CONF-RP-PICO2-HIL --json \
   > artifacts/metrics-CONF-RP-PICO2-HIL-$(git describe --tags).json
 ```
 
-The `git tag` is the baseline. The JSON artefacts are the evidence record tied to that
+The `git tag` is the baseline. For a tamper-evident, content-hashed record inside the model
+itself, `syscribe -m model baseline create --tag <tag> --frozen-scope <sel>` seals a
+first-class `Baseline` element (`BL-*`, E520/W520 on drift; see `syscribe help baseline` and
+`baseline verify|diff|list|show`). The JSON artefacts are the evidence record tied to that
 baseline. An auditor can reproduce either by checking out the tagged commit and re-running
 the same commands.
 
@@ -406,9 +420,15 @@ When a new product variant needs to be defined, the `configure` command helps na
 feature model:
 
 ```bash
-# Start with a partial selection; see what is forced and what remains free
-syscribe -m model configure "Features::CortexM33: true, Features::Amp: true"
+# Start with a draft Configuration holding the partial selection
+# (model/Configurations/CONF-NEW-001.md, status: draft, with
+#  features: {Features::CortexM33: true, Features::Amp: true}),
+# then see what is forced and what remains free
+syscribe -m model configure CONF-NEW-001
 ```
+
+`configure` takes a stored `Configuration` (id or qualified name); inline selection strings
+are accepted only by the `--config` lenses of other commands.
 
 Output tells you:
 - Which features are **forced true** by the `requires:` constraints on your selection
@@ -436,8 +456,9 @@ of each configuration, rather than in an informal spreadsheet.
 # A Configuration as a MagicGrid trade-study variant
 ---
 type: Configuration
-id: CONF-CM33-HIGH-PERF
+id: CONF-CM33-HIGH-PERF-001
 name: "Cortex-M33 high-performance variant"
+status: draft
 custom_fields:
   mg_variant: true
 featureModel: Features::Sabaton
@@ -471,6 +492,7 @@ common to all variants, even if the *mechanism* that satisfies it varies. The me
 and safety case structure stable across the product line.
 
 **Baseline discipline**: every Configuration that ships to a customer must have a git tag
+(and, where a tamper-evident record is wanted, a sealed `Baseline` element via `baseline create`)
 before release. The tag name should encode the Configuration ID and the date. The `audit`
 output at that tag is the acceptance record.
 

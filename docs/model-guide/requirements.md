@@ -34,7 +34,7 @@ and transition to the fault state.
 | `silLevel` | IEC 61508 SIL 1–4 |
 | `asilLevel` | ISO 26262 ASIL A–D |
 | `derivedFrom` | List of parent REQ-* IDs |
-| `breakdownAdr` | Qualified name of the ADR justifying this derivation (required when `derivedFrom:` is set — E310) |
+| `breakdownAdr` | Qualified name of the ADR justifying this derivation (required when `derivedFrom:` is set — E310, unless `[traceability] require_breakdown_adr = false`) |
 
 ### Normative text
 
@@ -59,7 +59,7 @@ Parent requirements have `derivedChildren`; leaf requirements have `derivedFrom`
 - A parent requirement must not appear in any `satisfies:` list — only leaves are assigned (E312)
 - Every `derivedFrom:` must cite an accepted `breakdownAdr:` (E310, E311)
 - Leaves at `approved` or `implemented` status with no satisfying element fire W300
-- **Parent requirements need an integration-level TestCase** — derived children's unit/integration tests (L1/L2) are not sufficient to verify the emergent composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3`, `L4`, or `L5` (W305).
+- **Parent requirements need an integration-level TestCase** — derived children's unit and property-based tests (L1/L2) are not sufficient to verify the emergent composed behaviour expressed by the parent. A parent requirement at `approved`, `implemented`, or `verified` status must have at least one active TestCase at `testLevel: L3`, `L4`, or `L5` (W305).
 
 ```
 REQ-UAV-PERF-000  (parent — needs L3/L4/L5 TestCase)
@@ -70,7 +70,7 @@ REQ-UAV-PERF-000  (parent — needs L3/L4/L5 TestCase)
 
 ## Native TestCase
 
-```yaml
+````markdown
 ---
 type: TestCase
 id: TC-UAV-FC-001
@@ -94,7 +94,7 @@ Feature: Flight controller fault detection
     When GPS fix is lost for 100 ms
     Then the flight controller transitions to dead-reckoning mode
 ```
-```
+````
 
 ### Required fields
 
@@ -110,11 +110,13 @@ Feature: Flight controller fault detection
 
 | Level | Description |
 |---|---|
-| L1 | Unit / module test |
-| L2 | Integration / analysis / review |
-| L3 | Formal / property-based |
-| L4 | Simulation / QEMU |
-| L5 | Hardware-in-the-loop / physical |
+| L1 | Unit test, hosted |
+| L2 | Property-based / fuzz test, hosted |
+| L3 | Formal proof |
+| L4 | Integration test on an emulator (QEMU) |
+| L5 | Hardware-in-the-loop |
+
+L3–L5 count as integration-level for a parent requirement (`W305`); L1 and L2 do not.
 
 ### Gherkin body
 
@@ -122,4 +124,4 @@ The document body must contain at least one ` ```gherkin ` fenced block (E011). 
 
 ### Coverage
 
-A Requirement at `approved` or `implemented` status with no active TestCase (`status: active`) fires **W002**. Coverage is tracked in the traceability matrix section of the validation report.
+A **leaf** Requirement (one that no other requirement names in its `derivedFrom:`) at `approved` or `implemented` status with no active TestCase (`status: active`) fires **W002**. A parent requirement is covered through its leaf descendants instead, and needs an active integration-level TestCase (`testLevel` L3–L5) of its own (**W305**). Coverage is tracked in the traceability matrix section of the validation report.

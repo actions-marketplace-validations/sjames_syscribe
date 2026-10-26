@@ -8,9 +8,17 @@
 //! channels for context, but only newly-unresolved references gate a commit — so
 //! e.g. creating a not-yet-fleshed-out draft requirement is allowed, while
 //! pointing a `supertype:` at a non-existent element is refused.
+//!
+//! User-defined link types (ADR-SYS-LINKTYPE-001) extend both channels: the
+//! validator's link-type *errors* (`E630`–`E636`) a write introduces are reported
+//! as new errors and gate the commit like an unresolved reference — so an MCP
+//! write using an undeclared link type is refused with the `E630` message that
+//! names the declared types — while `W630`/`W631` ride the existing warning
+//! channel. Every other validator error stays out of the gate, unchanged.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::ValidateConfig;
@@ -35,6 +43,11 @@ pub enum WriteConfinedError {
 /// Write `content` to `<root>/<rel>`, confirming the resolved parent stays within
 /// the canonicalized model root (defeats `..`/symlink traversal).
 pub fn write_confined(root: &Path, rel: &str, content: &str) -> Result<(), WriteConfinedError> {
+    // Refuse an absolute path or `..` before anything is created, so a refused write leaves no
+    // directories behind outside the root.
+    if rel.is_empty() || !Path::new(rel).components().all(|c| matches!(c, std::path::Component::Normal(_))) {
+        return Err(WriteConfinedError::Escapes);
+    }
     let target = root.join(rel);
     let canon_root = std::fs::canonicalize(root)?;
     if let Some(parent) = target.parent() {
@@ -50,13 +63,23 @@ pub fn write_confined(root: &Path, rel: &str, content: &str) -> Result<(), Write
 
 /// Recursively copy `src` into `dst` (creating `dst`).
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    copy_dir_depth(src, dst, 0)
+}
+
+/// Symlinks are followed (a linked directory is part of the model); a dangling one is skipped, and the
+/// depth cap stops a link cycle from recursing forever.
+fn copy_dir_depth(src: &Path, dst: &Path, depth: usize) -> std::io::Result<()> {
+    if depth > 64 {
+        return Err(std::io::Error::other(format!("{} is nested more than 64 levels deep (a symlink cycle?)", src.display())));
+    }
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let from = entry.path();
         let to = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir_all(&from, &to)?;
+        let Ok(meta) = std::fs::metadata(&from) else { continue };
+        if meta.is_dir() {
+            copy_dir_depth(&from, &to, depth + 1)?;
         } else {
             std::fs::copy(&from, &to)?;
         }
@@ -65,17 +88,50 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// Make a throwaway copy of the model tree; returns the copy's root.
+///
+/// The directory is unique to this call (GH #156). A name made only of the
+/// process id and a nanosecond timestamp is not: two threads can read the same
+/// timestamp, and two concurrent guarded writes in one process would then
+/// share a candidate directory. One would copy its edit over the other's, and
+/// the first to finish would delete the directory while the other was still
+/// using it. The name therefore adds a process-wide sequence number, and the
+/// directory is claimed with an exclusive `create_dir`, retried on a clash
+/// (for example a leftover directory from an earlier process with the same pid).
 fn make_temp_copy(model_root: &Path) -> std::io::Result<PathBuf> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let root = std::env::temp_dir().join(format!(
-        "syscribe-mcp-cand-{}-{}",
-        std::process::id(),
-        nanos
-    ));
-    copy_dir_all(model_root, &root)?;
+    // GH #186: stage the copy as a *sibling* of the model root, so a path that is relative to
+    // the model root and leaves it (`style_file = "../.plantuml/x.iuml"`, a `sourceFile:
+    // ../tests/t.py`, a `[repos]` peer) resolves to the same file it does for the real tree.
+    // Falls back to the system temp dir when the parent is missing or not writable, where such
+    // paths cannot resolve (the delta then over-reports missing-path findings).
+    let sibling_parent = model_root.canonicalize().ok().and_then(|r| r.parent().map(Path::to_path_buf));
+    let claim = |base: &Path| -> std::io::Result<PathBuf> {
+        loop {
+            let candidate = base.join(format!(
+                ".syscribe-mcp-cand-{}-{}-{}",
+                std::process::id(),
+                nanos,
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            match std::fs::create_dir(&candidate) {
+                Ok(()) => return Ok(candidate),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e),
+            }
+        }
+    };
+    let root = match sibling_parent.as_deref().map(claim) {
+        Some(Ok(dir)) => dir,
+        _ => claim(&std::env::temp_dir())?,
+    };
+    if let Err(e) = copy_dir_all(model_root, &root) {
+        let _ = std::fs::remove_dir_all(&root);
+        return Err(e);
+    }
     Ok(root)
 }
 
@@ -147,6 +203,20 @@ pub fn element_ref_strings(e: &RawElement) -> Vec<(&'static str, String)> {
         }
     }
     refs.extend(nested_allocation_refs(e));
+    // `plant: <PlantDef>` or `plant: {def: <PlantDef>, …}` (GH #340)
+    if let Some(d) = crate::plant_def::plant_def_ref(fm.plant.as_ref()) {
+        refs.push(("plant", d));
+    }
+    // User-defined links (REQ-TRS-LINKTYPE-002): every well-formed `links:` target
+    // is a cross-reference too, so `delete_element` sees it as a referrer and a
+    // write introducing a dangling one is refused like any other.
+    if let crate::link_types::LinksField::Entries(entries) = crate::link_types::parse_links(fm) {
+        for entry in entries.into_iter().filter(|x| x.key_ok) {
+            for t in entry.targets.unwrap_or_default() {
+                refs.push(("links", t));
+            }
+        }
+    }
     refs
 }
 
@@ -160,7 +230,9 @@ pub fn referrers(elements: &[RawElement], target_qname: &str) -> Vec<(String, Op
         if e.qualified_name == target_qname {
             continue;
         }
-        let hits = element_ref_strings(e).into_iter().any(|(_, r)| {
+        // Reference-typed tagged values of a stereotype (REQ-TRS-META-013) are referrers too.
+        let tagged = crate::tagged_values::reference_values(elements, &resolver, e).into_iter().map(|(_, r)| r);
+        let hits = element_ref_strings(e).into_iter().map(|(_, r)| r).chain(tagged).any(|r| {
             resolver
                 .resolve_ref(elements, &r)
                 .is_some_and(|t| t.qualified_name == target_qname)
@@ -196,12 +268,42 @@ pub fn ref_errors(elements: &[RawElement], root: &Path) -> Vec<Entry> {
 
 /// The full validator's *warning*-severity findings, normalised.
 pub fn validator_warnings(elements: &[RawElement], config: &ValidateConfig, root: &Path) -> Vec<Entry> {
-    validate_with_config(elements, config)
-        .findings
-        .iter()
-        .filter(|f| matches!(f.severity, Severity::Warning))
-        .map(|f| (f.code.to_string(), rel_file(&f.file, root), f.message.clone()))
-        .collect()
+    validator_findings(elements, config, root).1
+}
+
+/// Validator error codes that gate a guarded write alongside `EREF`: the
+/// user-defined link-type errors (REQ-TRS-LINKTYPE-002..005).
+const GATED_VALIDATOR_ERRORS: &[&str] = &["E630", "E631", "E632", "E633", "E634", "E635", "E636"];
+
+/// Whether an error code can refuse a guarded commit: an unresolved reference (`EREF`)
+/// or a user-defined link-type error (`E630`–`E636`). Every other validator error is
+/// still reported in the delta (GH #187) but never blocks — incremental authoring of
+/// incomplete drafts must stay possible (`REQ-TRS-MCP-008`).
+pub fn is_gating_error(code: &str) -> bool {
+    code == "EREF" || GATED_VALIDATOR_ERRORS.contains(&code)
+}
+
+/// One validator run, normalised: `(all errors, all warnings)`.
+fn validator_findings(elements: &[RawElement], config: &ValidateConfig, root: &Path) -> (Vec<Entry>, Vec<Entry>) {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    for f in validate_with_config(elements, config).findings {
+        let entry = (f.code.to_string(), rel_file(&f.file, root), f.message.clone());
+        match f.severity {
+            Severity::Warning => warnings.push(entry),
+            Severity::Error => errors.push(entry),
+            _ => {}
+        }
+    }
+    (errors, warnings)
+}
+
+/// Rewrite the candidate copy's root path to the real model root inside finding messages
+/// (GH #186), so a finding present both before and after the change has identical text
+/// and cancels out of the delta instead of showing as one new plus one resolved.
+fn normalise_root(entries: Vec<Entry>, cand_root: &Path, real_root: &Path) -> Vec<Entry> {
+    let (from, to) = (cand_root.to_string_lossy(), real_root.to_string_lossy());
+    entries.into_iter().map(|(c, f, m)| (c, f, m.replace(from.as_ref(), to.as_ref()))).collect()
 }
 
 /// Normalise an absolute file path to a model-root-relative path, so findings
@@ -240,6 +342,25 @@ impl GuardedWriteOutcome {
     }
 }
 
+/// The validation findings of a model, as the guarded write compares them: every
+/// error (unresolved references and link-type errors) and every warning, with file
+/// paths relative to the model root. A write's delta is the candidate's findings
+/// minus the live model's, so the live model's can be kept between writes instead of
+/// recomputed from a model held in memory (`REQ-TRS-MCP-MEM-000`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Baseline {
+    pub errors: Vec<Entry>,
+    pub warnings: Vec<Entry>,
+}
+
+/// The findings of the live model `elements`, to hand to [`guarded_write_cached`].
+pub fn compute_baseline(model_root: &Path, elements: &[RawElement], config: &ValidateConfig) -> Baseline {
+    let (base_link_errs, warnings) = validator_findings(elements, config, model_root);
+    let mut errors = ref_errors(elements, model_root);
+    errors.extend(base_link_errs);
+    Baseline { errors, warnings }
+}
+
 /// Run a guarded write. `apply` performs the edit against an arbitrary model root
 /// (invoked once on a temp copy to compute the candidate, and a second time on the
 /// real model only when committing a clean change).
@@ -266,31 +387,95 @@ pub fn guarded_write<F>(
 where
     F: Fn(&Path) -> Result<(), String>,
 {
-    let base_errs = ref_errors(elements, model_root);
-    let base_warns = validator_warnings(elements, config, model_root);
+    guarded_write_inspect(model_root, elements, config, dry_run, gate, allow_new_errors, apply, None::<&dyn Fn(&[RawElement]) -> serde_json::Value>, |_| true).0
+}
+
+/// [`guarded_write`] that also lets the caller look at the **candidate** model
+/// (the one the edit would produce) and decide whether the commit may go ahead.
+///
+/// `inspect` runs once on the candidate's elements and its result is returned
+/// beside the outcome (`None` when the candidate failed to load). `proceed` is
+/// then asked, with that result, whether to commit: returning `false` stops after
+/// the preview exactly as a dry run does, leaving the model untouched. This is how
+/// the feature editor previews an edit's effect on the model's validity
+/// (`REQ-TRS-FMED-004`) without a second candidate copy.
+#[allow(clippy::too_many_arguments)]
+pub fn guarded_write_inspect<F, I>(
+    model_root: &Path,
+    elements: &[RawElement],
+    config: &ValidateConfig,
+    dry_run: bool,
+    gate: bool,
+    allow_new_errors: bool,
+    apply: F,
+    inspect: Option<&dyn Fn(&[RawElement]) -> I>,
+    proceed: impl Fn(&Option<I>) -> bool,
+) -> (GuardedWriteOutcome, Option<I>)
+where
+    F: Fn(&Path) -> Result<(), String>,
+{
+    let baseline = compute_baseline(model_root, elements, config);
+    let (outcome, inspected, _) = guarded_write_cached(model_root, &baseline, config, dry_run, gate, allow_new_errors, apply, inspect, proceed);
+    (outcome, inspected)
+}
+
+/// [`guarded_write_inspect`] against a precomputed [`Baseline`] instead of the live
+/// elements, so the caller may drop the live model while the candidate is built and
+/// validated: only one full model is in memory at a time. On a successful commit the
+/// third result is the candidate's findings, which are the live model's from then on
+/// (the caller reloads and keeps them as the next baseline).
+#[allow(clippy::too_many_arguments)]
+pub fn guarded_write_cached<F, I>(
+    model_root: &Path,
+    baseline: &Baseline,
+    config: &ValidateConfig,
+    dry_run: bool,
+    gate: bool,
+    allow_new_errors: bool,
+    apply: F,
+    inspect: Option<&dyn Fn(&[RawElement]) -> I>,
+    proceed: impl Fn(&Option<I>) -> bool,
+) -> (GuardedWriteOutcome, Option<I>, Option<Baseline>)
+where
+    F: Fn(&Path) -> Result<(), String>,
+{
+    let base_errs = baseline.errors.clone();
+    let base_warns = baseline.warnings.clone();
 
     let cand_root = match make_temp_copy(model_root) {
         Ok(p) => p,
-        Err(e) => return GuardedWriteOutcome::refused(format!("could not stage candidate: {e}")),
+        Err(e) => return (GuardedWriteOutcome::refused(format!("could not stage candidate: {e}")), None, None),
     };
 
     // Apply the edit to the candidate copy. A failure here (invalid dest, planning
     // error, …) is a refusal — the real model is never touched.
     if let Err(e) = apply(&cand_root) {
         let _ = std::fs::remove_dir_all(&cand_root);
-        return GuardedWriteOutcome::refused(e);
+        return (GuardedWriteOutcome::refused(e), None, None);
     }
 
+    let inspected: Option<I>;
     let (cand_errs, cand_warns) = match crate::walker::walk_model(&cand_root) {
         Ok(elems) => {
+            inspected = inspect.map(|f| f(&elems));
             let cfg = ValidateConfig::with_model_root(&cand_root);
-            let errs = ref_errors(&elems, &cand_root);
-            let warns = validator_warnings(&elems, &cfg, &cand_root);
+            let (link_errs, warns) = validator_findings(&elems, &cfg, &cand_root);
+            let (link_errs, warns) = (
+                normalise_root(link_errs, &cand_root, model_root),
+                normalise_root(warns, &cand_root, model_root),
+            );
+            // `with_model_root` installed the candidate's link-type vocabulary
+            // and `[ids.prefixes]` as the process-wide ones; restore the
+            // caller's (same content unless the write edits `.syscribe.toml`).
+            crate::link_types::install(&config.link_types);
+            crate::resolver::set_extra_id_prefixes_by_type(&config.id_extra_prefixes);
+            let mut errs = ref_errors(&elems, &cand_root);
+            errs.extend(link_errs);
             (errs, warns)
         }
         Err(e) => {
             let _ = std::fs::remove_dir_all(&cand_root);
-            return GuardedWriteOutcome::refused(format!("candidate model failed to load: {e}"));
+            return (GuardedWriteOutcome::refused(format!("candidate model failed to load: {e}")), None, None);
         }
     };
 
@@ -307,7 +492,7 @@ where
     let resolved_errors = added(&base_errs, &cand_err_set);
     let new_warnings = added(&cand_warns, &base_warn_set);
     let resolved_warnings = added(&base_warns, &cand_warn_set);
-    let new_error_count = new_errors.len();
+    let new_error_count = new_errors.iter().filter(|(c, _, _)| is_gating_error(c)).count();
 
     let mut outcome = GuardedWriteOutcome {
         written: false,
@@ -319,28 +504,70 @@ where
         reason: None,
     };
 
-    if dry_run {
-        return outcome;
+    if dry_run || !proceed(&inspected) {
+        return (outcome, inspected, None);
     }
 
     if gate && new_error_count > 0 && !allow_new_errors {
-        outcome.reason = Some("refused: commit would introduce an unresolved reference".to_string());
-        return outcome;
+        let link_type = outcome.new_errors.iter().any(|(c, _, _)| GATED_VALIDATOR_ERRORS.contains(&c.as_str()));
+        let eref = outcome.new_errors.iter().any(|(c, _, _)| c == "EREF");
+        let why = match (eref, link_type) {
+            (false, true) => "a link-type error (E630–E636; see newErrors)",
+            (true, true) => "an unresolved reference and a link-type error (see newErrors)",
+            _ => "an unresolved reference",
+        };
+        outcome.reason = Some(format!("refused: commit would introduce {why}"));
+        return (outcome, inspected, None);
     }
 
     // Commit: apply to the real model.
     if let Err(e) = apply(model_root) {
         outcome.reason = Some(format!("commit failed: {e}"));
-        return outcome;
+        return (outcome, inspected, None);
     }
     outcome.written = true;
-    outcome
+    (outcome, inspected, Some(Baseline { errors: cand_errs, warnings: cand_warns }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::element::RawFrontmatter;
+
+    #[cfg(unix)]
+    #[test]
+    fn the_candidate_copy_follows_directory_symlinks_and_skips_dangling_ones() {
+        let base = std::env::temp_dir().join(format!("syscribe-cp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (src, shared) = (base.join("model"), base.join("shared"));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join("A.md"), "a").unwrap();
+        std::os::unix::fs::symlink(&shared, src.join("Linked")).unwrap();
+        std::os::unix::fs::symlink(base.join("missing"), src.join("Dangling")).unwrap();
+        std::os::unix::fs::symlink(&src, src.join("Loop")).unwrap();
+        // The self-referencing link must not hang or fail the copy (the OS stops following it).
+        let dst = base.join("copy");
+        copy_dir_all(&src, &dst).unwrap();
+        assert!(dst.join("Linked/A.md").is_file());
+        assert!(!dst.join("Dangling").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_refused_write_creates_nothing_outside_the_root() {
+        let base = std::env::temp_dir().join(format!("syscribe-wc-{}", std::process::id()));
+        let root = base.join("model");
+        std::fs::create_dir_all(&root).unwrap();
+        for rel in ["../escaped/dir/x.md", "/tmp/syscribe-wc-abs/x.md", "", "a/../../escaped/x.md"] {
+            assert!(matches!(write_confined(&root, rel, "x"), Err(WriteConfinedError::Escapes)), "{rel:?}");
+        }
+        assert!(!base.join("escaped").exists(), "no directory was created beside the model");
+        assert!(!Path::new("/tmp/syscribe-wc-abs").exists());
+        write_confined(&root, "ok/deep/x.md", "x").unwrap();
+        assert!(root.join("ok/deep/x.md").is_file());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     fn elem(qname: &str, fm: RawFrontmatter) -> RawElement {
         RawElement {
@@ -351,6 +578,8 @@ mod tests {
             parse_issue: None,
             derived: Default::default(),
             derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
         }
     }
 
@@ -366,6 +595,44 @@ mod tests {
                 ..Default::default()
             },
         )
+    }
+
+    /// GH #156: concurrent guarded writes in one process must never share a
+    /// candidate directory. Many threads released together by a barrier read
+    /// the same nanosecond timestamp often enough to collide under the old
+    /// pid+nanos naming; every call must now get its own fresh directory.
+    #[test]
+    fn concurrent_temp_copies_never_share_a_directory() {
+        use std::sync::{Arc, Barrier};
+        let src = std::env::temp_dir().join(format!(
+            "syscribe-guard-src-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("A.md"), "---\ntype: PartDef\nname: A\n---\n").unwrap();
+        const THREADS: usize = 16;
+        const ROUNDS: usize = 50;
+        for _ in 0..ROUNDS {
+            let barrier = Arc::new(Barrier::new(THREADS));
+            let handles: Vec<_> = (0..THREADS)
+                .map(|_| {
+                    let (b, s) = (barrier.clone(), src.clone());
+                    std::thread::spawn(move || {
+                        b.wait();
+                        make_temp_copy(&s).unwrap()
+                    })
+                })
+                .collect();
+            let dirs: Vec<PathBuf> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+            let unique: HashSet<&PathBuf> = dirs.iter().collect();
+            assert_eq!(unique.len(), THREADS, "two guarded writes shared a candidate directory");
+            for d in &dirs {
+                assert!(d.join("A.md").is_file());
+                std::fs::remove_dir_all(d).unwrap();
+            }
+        }
+        std::fs::remove_dir_all(&src).unwrap();
     }
 
     #[test]

@@ -5,6 +5,24 @@ const NAMESPACE: &str = include_str!("../../../prompts/spec/namespace.md");
 const VALIDATION: &str = include_str!("../../../prompts/spec/validation.md");
 const TRACEABILITY: &str = include_str!("../../../prompts/spec/traceability.md");
 const SAFETY: &str = include_str!("../../../prompts/spec/safety.md");
+// The sections below embed the model-guide pages themselves, so the CLI help and the
+// documentation cannot drift apart.
+const BEHAVIOUR: &str = concat!(
+    include_str!("../../../docs/model-guide/state-machines.md"),
+    "\n\n---\n\n",
+    include_str!("../../../docs/model-guide/action-flows.md"),
+    "\n\n---\n\n",
+    include_str!("../../../docs/model-guide/plant-models.md"),
+    "\n\n---\n\n",
+    include_str!("../../../docs/model-guide/fmi-plants.md"),
+    "\n\n---\n\n",
+    include_str!("../../../docs/model-guide/behaviour-models.md"),
+    "\n\n---\n\n",
+    include_str!("../../../docs/model-guide/system-composition.md"),
+);
+const EVIDENCE: &str = include_str!("../../../docs/model-guide/executable-evidence.md");
+const DIAGRAMS: &str = include_str!("../../../docs/format/diagrams.md");
+const VARIABILITY: &str = include_str!("../../../docs/model-guide/variability.md");
 
 /// The spec sections, keyed by the short name used in `syscribe spec <section>`
 /// and in the MCP `syscribe://spec/<section>` resource URIs.
@@ -16,6 +34,10 @@ pub const SECTIONS: &[(&str, &str)] = &[
     ("validation", VALIDATION),
     ("traceability", TRACEABILITY),
     ("safety", SAFETY),
+    ("behaviour", BEHAVIOUR),
+    ("evidence", EVIDENCE),
+    ("diagrams", DIAGRAMS),
+    ("variability", VARIABILITY),
 ];
 
 pub fn cmd_spec(section: &str) {
@@ -27,6 +49,10 @@ pub fn cmd_spec(section: &str) {
         "validation" => print!("{}", VALIDATION),
         "traceability" => print!("{}", TRACEABILITY),
         "safety" => print!("{}", SAFETY),
+        "behaviour" => print!("{}", BEHAVIOUR),
+        "evidence" => print!("{}", EVIDENCE),
+        "diagrams" => print!("{}", DIAGRAMS),
+        "variability" => print!("{}", VARIABILITY),
         other => {
             eprintln!("Unknown spec section: {other}");
             eprintln!();
@@ -38,6 +64,10 @@ pub fn cmd_spec(section: &str) {
             eprintln!("  syscribe spec validation   — all validation rule codes");
             eprintln!("  syscribe spec traceability — traceability rules R-001–R-007");
             eprintln!("  syscribe spec safety       — safety/security analysis elements");
+            eprintln!("  syscribe spec behaviour    — state machines, action flows, plants, `models:`, composites");
+            eprintln!("  syscribe spec evidence     — executable evidence: requirement-coverage, exec-coverage");
+            eprintln!("  syscribe spec diagrams     — diagram elements, derived views, styles");
+            eprintln!("  syscribe spec variability  — feature models, configurations, `{{{{Feature.param}}}}` placeholders");
             std::process::exit(1);
         }
     }

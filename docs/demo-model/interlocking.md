@@ -152,32 +152,32 @@ The **2oo2D architecture** (two-out-of-two with diagnostics) means both processo
 
 | ID | Title | Level |
 |---|---|---|
-| TC-SIL-SAFE-001 | HIL — 2oo2D channel disagreement forces immediate safe state | L5 |
-| TC-SIL-SAFE-002 | HIL — signal reverts to red within one scan on section occupation | L5 |
-| TC-SIL-SAFE-003 | Integration — conflict checker blocks simultaneous conflicting routes | L4 |
-| TC-SIL-SAFE-004 | Integration — level crossing barriers must be confirmed before signal clearance | L4 |
+| TC-SIL-SAFE-001 | System integration — 2oo2 channel disagreement forces immediate safe state | L5 |
+| TC-SIL-SAFE-002 | System integration — signal reverts to red within one scan cycle when track section becomes occupied | L5 |
+| TC-SIL-SAFE-003 | Integration test — conflict checker blocks simultaneous conflicting route requests | L4 |
+| TC-SIL-SAFE-004 | Integration test — level crossing barriers must be confirmed down before signal clearance | L4 |
 | TC-SIL-SAFE-005 | Integration — PointsController position confirmation blocks signal clearance | L4 |
 
 **Architecture and software process**
 
 | ID | Title | Level |
 |---|---|---|
-| TC-SIL-SW-001 | Formal proof — ConflictChecker B-Method proofs and ProB model checking | L3 |
-| TC-SIL-SW-002 | Integration — EN 50159 Cat 2 safety codes reject all defined fault classes | L4 |
-| TC-SIL-SW-003 | Inspection — independent development process evidence for Channel A and B diversity | L2 |
+| TC-SIL-SW-001 | Software unit test — ConflictChecker conflict matrix formally verified | L3 |
+| TC-SIL-SW-002 | Integration test — EN 50159 Category 2 safety codes reject all defined fault classes | L4 |
+| TC-SIL-SW-003 | Inspection — Independent development process evidence for Channel A and B diversity | L2 |
 
 **Security**
 
 | ID | Title | Level |
 |---|---|---|
-| TC-SIL-SEC-001 | Integration — operator commands rejected without valid mTLS session | L4 |
-| TC-SIL-SEC-002 | Integration — EN 50159 Cat 2 safety codes reject replay, insertion and timestamp violations | L4 |
+| TC-SIL-SEC-001 | Integration — Operator commands rejected without valid mTLS session | L4 |
+| TC-SIL-SEC-002 | Integration — EN 50159 Category 2 safety codes reject all defined fault classes on field bus | L4 |
 
 **System integration**
 
 | ID | Title | Level |
 |---|---|---|
-| TC-SIL-SYS-001 | HIL — end-to-end system integration across four scenarios (route setting, 2oo2D disagreement, TC transient, LX clearance) | L5 |
+| TC-SIL-SYS-001 | HIL — End-to-end system integration test for SIL 4 interlocking safe state | L5 |
 
 ---
 
@@ -187,4 +187,8 @@ The **2oo2D architecture** (two-out-of-two with diagnostics) means both processo
 syscribe -m model_sil/ validate
 ```
 
-The model produces 0 errors and 0 warnings.
+The model produces 0 errors and 8 warnings, all advisory:
+
+- `W030` (x2) on damage scenarios with safety impact but no `hazardRef`, and `W032` on a cybersecurity goal whose CAL is below what its critical-risk threats require (security co-analysis findings);
+- `W962` (x3) on damage scenarios that name no `assets` (ISO/SAE 21434 §15.3);
+- `W056` (x2) on the `Station1Interlocking` connection endpoints `vitalProcessorA.vitalDataPort` / `vitalProcessorB.vitalDataPort`, which do not resolve to a member port.

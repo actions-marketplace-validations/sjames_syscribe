@@ -30,9 +30,10 @@ avoidance: Pa               # Pa · Pb
 demandRate: W2              # W1 · W2 · W3
 ```
 
-ASIL is derived automatically from S × E × C. IEC 61508 SIL is derived from the risk
-graph. Both are informational; the integrity level on the `SafetyGoal` is the normative
-value.
+An ASIL is derived from S × E × C only to compare against the `SafetyGoal`'s authored
+`asilLevel` (`W811`). No SIL is derived from the IEC 61508 risk-graph parameters — they are
+only enum-checked (`E833`–`E836`). The integrity level authored on the `SafetyGoal` is the
+normative value.
 
 ### SafetyGoal — `SG-*`
 
@@ -85,7 +86,7 @@ gap). A `DamageScenario.assets` entry that does not resolve to an `Asset` errors
 
 ```yaml
 type: DamageScenario
-id: DS-001
+id: DS-STEER-001
 name: "Attacker gains control of steering"
 status: approved
 damageSeverity: severe      # severe · major · moderate · negligible
@@ -93,7 +94,7 @@ impactCategories:           # safety · financial · operational · privacy
   - safety
   - operational
 assets: [ASSET-KERNEL-001]  # optional: Asset(s) this scenario damages (§15.3 → §15.4 trace; refs must resolve, else E864)
-hazardRef: SG-001           # optional: HazardousEvent/SafetyGoal this damage endangers
+hazardRef: SG-BRAKE-001     # optional: HazardousEvent/SafetyGoal this damage endangers
                             #   (string or list; safety↔security co-engineering)
 ```
 
@@ -103,29 +104,31 @@ A safety-tagged DamageScenario (`impactCategories` includes `safety`) with no `h
 
 ```yaml
 type: ThreatScenario
-id: TS-001
+id: TS-OBD-001
 name: "CAN bus spoofing via OBD port"
 status: approved
 attackFeasibility: medium   # high · medium · low · very_low
 attackVector: local         # network · adjacent · local · physical
-damageScenarios: [DS-001]
-hazardRef: SG-001           # optional: direct HazardousEvent/SafetyGoal link (string or list)
+damageScenarios: [DS-STEER-001]
+hazardRef: SG-BRAKE-001     # optional: direct HazardousEvent/SafetyGoal link (string or list)
 riskTreatment: reduce       # optional: avoid · reduce · share · retain (invalid → E845)
 residualRisk: "Low after MAC on torque frames"   # optional free text
 ```
 
 **Risk (ISO/SAE 21434 §15.8):** severity = max `damageSeverity` over `damageScenarios` (negligible=0…severe=3); feasibility from `attackFeasibility` (very_low=0…high=3); `score = severity + feasibility` → low (0–1), medium (2–3), high (4), critical (5–6); unknown if either is missing. A high/critical-risk threat with no `riskTreatment` and not listed by any `CybersecurityGoal.threatScenarios` warns **W031** (gateable `--deny W031`). View per-threat risk with `syscribe -m <root> cyber-risk`.
 
+**Configurable (GH #222):** a `[cyber]` table in `.syscribe.toml` selects `method = "simple"` (default, the rank-sum above) or `"annex"` (built-in EXAMPLE tables modelled on the ISO/SAE 21434 informative annexes — not normative; verify against your copy of the standard), overrides `[cyber.risk_matrix]`/`[cyber.cal_table]`/`[cyber.cal_by_risk]` cells, and scores attack potential (`elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` → `attackFeasibility`, `[cyber.attack_potential]`). `DamageScenario` may add `safetyImpact`/`financialImpact`/`operationalImpact`/`privacyImpact` (overall = max with `damageSeverity`). Codes `W640` `W641` `W642` `E640` `E641`.
+
 ### CybersecurityGoal — `CSG-*`
 
 ```yaml
 type: CybersecurityGoal
-id: CSG-001
+id: CSG-STEER-001
 name: "Ensure authenticity of steering control commands"
 status: approved
 securityProperty: authenticity  # confidentiality · integrity · availability · authenticity
 calLevel: CAL3              # CAL1 · CAL2 · CAL3 · CAL4
-threatScenarios: [TS-001]
+threatScenarios: [TS-OBD-001]
 ```
 
 Validation: W802 (no implementing SecurityControl), W804 (no derived Requirement), W032 (`calLevel` below the expected minimum CAL for the max risk of its listed threats: low→CAL1, medium→CAL2, high→CAL3, critical→CAL4).
@@ -134,26 +137,29 @@ Validation: W802 (no implementing SecurityControl), W804 (no derived Requirement
 
 ```yaml
 type: SecurityControl
-id: SC-001
+id: SC-CAN-001
 name: "HMAC authentication on CAN messages"
 status: approved
 controlType: prevention     # prevention · detection · response · recovery
-implementsGoals: [CSG-001]
+implementsGoals: [CSG-STEER-001]
 ```
 
-Architecture elements that realise a `SecurityControl` set `allocatedFrom: SC-001`
-(accepts single string or list for multiple controls).
+Bind a `SecurityControl` to the architecture element that realises it with a standalone
+`Allocation` element — `allocatedFrom: SC-CAN-001` + `allocatedTo: <element>` (either accepts a
+single string or a list). Do not author `allocatedFrom:` on the architecture element: it is the
+derived reverse index (§12.9); an authored one is accepted only as a legacy input form.
 
 ### VulnerabilityReport — `VR-*`
 
+<!-- syscribe-example: expect W803 reason="an open report is the point of the example; W803 is its tracking advisory" -->
 ```yaml
 type: VulnerabilityReport
-id: VR-001
+id: VR-OBD-001
 name: "CVE-2024-XXXX — OBD port CAN injection"
 status: open                # open triggers W803
 cvssScore: 7.5              # 0.0–10.0
 cveId: CVE-2024-12345       # optional CVE identifier
-mitigatedBy: [SC-001]
+mitigatedBy: [SC-CAN-001]
 affectedElements:
   - UAV::Avionics::FlightController
 ```
@@ -165,30 +171,32 @@ Tier 2 types. Use when a compact sheet is preferable to separate files.
 
 ```yaml
 type: TARASheet
-id: TARA-001
+id: TARA-BRAKE-001
 name: "TARA for braking system"
 status: approved
 damageTable:
-  - id: DS-001
+  - id: DS-STEER-001
     name: "..."
     damageSeverity: severe
     impactCategories: [safety]
+    hazardRef: SG-BRAKE-001     # the SafetyGoal this damage endangers (W030 if absent)
 threatTable:
-  - id: TS-001
+  - id: TS-OBD-001
     name: "..."
     attackFeasibility: medium
     attackVector: local
-    damageScenarios: [DS-001]
+    damageScenarios: [DS-STEER-001]
 goalTable:
-  - id: CSG-001
+  - id: CSG-STEER-001
     name: "..."
     securityProperty: authenticity
-    calLevel: CAL3
+    calLevel: CAL4              # critical-risk threat → at least CAL4 (W032)
+    threatScenarios: [TS-OBD-001]
 controlTable:
-  - id: SC-001
+  - id: SC-CAN-001
     name: "..."
     controlType: prevention
-    implementsGoals: [CSG-001]
+    implementsGoals: [CSG-STEER-001]
 ```
 
 ---
@@ -239,12 +247,16 @@ type: FaultTreeEvent
 id: FTE-BRAKE-001
 name: "Hydraulic pump failure"
 eventKind: basic            # basic · undeveloped · house
+ref: Braking::HydraulicPump # optional; element whose failure this is (qname or id; E927 if dangling)
 failureRate: 1.2e-7         # optional; per-hour failure rate (λ)
 diagnosticCoverage: 0.99        # optional; DC, 0.0–1.0 (E846 if out of range)
 latentDiagnosticCoverage: 0.90  # optional; DCl, 0.0–1.0 (E846 if out of range)
+probability: 1.0e-3         # optional; else 1−exp(−λ·missionTime) is used (E983 outside 0–1)
+ccfGroup: PUMPS             # optional; events sharing a group get a beta-factor CCF event
+ccfBeta: 0.1                # optional; β, 0.0–1.0 (E984 if out of range)
 ```
 
-Place in `FaultTreeName/` subdirectory.
+Place in `FaultTreeName/` subdirectory. Gate rules: `NOT` takes 1 input, `XOR` 2, `inhibit` needs its conditioning event as a second input (E981); no gate cycles (E980); every gate/event must be reachable from the one top gate (W980). `syscribe -m model/ fault-tree analyze <FT>` prints minimal cut sets, top-event probability and importance.
 
 ---
 
@@ -256,13 +268,15 @@ Per `SafetyGoal`, over the `FaultTreeEvent`s under the `FaultTree`(s) whose `top
 
 ```
 Σλ = Σ λ_i ; λ_RF = Σ λ_i·(1−DC_i) ; SPFM = 1 − λ_RF/Σλ
-λ_MPFL = Σ λ_i·DC_i·(1−DCl_i) (events declaring DCl) ; LFM = 1 − λ_MPFL/(Σλ−λ_RF)
-PMHF = λ_RF + λ_MPFL  (/h)
+λ_MPFL = Σ_single λ_i·DC_i·(1−DCl_i) + Σ_multi λ_i·(1−DCl_i) ; LFM = 1 − λ_MPFL/(Σλ−λ_RF)
+PMHF = λ_RF + λ_DPF  (/h)   λ_DPF = dual-point rate of order-2 cut sets over missionTime
 ```
 
-Targets — ASIL SPFM ≥ {B .90, C .97, D .99}; LFM ≥ {B .60, C .80, D .90}; PMHF < {B/C 1e-7, D 1e-8}/h. SIL gates PMHF/PFH < {SIL2 1e-6, SIL3 1e-7, SIL4 1e-8}/h only.
+Driven by the fault tree's **minimal cut sets**: `λ_RF` sums only order-1 (single-point) events; events only in larger cut sets are multi-point; house/unreachable events are skipped. A contributing event with no DC/DCl counts as 0 and raises **W985**; dual-point sets without a `missionTime` raise **W986**.
 
-**Opt-in:** metrics are computed/gated only when at least one contributing event declares `diagnosticCoverage`; otherwise `n/a`. A missed target raises **W033** (gate `--deny W033`). Inspect with `syscribe -m model/ metrics [--json]`.
+Targets — ASIL SPFM ≥ {B .90, C .97, D .99}; LFM ≥ {B .60, C .80, D .90}; PMHF < {B/C 1e-7, D 1e-8}/h. SIL gates PMHF/PFH < {SIL1 1e-5, SIL2 1e-6, SIL3 1e-7, SIL4 1e-8}/h only.
+
+**Opt-in:** metrics are computed/gated only when at least one contributing event declares `diagnosticCoverage`; otherwise `n/a`. A missed target raises **W033** (gate `--deny W033`). Inspect with `syscribe -m model/ metrics [--json]` (exit 2 when a goal's verdict is `fail`).
 
 ---
 
@@ -296,7 +310,7 @@ declares `responsibility:`. Gateable (`--deny W038`).
 type: ConfirmationMeasure
 id: CM-BRK-001
 name: "Independent functional-safety assessment of the braking goal"
-status: completed                 # planned | in_progress | completed
+status: completed                 # planned | in_progress | completed  (else E924)
 measureType: functional_safety_assessment
 # confirmation_review | functional_safety_audit | functional_safety_assessment | cybersecurity_assessment  (else E849)
 independenceLevel: I3             # I1 | I2 | I3  (else E850)
@@ -304,14 +318,15 @@ confirms:                         # work product ref(s); each must resolve (else
   - SG-BRK-001
 ```
 
-Errors: E847 (missing `id`/`name`/`status`), E848 (`id` not `CM-*`), E849/E850 (bad enum),
+Errors: E847 (missing `id`/`name`/`status`), E848 (`id` not `CM-*`), E849/E850/E924 (bad `measureType`/`independenceLevel`/`status` enum),
 E851 (unresolved `confirms`).
 
 **W039** — a high-integrity item lacking its required independent assessment: an `asilLevel: D`
 **or `silLevel: 3`/`silLevel: 4`** `SafetyGoal`/native `Requirement` not confirmed by an I3
 `functional_safety_assessment` (ISO 26262-2 §6 / IEC 61508-1 §8); a `calLevel: CAL4`
-`CybersecurityGoal` not confirmed by an I3 `cybersecurity_assessment`. `silLevel: 1`/`2`
-and `asilLevel: A`–`C` are future tightening. **Opt-in:** dormant unless at least one
+`CybersecurityGoal` not confirmed by an I3 `cybersecurity_assessment`; a `calLevel: CAL3`
+`CybersecurityGoal` not confirmed by an I2-or-I3 `cybersecurity_assessment`. `silLevel: 1`/`2`,
+`asilLevel: A`–`C` and `calLevel: CAL1`/`CAL2` are not gated. **Opt-in:** dormant unless at least one
 `ConfirmationMeasure` exists. Gateable (`--deny W039`).
 
 ---
@@ -329,7 +344,7 @@ type: Argument
 id: ARG-BRK-001
 name: "Argue over independent torque monitoring"
 status: approved
-argumentType: strategy   # claim | strategy | solution   (absent → claim; else E854)
+argumentType: strategy   # claim | strategy | solution | context | justification | assumption | undeveloped   (absent → claim; else E854)
 supports: SG-BRK-001     # SafetyGoal or parent Argument argued for (string or list; else E855)
 evidence:                # Requirement / TestCase / sub-Argument / AssumptionOfUse (string or list; else E855)
   - REQ-BRK-001
@@ -365,18 +380,20 @@ id: FMEA-BRAKE-001
 name: "Braking system FMEA"
 status: approved
 entries:
-  - id: FM-001
+  - id: FM-BRAKE-001
     name: "Hydraulic line rupture"
     ref: UAV::Avionics::BrakingSystem   # optional; resolves to model element
-    function: "Apply braking force"
     failureMode: "Loss of hydraulic pressure"
-    failureEffect: "Vehicle cannot decelerate"
+    effect: "Vehicle cannot decelerate"
+    cause: "Line chafing"
     fmeaSeverity: 9         # 1–10
     occurrence: 3           # 1–10
     detection: 4            # 1–10
-    rpn: 108                # optional; auto-computed as S × O × D when absent
+    rpn: 108                # optional; S × O × D wins when all three are set (mismatch → W928)
     recommendedAction: "Add redundant hydraulic line"   # required if RPN > 100
 ```
+
+Every row **must** have an `id:` — a row without one is dropped and raises **E923** on the sheet. Unknown row keys are **E922**. An explicit `rpn:` that disagrees with `S × O × D` (all three present) raises **W928**; the computed value is used.
 
 ---
 
@@ -387,7 +404,8 @@ Attack trees mirror FTA. An `AttackTree` substantiates a `ThreatScenario`
 `AttackStep` leaves. Feasibility rolls up **weakest-link**: rank
 `very_low`=0 … `high`=3; an `AttackStep` = its `attackFeasibility` rank; an `AND`
 gate (sequential path) = **MIN** of children; an `OR` gate (alternatives) =
-**MAX** of children; the tree = the value of its single root child, mapped back
+**MAX** of children; the tree = the value of its root node (the one gate/step no
+other gate of the tree lists in `inputs:` — never file order), mapped back
 to a label. If the tree's computed feasibility differs from the linked
 `ThreatScenario.attackFeasibility`, the validator emits **W035** (computed vs
 declared).
@@ -449,8 +467,8 @@ Place in the `AttackTreeName/` subdirectory.
 | Rule | Details |
 |---|---|
 | `Requirement` → `SafetyGoal` | `derivedFromSafetyGoal: SG-*`; integrity level must propagate (E841) |
-| `Requirement` → `CybersecurityGoal` | `derivedFromSecurityGoal: CSG-*`; `verificationMethod:` required (W807) |
-| `PartDef`/`Part` → `SecurityControl` | `allocatedFrom: SC-*` (or list); OSLC direction: arch element holds reference |
+| `Requirement` → `CybersecurityGoal` | `derivedFromCybersecurityGoal: CSG-*`; `verificationMethod:` required (W807) |
+| `SecurityControl` → `PartDef`/`Part` | a standalone `Allocation` element: `allocatedFrom: SC-*`, `allocatedTo: <element>` (§12.9); the element's `allocatedFrom` is derived |
 | `FaultTree` → `SafetyGoal` | `topEvent: SG-*` |
 | `AttackTree` → `ThreatScenario` | `threatRef: TS-*` (E917); feasibility roll-up reconciled via W035 |
 | `ASIL decomposition` | Lower level on derived element + `breakdownAdr:` (W808 without ADR) |

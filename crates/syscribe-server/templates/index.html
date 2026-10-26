@@ -3,7 +3,10 @@
 
 <!-- Model browser sidebar -->
 <div class="sidebar">
-  <div class="sidebar-header">Model Browser</div>
+  <div class="sidebar-header">Model Browser
+    <button class="sidebar-add" onclick="window.NewDiagram && window.NewDiagram.open()"
+            title="New diagram: derive one from a subject or start blank">+ Diagram</button>
+  </div>
   <div id="tree-root"
        hx-get="/ui/tree"
        hx-trigger="load"
@@ -11,6 +14,46 @@
     <span style="color:#ccc;font-style:italic;padding:10px;display:block">Loading&#x2026;</span>
   </div>
 </div>
+
+<!-- New diagram dialog (REQ-TRS-VIS-023). Logic: frontend/src/new-diagram.ts,
+     wiring: frontend/src/new-diagram-dialog.ts. -->
+<dialog id="new-diagram-dialog">
+  <form id="nd-form" method="dialog">
+    <h3>New diagram</h3>
+    <label>Name <input id="nd-name" type="text" autocomplete="off" placeholder="PowerSystemIBD"></label>
+    <label>Kind <select id="nd-kind"></select></label>
+    <fieldset>
+      <legend>Start from</legend>
+      <label class="nd-radio"><input type="radio" name="nd-start" value="derive" checked> Derive from a subject (follows the model)</label>
+      <label class="nd-radio"><input type="radio" name="nd-start" value="blank"> Blank (add elements by hand)</label>
+    </fieldset>
+    <label id="nd-subject-label">Subject <input id="nd-subject" type="text" list="nd-subjects" autocomplete="off" placeholder="UAV::Power::PowerSystem"></label>
+    <datalist id="nd-subjects"></datalist>
+    <div id="nd-subject-hint" class="nd-hint"></div>
+    <label>Package <select id="nd-package"></select></label>
+    <div id="nd-error" class="nd-error" role="alert" style="display:none"></div>
+    <div class="nd-actions">
+      <button type="button" id="nd-cancel">Cancel</button>
+      <button type="submit" id="nd-create">Create</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Add existing element picker (REQ-TRS-VIS-024). Logic: frontend/src/add-existing.ts,
+     wiring: frontend/src/add-existing-dialog.ts. -->
+<dialog id="add-existing-dialog">
+  <form id="ae-form" method="dialog">
+    <h3>Add existing element</h3>
+    <label>Element <input id="ae-ref" type="text" list="ae-results" autocomplete="off" placeholder="Search by name or qualified name"></label>
+    <datalist id="ae-results"></datalist>
+    <div id="ae-count" class="nd-hint"></div>
+    <div id="ae-error" class="nd-error" role="alert" style="display:none"></div>
+    <div class="nd-actions">
+      <button type="button" id="ae-cancel">Cancel</button>
+      <button type="submit" id="ae-add">Add</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- Canvas area: tab bar + viewport -->
 <div id="canvas-area">
@@ -33,11 +76,30 @@
 
     <div class="sprotty-toolbar">
       <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.addNode()" title="Add node">+</button>
+      <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.addExisting()" title="Add an existing element to this diagram">&#x2295;</button>
       <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.deleteSelected()" title="Delete selected node (Del)">&#x2715;</button>
       <button class="canvas-btn" id="connect-mode-btn"
               onclick="window.DiagramEditor && (this.classList.toggle('active', window.DiagramEditor.toggleConnectMode()))"
-              title="Connect mode: click a source shape, then a target shape">&#x2194;</button>
+              title="Connect mode: click a source port, then a target port">&#x2194;</button>
+      <!-- Layout authority buttons (REQ-TRS-VIS-011): each is one guarded
+           write. Pin all PATCHes every shape's position/size; Auto-layout
+           DELETEs every pin and re-runs ELK; Save companion SVG PUTs the
+           live render as the diagram's svgFile. -->
+      <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.pinAll()"
+              title="Pin all: write every shape's current position and size as pins">&#x1F4CC;</button>
+      <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.autoLayout()"
+              title="Auto-layout: clear every pin and lay the diagram out again">&#x21BB;</button>
+      <button class="canvas-btn" onclick="window.DiagramEditor && window.DiagramEditor.saveSvg()"
+              title="Save companion SVG: write this render as the diagram's companion .svg">&#x1F5BC;</button>
     </div>
+
+    <!-- Element side panel (REQ-TRS-VIS-026): the rendered card of the selected shape or edge.
+         Logic: frontend/src/selection-ref.ts, wiring: frontend/src/element-panel.ts. `hidden` is
+         the attribute, not an inline display, so the stylesheet can never hold it shut. -->
+    <aside id="element-panel" hidden>
+      <div class="ep-bar"><span>Element</span><button id="ep-close" title="Close">&#x2715;</button></div>
+      <div id="element-panel-body"></div>
+    </aside>
 
     <div id="sprotty-toast"></div>
   </div>

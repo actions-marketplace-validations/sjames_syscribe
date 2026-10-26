@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 6.1.1 (Python 3.10.12 on linux)" generated="20261015 01:47:55.245" rpa="false" schemaversion="4">
+<suite id="s1" name="S" source="/work/s.robot">
+<kw name="Fail" library="BuiltIn" type="SETUP">
+<arg>rig not ready</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<msg timestamp="20261015 01:47:55.268" level="FAIL">rig not ready</msg>
+<status status="FAIL" starttime="20261015 01:47:55.268" endtime="20261015 01:47:55.268"/>
+</kw>
+<test id="s1-t1" name="Needs rig" line="4">
+<tag>TC-BRK-001</tag>
+<status status="FAIL" starttime="20261015 01:47:55.268" endtime="20261015 01:47:55.269">Parent suite setup failed:
+rig not ready</status>
+</test>
+<test id="s1-t2" name="Also needs rig" line="7">
+<tag>TC-BRK-002</tag>
+<status status="FAIL" starttime="20261015 01:47:55.269" endtime="20261015 01:47:55.269">Parent suite setup failed:
+rig not ready</status>
+</test>
+<status status="FAIL" starttime="20261015 01:47:55.246" endtime="20261015 01:47:55.270">Suite setup failed:
+rig not ready</status>
+</suite>
+<statistics>
+<total>
+<stat pass="0" fail="2" skip="0">All Tests</stat>
+</total>
+<tag>
+<stat pass="0" fail="1" skip="0">TC-BRK-001</stat>
+<stat pass="0" fail="1" skip="0">TC-BRK-002</stat>
+</tag>
+<suite>
+<stat pass="0" fail="2" skip="0" id="s1" name="S">S</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

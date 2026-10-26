@@ -5,12 +5,15 @@
   "description": "Sprotty-based editable diagram client for syscribe-server (ADR-SYS-DE-001, REQ-TRS-DE-004). Dev-time build only; output is a single static JS file served by syscribe-server's rust_embed static pipeline.",
   "scripts": {
     "build": "tsc --noEmit -p . && node esbuild.config.mjs",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node test/elk-layout.test.mjs && node test/connect-rules.test.mjs && node test/server-sizes.test.mjs && node test/new-diagram.test.mjs && node test/page-wiring.test.mjs && node test/add-existing.test.mjs && node test/tree-toggle.test.mjs && node test/selection-ref.test.mjs && node test/planning-core.test.mjs && node test/feature-core.test.mjs && node test/safety-shape.test.mjs"
   },
   "dependencies": {
-    "sprotty": "^1.4.0",
+    "elkjs": "^0.8.2",
     "inversify": "^6.0.2",
-    "reflect-metadata": "^0.2.2"
+    "reflect-metadata": "^0.2.2",
+    "sprotty": "^1.4.0",
+    "sprotty-elk": "^1.4.0"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",

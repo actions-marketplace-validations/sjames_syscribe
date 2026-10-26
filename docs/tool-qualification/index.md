@@ -27,11 +27,11 @@ Syscribe targets **TCL2**. The qualification package is complete in `qual/`.
 ```
 qual/
   _index.md                    ← Syscribe Package element (the TRS itself)
-  Requirements/                ← 204 REQ-TRS-* requirements
+  Requirements/                ← REQ-TRS-* tool requirements
     REQ-TRS-PARSE-001.md
     REQ-TRS-VAL-001.md
     ...
-  TestCases/                   ← 204 TC-TRS-* test cases with Gherkin
+  TestCases/                   ← TC-TRS-* test cases with Gherkin
     TC-TRS-PARSE-001.md
     TC-TRS-VAL-001.md
     ...
@@ -44,12 +44,14 @@ qual/
     run_qual.sh                ← discovers TCs from TestCases/, runs each against fixtures/
     lib.sh                     ← assert_has_code(), assert_exit_zero(), ...
     tc/
-      TC-TRS-PARSE-001.sh      ← one shell function per TC
+      TC-TRS-PARSE-001.sh      ← one shell function per shell-evidenced TC
       ...
     tvr/
       generate_tvr.sh          ← reads results.ndjson → TVR.md
-      TVR.md                   ← Tool Validation Report (generated)
+      TVR.md                   ← Tool Validation Report (tracked snapshot, see below)
 ```
+
+Not every test case is evidenced by a shell script. Of the 478 `TC-TRS-*` test cases, 356 have a script in `qual/tests/tc/`; the remaining 122 are evidenced by Rust tests instead (`sourceFile: repo:crates/...`, run by `cargo test --workspace`, which CI runs before the shell suite). The shell runner reports those 122 as skipped (see below).
 
 The requirements (`REQ-TRS-*`) are native `Requirement` elements with stable IDs, `status:`, `reqDomain:`, and `verificationMethod:`. The test cases (`TC-TRS-*`) are native `TestCase` elements with Gherkin scenarios, `testLevel: L3`, and `verifies:` links back to the requirements.
 
@@ -63,22 +65,30 @@ Because `qual/` is a Syscribe model, you can run the tool being qualified agains
 syscribe -m qual/
 ```
 
-This produces a standard validation report covering all 204 requirements and 204 test cases. Any structural error in the qualification model — a malformed frontmatter, a dangling `verifies:` reference, a duplicate ID — is caught by the same validation rules the qualification tests exercise.
+This produces a standard validation report covering every tool requirement and test case. Any structural error in the qualification model — a malformed frontmatter, a dangling `verifies:` reference, a duplicate ID — is caught by the same validation rules the qualification tests exercise.
 
 ```
 $ syscribe -m qual/
+# ToolQual Validation Report
 
 ## 1. Executive Summary
 
-| Metric    | Count |
+| Metric | Count |
 |---|---|
-| Total elements | 416   |
-| Errors         | 0     |
-| Warnings       | 210   |
-| Requirements (total) | 204 |
-| Test cases           | 204 |
-| Gherkin scenarios    | 719 |
+| Total elements | 958 |
+| Errors | 0 |
+| Warnings | 479 |
+| Informational | 0 |
+| Requirements (total) | 471 |
+| Requirements (parent) | 2 |
+| Requirements (leaf) | 469 |
+| Test cases | 478 |
+| ADRs | 5 |
+| Gherkin scenarios | 1687 |
+...
 ```
+
+(Counts from the 0.53.0 release: 958 elements, 471 requirements, 478 test cases; they grow as tool requirements are added.)
 
 The warnings are predominantly W005 ("possible orphan") — expected, because the TRS requirements are intentionally root-level with no parent hierarchy.
 
@@ -86,10 +96,10 @@ The warnings are predominantly W005 ("possible orphan") — expected, because th
 
 ## Running the tests manually
 
-The test runner discovers test cases by reading `qual/TestCases/TC-TRS-*.md` with `find` and extracting frontmatter (id, name, verifies) using `awk`. For each TC it sources the matching shell script in `qual/tests/tc/` and runs one or more `syscribe -m qual/fixtures/...` invocations, asserting on stdout content and exit codes.
+The test runner discovers test cases by reading `qual/TestCases/TC-TRS-*.md` with `find` and extracting frontmatter (id, name, verifies) using `awk`. For each TC it sources the matching shell script in `qual/tests/tc/` and runs one or more `syscribe -m qual/fixtures/...` invocations, asserting on stdout content and exit codes. A TC with no script in `qual/tests/tc/` is printed as `SKIP` and counted as skipped: those are the test cases evidenced by Rust tests (`sourceFile: repo:crates/...`), which `cargo test --workspace` runs. The shell suite is therefore one half of the evidence, not all of it.
 
 ```bash
-# Build syscribe and run all 204 test cases
+# Build syscribe and run every test case
 ./qual/tests/run_qual.sh
 
 # Skip rebuild if the binary is already current
@@ -109,7 +119,7 @@ Sample output:
 ```
 Building syscribe...
     Finished dev profile in 0.05s
-Discovered 204 test cases
+Discovered 478 test cases
 
 [TC-TRS-PARSE-008] Verify that invalid YAML frontmatter produces error E002.
   ▶ valid YAML frontmatter produces no E002
@@ -123,7 +133,7 @@ Discovered 204 test cases
 ...
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Results:  204 total  204 passed  0 failed  0 skipped
+Results:  356 total  356 passed  0 failed  122 skipped
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 TVR written to: qual/tests/tvr/TVR.md
 ```
@@ -132,7 +142,7 @@ TVR written to: qual/tests/tvr/TVR.md
 
 ## How each test works
 
-Every test case follows the same pattern:
+Every shell-evidenced test case follows the same pattern (Rust-evidenced test cases are ordinary `cargo test` functions named by the TC's `sourceFile:`/`testFunctions:`):
 
 1. **Fixture** — a minimal Syscribe model in `qual/fixtures/` crafted to trigger (or not trigger) a specific condition. Each scenario has its own subdirectory, so test isolation is complete.
 
@@ -176,21 +186,35 @@ The qualification package produces three TCL2 artefacts:
 | **Tool Validation Plan (TVP)** | Gherkin `Scenario:` blocks in each TC file | Part of the TC authoring; reviewed by reading the `.md` files |
 | **Tool Validation Report (TVR)** | `qual/tests/tvr/TVR.md` | Generated by `run_qual.sh` after each test run |
 
-The TVR records the syscribe version, date, and a pass/fail verdict for every TC. It is the primary evidence document submitted to a safety assessor.
+The TVR records the syscribe version, date, and a pass/fail verdict for every TC the shell suite ran. It is the primary evidence document submitted to a safety assessor. The `TVR.md` tracked in the repository is only a snapshot (currently for syscribe 0.43.0: 341 tests, 2026-09-26), not the report for the current release; regenerate it with `run_qual.sh` or take the one CI uploads for the commit under review.
 
 ---
 
 ## Coverage summary
 
-The 204 test cases cover:
+The test cases cover (a representative excerpt — `qual/TestCases/` is authoritative):
 
 | Area | Requirements | Test cases |
 |---|---|---|
 | File discovery and frontmatter parsing (§11.1–11.2) | REQ-TRS-PARSE-001–009 | TC-TRS-PARSE-001–009 |
 | Qualified name derivation (§11.3) | REQ-TRS-QNAME-001–004 | TC-TRS-QNAME-001–004 |
 | Cross-reference resolution (§11.5–11.6, §11.10) | REQ-TRS-XREF-001–005 | TC-TRS-XREF-001–005 |
+| Unresolved structural/satisfies references E110–E114 (§11.5 step 4) | REQ-TRS-XREF-007 | TC-TRS-XREF-007 |
 | Element type handling (§2, §11.4) | REQ-TRS-ELEM-001–003 | TC-TRS-ELEM-001–003 |
-| ID scheme validation | REQ-TRS-ID-001–004 | TC-TRS-ID-001–004 |
+| ID scheme validation | REQ-TRS-ID-001–008 | TC-TRS-ID-001–008 |
+| Behavioural model trace `models:` E990–E991, W990–W992 (§12.11) | REQ-TRS-MODELS-001 | TC-TRS-MODELS-001 |
+| Verification composites, `role: environment` E992, W993 (§12.11) | REQ-TRS-VCOMP-001 | TC-TRS-VCOMP-001 |
+| Executable evidence: `requirement-coverage`, `exec-coverage`, `@verifies` W994, W995 (§12.12) | REQ-TRS-EXECEV-001 | TC-TRS-EXECEV-001 |
+| Flow kinds and port sides in diagrams, W419 (§8.16.9) | REQ-TRS-VIS-028 | TC-TRS-VIS-028 |
+| IBD grouping and containment: `depth:`, deployment, marks, `groupBy: domain`, W420 (§8.16.8.2) | REQ-TRS-VIS-029 | TC-TRS-VIS-029 |
+| System context: `role: external` actors, «actor» in IBD/BDD, W996 (§12.13) | REQ-TRS-VIS-030 | TC-TRS-VIS-030 |
+| Diagram views: `include:` selectors that fade the context, named styles, `layout:` hints, the variant view, W421 (§8.16.10) | REQ-TRS-VIS-031 | TC-TRS-VIS-031 |
+| Deterministic diagram exports: bundled text metrics, `diagram export --all` and `--check` over committed renders | REQ-TRS-VIS-032 | TC-TRS-VIS-032 |
+| In-process plants: `PlantDef`, library plants, plant faults, E938, E939 (§8.8.6) | REQ-TRS-PLANT-001 | TC-TRS-PLANT-001 |
+| Campaign evidence and residual risk: `inject --record`/`--report`, `results campaigns`, `ResidualRisk`, E942–E944, W940–W946 (§12.14) | REQ-TRS-RISK-001 | TC-TRS-RISK-001 |
+| Invariant properties: `Where`, `Except under` degraded clauses, `within`, `always`, `never`, survived (degraded) (§8.12.8) | REQ-TRS-INV-001 | TC-TRS-INV-001 |
+| Quantitative goal verdicts and tree-versus-campaign: rate-only PFH, demand-mode PFDavg, `target:`, `[reliability]`, rate provenance, plausibility, `inject --consistency`, E985, E986, W988, W989 | REQ-TRS-GOALV-001 | TC-TRS-GOALV-001 |
+| Typed ports: events and payloads against `PortDef` items, E932/E935 (§8.8.5) | REQ-TRS-PORTTYPE-001 | TC-TRS-PORTTYPE-001 |
 | Parse-time errors E001–E015, E300–E304 (§11.12) | REQ-TRS-VAL-001 | TC-TRS-VAL-001 |
 | Model-time errors E101–E106, E310–E315 (§11.12) | REQ-TRS-VAL-002 | TC-TRS-VAL-002 |
 | Warnings W001–W007, W300–W305 (§11.12) | REQ-TRS-VAL-003 | TC-TRS-VAL-003 |
@@ -202,11 +226,15 @@ The 204 test cases cover:
 | Acyclicity of hierarchical relationships (E016–E018) | REQ-TRS-TRACE-009 | TC-TRS-TRACE-009 |
 | Configuration element E200–E201, E209 | REQ-TRS-CONF-001 | TC-TRS-CONF-001 |
 | Diagram element E400–E402, W400–W412 | REQ-TRS-DIAG-001 | TC-TRS-DIAG-001 |
-| HazardousEvent E800–E804, E833–E836, W800 | REQ-TRS-SAFE-001 | TC-TRS-SAFE-001 |
+| HazardousEvent E800–E804, E833–E836, W800 | REQ-TRS-SAFE-001, REQ-TRS-HARA-001 | TC-TRS-SAFE-001, TC-TRS-HARA-001 |
 | SafetyGoal E805–E806, E825, E837, W801, W805–W806 | REQ-TRS-SAFE-002 | TC-TRS-SAFE-002 |
 | DamageScenario / ThreatScenario E807–E814, E826 | REQ-TRS-SAFE-003 | TC-TRS-SAFE-003 |
 | Cybersecurity elements E815–E824, E827–E832, W802–W804, W807 | REQ-TRS-SAFE-004 | TC-TRS-SAFE-004 |
 | FaultTree / FaultTreeGate / FaultTreeEvent E900–E909, W900–W901 | REQ-TRS-FTA-001 | TC-TRS-FTA-001 |
+| FaultTreeEvent `ref:` link (E927; show / links / fault-tree render) | REQ-TRS-FTA-002 | TC-TRS-FTA-002 |
+| Fault-tree analysis: cut sets, top probability, importance, CCF (`fault-tree analyze`) | REQ-TRS-FTA-003 | TC-TRS-FTA-003 |
+| Fault-tree structure E980–E984, W980–W984, W987 | REQ-TRS-FTA-004 | TC-TRS-FTA-004 |
+| Cut-set driven safety metrics, W985–W986, `metrics` exit code | REQ-TRS-FTA-005 | TC-TRS-FTA-005 |
 | FMEASheet / FMEAEntry E911–E914, W902–W904 | REQ-TRS-FMEA-001 | TC-TRS-FMEA-001 |
 | TARASheet E940–E941, W905 | REQ-TRS-TARA-001 | TC-TRS-TARA-001 |
 | Output format and exit codes | REQ-TRS-OUT-001–005 | TC-TRS-OUT-001–005 |
@@ -235,9 +263,9 @@ This is tool qualification working as intended: the test suite surfaces gaps, th
 
 The qualification suite runs automatically on every push to `main` and on every pull
 request that touches `crates/`, `qual/`, or any model directory (`model*/**`). The
-workflow is at `.github/workflows/qual.yml`. It **gates on validation of every model** —
-the build fails if `model`, `model_auto`, `model_mg`, `model_sil`, or `qual` has any
-validation error (warnings are allowed) — and then runs the test suite.
+workflow is at `.github/workflows/qual.yml`. It builds the tool, runs `cargo test --workspace` and the opt-in FMI tests, regenerates and renders the PlantUML companions, **gates on validation of every model** —
+the build fails if `model`, `model_auto`, `model_mg` (validated with `--profile magicgrid`), `model_sil`, `model_gti`, or `qual` has any
+validation error (warnings are allowed) — checks the committed grid-tie diagram renders with `diagram export --all --check`, and then runs the shell qualification suite. The excerpt below is abridged; `.github/workflows/qual.yml` is authoritative.
 
 ```yaml
 jobs:
@@ -252,13 +280,21 @@ jobs:
       - name: Build syscribe
         run: cargo build --package syscribe
 
+      - name: Run workspace tests          # abridged: also FMI feature tests,
+        run: cargo test --workspace        # Graphviz/PlantUML install + render
+
       - name: Validate all models (gating — fails on any validation error)
         run: |
+          # abridged: the real step loops over "model|", "model_auto|",
+          # "model_mg|--profile magicgrid", "model_sil|", "model_gti|", "qual|"
           fail=0
-          for m in model model_auto model_mg model_sil qual; do
+          for m in model model_auto model_mg model_sil model_gti qual; do
             ./target/debug/syscribe -m "$m" validate > "validate-$m.md" || fail=1
           done
           exit $fail
+
+      - name: Check committed grid-tie diagram renders
+        run: ./target/debug/syscribe -m model_gti diagram export --all --check
 
       - name: Run qualification test suite
         run: bash qual/tests/run_qual.sh --no-build
@@ -271,23 +307,25 @@ jobs:
           path: qual/tests/tvr/TVR.md
 ```
 
-The workflow uploads the TVR as a build artifact on every run — including failures — so evidence is always available at the commit SHA. A failed run blocks merging; a green run means the qualification suite passed against the exact binary that was built from the PR.
+The workflow uploads the TVR (`TVR-<sha>`), the TRS self-check report (`TRS-self-check-<sha>`) and the per-model validation reports (`model-validation-<sha>`) as build artifacts on every run — including failures — so evidence is always available at the commit SHA. A failed run blocks merging; a green run means the qualification suite passed against the exact binary that was built from the PR.
 
 ### What CI checks
 
-Every CI run performs two independent checks:
+Every CI run performs several independent checks; the two that concern the qualification model itself are:
 
 1. **`syscribe -m qual/`** — validates the TRS model itself. If a requirement or test case has malformed frontmatter, a dangling `verifies:` reference, or a duplicate ID, this step fails before any tests run.
 
-2. **`bash qual/tests/run_qual.sh`** — runs all 204 test cases against the newly built binary. Each TC invokes the binary against a crafted fixture and asserts on stdout and exit code. A single failing assertion causes the run to exit 1.
+2. **`bash qual/tests/run_qual.sh`** — runs every shell-evidenced test case against the newly built binary (the Rust-evidenced ones run in the earlier `cargo test --workspace` step). Each TC invokes the binary against a crafted fixture and asserts on stdout and exit code. A single failing assertion causes the run to exit 1.
 
 ### Using the TVR artifact as evidence
 
 After a green CI run, download `TVR-<sha>.md` from the workflow artifacts page. This document records:
 
-- The exact binary version under test
-- The date and commit SHA
-- A pass/fail verdict for every one of the 204 test cases
+- The tool name, the exact syscribe version under test and the standard (ISO 26262 Part 8 §11 / IEC 61508 Part 3 Annex D)
+- The run date and the path of the TRS
+- A pass/fail verdict for every test case the shell suite ran
+
+The report itself does not record a commit SHA; the SHA is carried by the CI artifact name (`TVR-<sha>`), so keep the artifact's original name when you archive it.
 
 This is the primary evidence document for a TCL2 qualification submission. Archive it alongside the release binary.
 

@@ -1,21 +1,52 @@
 # mcp — run an MCP server over stdio for LLM clients
 
-`syscribe mcp -m <model>` starts a Model Context Protocol (MCP) server that
+`syscribe -m <root> mcp` starts a Model Context Protocol (MCP) server that
 speaks newline-delimited JSON-RPC 2.0 over **stdio**. It lets an MCP-capable LLM
 client query and guard-write the Syscribe model bound at `-m`.
 
-## Usage
+## SYNOPSIS
+    syscribe -m <root> mcp [--read-only] [--no-watch]
 
-    syscribe -m <model> mcp [--read-only]
+## USAGE
 
 The server runs until its stdin is closed. It is intended to be spawned by an
 MCP client (an editor, an agent runtime, …), not invoked interactively.
 
-- `--read-only` starts the server with the six write tools hidden and rejected;
-  the full read/query surface stays available.
+- `--read-only` starts the server with the guarded-write tools (listed under
+  **Guarded-write tools** below) hidden and rejected; the full read/query surface
+  stays available.
+- `--no-watch` disables the file watcher (see **Live reload** below); the model
+  is then re-read only after the server's own writes or an explicit `reload`.
 - The server advertises `tools`, `resources`, `prompts`, `completions`, and
   `logging` capabilities, and emits a `resources/list_changed` notification after
-  any committed write or a `reload`.
+  any committed write, a `reload`, or an automatic reload.
+
+## Live reload
+
+The server watches the model root (including `.syscribe.toml` and the
+`.syscribe/results.json` verdict sidecar) and every `[repos]` peer model root,
+so edits made outside it (an editor save, a branch switch, another tool) are
+picked up without calling `reload`. `--read-only` servers watch too.
+
+- Bursts of file events are debounced (~250 ms). The server then fingerprints the
+  model inputs (relative path, size and mtime of every `.md`, `.sysml`, `.kerml`
+  and `.rhai` file, `.syscribe.toml`, `.sysmlignore`, `.syscribe/results.json`,
+  and every file under a `foreignFormat:`/`annotationFormat:` package) and
+  reloads only if the fingerprint changed since the loaded store was built, so
+  the server's own writes, and edits to other files, cause no reload. `.git/`,
+  `.syscribe/cache/` and editor swap/backup files (`*.swp`, `*~`, `.#*`,
+  `4913`, `*.tmp`) are ignored.
+- The new store is built in the background and swapped in, so reads are never
+  blocked. After a reload the server sends the logging message
+  `{"event":"reload","source":"watch","count":N}` and
+  `notifications/resources/list_changed`.
+- If the reload fails, or a file's frontmatter stops parsing (typically a
+  half-saved file), the reload is deferred: the current model is kept, a warning
+  `{"event":"reload_deferred","source":"watch",...}` is logged (and printed to
+  stderr), and the next file change retries. The `reload` tool always re-reads.
+- Watching is best-effort: if the watcher cannot be created (e.g. the inotify
+  watch limit is exhausted), a `watch_unavailable` warning is logged once and the
+  server keeps serving without it.
 
 Every tool returns structured JSON. Element references (`ref`) are accepted as a
 stable id, a qualified name, or a display name. List/grid tools accept
@@ -24,17 +55,45 @@ stable id, a qualified name, or a display name. List/grid tools accept
 ## Read tools — navigate & query
 
 - `get_element {ref, detail?, fields?}` — one element; summary by default,
-  `detail:true` adds the body + frontmatter, `fields:[..]` projects keys.
-- `search {query?, type?, status?, domain?, where?, limit?, offset?}` — ranked
-  search over id/qname/name and the documentation body, with filters.
-- `list_by_type {type, limit?, offset?}` — every element of a type.
+  `detail:true` adds the body + frontmatter, `fields:[..]` projects keys. An element that
+  applies stereotypes also carries `stereotypes: [{def, values, defaulted, derived?}]`: the
+  resolved definition, the written values plus declared defaults (inherited ones too), and
+  `derived: true` for an application a profile's `autoApply:` rule gives it. The raw
+  `metadata:` stays under `frontmatter`.
+- `search {query?, type?, status?, domain?, where?, metadata?, limit?, offset?}` — ranked
+  search over id/qname/name and the documentation body, with filters. `where` takes the CLI's
+  `custom.…` and `meta.<Def>.<key><op><value>` predicates; `metadata` is a list of stereotype
+  clauses as the CLI `--metadata` (all must hold; `A,B` is either; `!A` negates; a
+  specialisation counts). A name no `MetadataDef` or element has is a tool error.
+- `list_by_type {type, where?, metadata?, limit?, offset?}` — every element of a type, filtered
+  the same way; `total` counts the filtered set.
+- `meta {def?, group_by?}` — the stereotype report: applications per definition, the elements
+  of one definition, or those grouped by a tagged value; same data as `meta --json`.
+- `gates {}` — evaluate `[gates] deny_meta` and `[[gates.coverage]]`: `{tripped, denyMeta:
+  [{condition, element}], coverage: [line]}`; the conditions `validate` gates on. Read-only.
 - `tree {ref?, depth?}` — containment subtree.
 - `neighbors {ref, edges?, direction?}` — adjacent graph nodes (one hop).
 - `graph_query {from, to?, edges?, direction?, depth?}` — typed-edge graph walk.
 - `trace {ref, kind?}` — a requirement's verification/derivation slice.
 - `impact {ref, direction?, depth?, edges?}` — change-impact reachability.
+- `link_types {}` — the project's user-defined link types (`[linkTypes]` in
+  `.syscribe.toml`) with their rules and instance counts; same data as
+  `link-types --json`. Call it before authoring a `links:` field.
+- `follow {element, link, reverse?, transitive?, depth?}` — walk one named link
+  (a declared type, its inverse, or a built-in link/reverse-index name); same data
+  as `follow --format json`.
+- `server_stats {}` — size and memory of the loaded model: element count, total body
+  bytes, bytes per in-memory element record, and this server's resident and peak resident
+  memory in KiB (Linux only, else null). Watch it on large models. Read-only.
+- `sysml_submodels {}` — the SysMLv2 submodels (`sysmlSubmodel: true` packages): files
+  parsed, ingested element counts per kind, unmapped-construct counts and W540-W544
+  findings; same data as `sysml --json`. Read-only.
+- `export_sysml {package?}` — the model (or one package's subtree) as SysML v2 textual
+  notation, one-way and lossy (unsupported elements become `// skipped:` comments);
+  same text as `export-sysml [<package>]`. Returns text; never writes to disk.
 - `validate {file?, severity?, limit?}` / `validate_element {ref}` — findings.
-- `reload {}` — re-read the model from disk.
+- `reload {}` — re-read the model from disk now (normally unnecessary: the
+  server reloads automatically on file changes, see **Live reload**).
 
 ## Read tools — authoring helpers
 
@@ -55,6 +114,30 @@ stable id, a qualified name, or a display name. List/grid tools accept
 - `diff_configs {a, b}` — elements active only in A vs only in B.
 - `why_active {ref, config}` — whether/why an element is active in a variant.
 
+## Read tools — large-model overview & search
+
+These mirror the CLI corpus commands of the same name (`--json` output).
+
+- `stats {group_by?, where?, status?, tag?, config?}` — per-facet histograms plus
+  coverage and orphan rollups; the fast first look at a large requirement set.
+- `digest {where?, status?, tag?, config?, limit?, offset?}` — one compact row per
+  Requirement, paginated (narrow with `stats`, then page rows here).
+- `search_text {query, type?, status?, config?, limit?}` — BM25 full-text search
+  over element body + name (use `search` to match identifiers).
+- `summarize {scope?, depth?, no_cache?, config?}` — bottom-up per-package rollup
+  with extractive one-line summaries.
+- `topics {type?, top?, config?}` — distinctive per-package keywords (TF-IDF).
+- `clusters {k?, type?, config?}` — topical k-means clusters across packages.
+
+## Read tools — suspect links & release baselines
+
+- `suspect_list {include_unbaselined?}` — suspect trace links (the `W090` set)
+  and, by default, links with no baseline yet.
+- `baseline_list {}` — every release Baseline (`BL-*`) with its seal metadata.
+- `baseline_verify {ref?}` — recompute and check one baseline's seal (or all).
+- `baseline_diff {from, to}` — element-level added / removed / changed between two
+  baselines. Sealing a baseline stays a CLI/CI action (`baseline create`).
+
 ## Read tools — evidence & coverage
 
 - `coverage_matrix {config?, status?, tag?, gaps_only?, linked_only?, limit?, offset?}`
@@ -62,14 +145,40 @@ stable id, a qualified name, or a display name. List/grid tools accept
 - `coverage_gaps {config?, status?, class?}` — the actionable subset:
   `uncovered` / `failing` / `unverified-claim` (`W010`/`W015`/`W029`).
 - `evidence {ref}` — a requirement's verification chain with ingested verdicts.
+- `requirement_coverage {config?, only?, min_states?, min_transitions?, min_guards?, min_score?, mutate?}` —
+  executable evidence per requirement: the active executable scenarios run in-process, each requirement graded
+  `executable` | `executable-weak` | `descriptive-only` | `unverified` | `not-applicable` (matches
+  `requirement-coverage --json`).
+- `exec_coverage {config?, only?, …}` — the same evidence per software/hardware element: modelled or not, the
+  scenarios that exercise it, mutation scores, its requirements by verdict (matches `exec-coverage --json`).
+- `trace_export {config?, sort?}` — the single-document traceability export
+  (ADR-SYS-TREX-001): `{version: 1, modelRoot, config, sort, requirements[],
+  summary}`, one entry per requirement (native `Requirement` and SysML
+  `RequirementDef`/`Requirement`) with `qname`, `id`, `name`, `type`, `status`,
+  `reqClass`, `reqDomain`, `file`, `derivedFrom`/`derivedChildren` (`{qname, id}`),
+  `breakdownAdr` (`{qname, id, status}`), `satisfiedBy` (`{qname, id, type,
+  domain}`), `verifiedBy` (`{qname, id, testLevel, status, verdict}`), `refinedBy`
+  and `coverage {leaf, satisfied, verified, integrationVerified}` — the
+  `W300`/`W002`/`W305` rules; a retired TestCase is listed but never counts. Every
+  reference is a full qualified name; a dangling one is `{qname, unresolved: true}`.
+  `config` projects onto a Configuration (inactive elements omitted, the
+  configuration and its `activeFeatures` recorded; an invalid one is a tool
+  error); `sort` is `directory` (default) | `asc` | `desc` for the requirement list
+  and every nested list. Same document as `syscribe trace-export`.
 
 ## Read tools — diagram & documentation integrity
 
 - `lint_docs {paths, codes?}` — unresolvable references in `.md`/`.svg`
-  (`W099`–`W102`).
-- `render_diagram {ref, format?}` — a Diagram's **source** (PlantUML by default,
-  or the Mermaid source) plus its `W400`–`W415` structural findings. It does not
-  render an image; rendering is left to your toolchain.
+  (`W099`–`W102`), plus the advisory `W103` (a package `_index.md` hand-listing
+  its own members).
+- `render_diagram {ref, format?}` — a Diagram's **source** plus its `W400`–`W415`
+  structural findings. `format` is `plantuml` (default), `mermaid` (generated
+  from the Diagram IR, `%% ref:` per node) or `svg` (static SVG per spec §8.16.5,
+  drawn from the diagram's pins when it is fully pinned and laid out by the
+  embedded ELK otherwise — pins honoured; only a diagram with no shapes is a
+  tool error); a hand-authored `diagramKind: Mermaid` diagram returns its own
+  body. It does not render an image; rendering is left to your
+  toolchain. Same output as `syscribe diagram export`.
 - `diagram_coverage {root?, types?}` — elements referenced by no Diagram shape,
   plus shape refs that don't resolve (the `W402` set).
 - `generate_view {kind, root?, format?}` — synthesise Mermaid from the model
@@ -78,30 +187,67 @@ stable id, a qualified name, or a display name. List/grid tools accept
 ## Read tools — report passthrough
 
 - `run_report {command, args?, format?}` — run an allowlisted, read-only report
-  command (`audit`, `matrix`, `metrics`, `cyber-risk`, `safety-case`, `fmea`,
-  `fault-tree`, `zones`, `conduits`, `co-analysis`, `sbom`, `n2`, `impact`,
-  `behavioral-coverage`, `trade-study`, `verification-depth`, `testplan`,
-  `magicgrid`, `lint-docs`) confined to the served model root.
+  command (`audit`, `stats`, `digest`, `summarize`, `matrix`, `magicgrid`,
+  `trade-study`, `verification-depth`, `testplan`, `metrics`, `cyber-risk`,
+  `co-analysis`, `safety-case`, `behavioral-coverage`, `sbom`, `zones`,
+  `conduits`, `n2`, `fmea`, `hara`, `fault-tree`, `impact`, `lint-docs`) confined to the
+  served model root.
 
 ## Guarded-write tools
 
-All write tools default to `dry_run: true`: they report the validation delta of
-the proposed change without touching disk. Pass `dry_run: false` to commit. A
-commit that would introduce a *new* validation error is refused
-(`written: false`) unless `SYSCRIBE_MCP_ALLOW_NEW_ERRORS=1` is set; after a
-successful commit the in-memory store is rebuilt. Writes are confined to the
-model root. (Hidden under `--read-only`.)
+An element built into the tool (the `StdMetadata` library) is read-only: `update_element`,
+`delete_element`, `move_element` and `apply_changes` refuse it with a message saying so.
 
-- `create_element {qname, type, fields?, doc?, dry_run?}`
+All write tools default to `dry_run: true`: they report the validation delta of
+the proposed change without touching disk. Pass `dry_run: false` to commit.
+
+The delta (`validationDelta`) lists every finding the change introduces or
+resolves: `newErrors` / `resolvedErrors` / `newWarnings` / `resolvedWarnings`.
+Each error carries a `gating` flag. A commit is refused (`written: false`)
+unless `SYSCRIBE_MCP_ALLOW_NEW_ERRORS=1` is set only when it introduces a
+`gating: true` error — a new unresolved reference (`EREF`) or a new
+user-defined-link error (`E630`–`E636`, e.g. an undeclared link type, whose
+message names the declared ones). Every other new error (for example `E310`, a
+derived requirement with no `breakdownAdr`) is reported with `gating: false`
+and does not block, so incomplete drafts stay creatable — read `newErrors` and
+fix them, or run `validate`. After a successful commit the in-memory store is
+rebuilt. Writes are confined to the model root. (Hidden under `--read-only`.)
+
+The change is validated in a copy of the model staged beside the model root (a
+hidden `.syscribe-mcp-cand-*` directory in its parent, removed afterwards; the
+system temp dir if the parent is not writable), so paths relative to the model
+root that leave it (`style_file = "../…"`, `sourceFile: ../tests/…`) resolve as
+they do in the real tree.
+
+- `create_element {qname?, parent?, type, fields?, doc?, dry_run?}` — file placement follows
+  the element's identity. **Id-identified types** (`Requirement`, `TestCase`, `ADR`,
+  `PlanningItem`, …) are written as `<parent>/<id>.md` (qname `Parent::<id>`): pass
+  `parent` (a package qname, `""` for the model root) and either `fields.id` or nothing
+  (a `<PREFIX>-GEN-nnn` id is auto-allocated); or pass `qname` whose last segment is the
+  id (`Requirements::Safety::REQ-ENG-SAFE-006`). The id must be a valid stable id; the
+  hyphen is fine in the file stem. **Name-identified types** use `qname` as before
+  (`Pkg::Name` -> `Pkg/Name.md`). `type: Package` writes `<qname>/_index.md`.
 - `update_element {ref, fields?, doc?, dry_run?}`
-- `move_element {ref, dest, dry_run?}`
+- `edit_feature {edit, dry_run?, accept_worse?}` — one semantic feature-model edit
+  (`add`, `remove`, `rename`, `setGroup`, `setMandatory`, `setAbstract`, `move`, `addConstraint`,
+  `removeConstraint`, `setParameter`, `removeParameter`, `removeBinding`; the same operations as the browser's Edit mode).
+  `featureDelta` says what the edit does to the model's validity (newly dead or
+  false-optional features, a model made void, configurations made invalid); an edit that
+  makes it worse is not written without `accept_worse:true` (`needsConfirmation`). A
+  commit returns `undo`, the edit that reverses it. A parameter that a configuration binds is not removed until `removeBinding` has removed its bindings. A rename or move rewrites every
+  reference including the keys of a `Configuration`'s `features:`.
+- `move_element {ref, dest, dry_run?}` — `dest` may end in a stable id (`Pkg::REQ-X-001`) to relocate an id-identified file as `Pkg/REQ-X-001.md`.
 - `delete_element {ref, force?, dry_run?}` — refuses if other elements reference
   the target unless `force:true`.
 - `apply_changes {operations:[…], dry_run?}` — an ordered create/update/move/delete
-  batch applied atomically (all-or-nothing).
+  batch applied atomically (all-or-nothing). A `create` op takes the same `qname`/`parent` as `create_element`.
 - `ingest_results {format?, path?, content?, dry_run?}` — parse a `cargo-json` or
-  `junit` report into the `.syscribe/results.json` verdict sidecar; dry-run
+  `junit` report and merge it into the `.syscribe/results.json` verdict sidecar
+  (replaces the function-level verdicts, keeps any session-log ones); dry-run
   returns the verdict delta.
+- `suspect_accept {source, target, dry_run?}` — baseline one reviewed trace link
+  (capture the target's content hash into the source's `traceBaselines:`); a
+  cleared link's `W090` is reported under `resolvedWarnings`.
 
 ## Resources & prompts
 

@@ -803,3 +803,296 @@ precedent of one requirement per distinct `ElementType` pair even when the under
   have zero validation rules today, for any origin (confirmed: `grep -n "CaseDef\|AnalysisCase\|
   VerificationCase" validator.rs` returns zero hits) — the same class of pre-existing, unrelated,
   noted-but-not-fixed gap as Enumeration's missing §11.7 rules.
+
+## Addendum: `allocate` clause lifting with post-merge endpoint resolution (`REQ-TRS-SYSMLV2-029`, GH #144)
+
+A named `allocation` usage's `allocate <source> to <target>` clause is lifted onto the synthesized
+`Allocation` as `allocatedFrom:`/`allocatedTo:` (§12.9 form 2), so ingested allocations feed the
+unified allocation-edge set (`E314`, `W034`, `W503`, `matrix --allocations`) with no validator
+change.
+
+- **Resolution runs after the merge, not inside `ingest`.** `connect` lifting (`REQ-TRS-SYSMLV2-010`/
+  `-013`) qualifies endpoints against the owning part with a purely local AST lookahead, because a
+  connect endpoint is always a feature of the enclosing body. Allocation endpoints are the opposite
+  case: they routinely cross packages (`allocate Logical::ctrl to Physical::ecu`) and name features
+  a usage inherits from its type (`allocate sys.ctl to board.mcu`). `ingest` therefore carries the
+  raw endpoint text, and `sysmlv2::resolve_allocation_endpoints` rewrites it once
+  `ingest_sysml_submodels` has merged every synthesized element into the full element list
+  (native Markdown elements included).
+- **Head: innermost scope outward** — the same lookup order `Resolver::resolve_scoped_ref` already
+  applies to ingested `typedBy:`/`supertype:` (`REQ-TRS-SYSMLV2-016`).
+- **Chain tail: declared or inherited.** Each `.` segment resolves as `<cur>::<seg>`, or through
+  `<cur>`'s `typedBy:`/`supertype:` chain (cycle-safe). This is the full-model resolver the
+  `REQ-TRS-SYSMLV2-013` addendum noted `connect` lifting lacks; `connect` lifting is left unchanged
+  here (out of scope for GH #144).
+- **Failure modes reuse existing codes.** A truncated tail raises `W542` (widened from connect-only)
+  and keeps the deepest resolved prefix as the edge endpoint; an unresolvable head is left as written
+  for `E502`/`E503`. No new code.
+- **Anonymous `allocate a to b;` stays unmapped** — no identity to synthesize an element against.
+
+## Addendum: `constraint`, `calc`, `use case` and package `doc` mapping (`REQ-TRS-SYSMLV2-033`..`-036`)
+
+Four of the kinds `W543` (`REQ-TRS-SYSMLV2-030`) reported as dropped now map onto native types
+that already existed in the schema, so no new `ElementType` was needed.
+
+- **Targets.** `constraint def`/`constraint` -> `ConstraintDef`/`Constraint` (§8.10);
+  `calc def`/`calc` -> `CalculationDef`/`Calculation` (§8.9; the native name is `Calculation`, not
+  `Calc`); `use case def`/`use case` -> `UseCaseDef`/`UseCase` (§8.12.4); package-level `doc` -> the
+  `Package` element's doc body.
+- **Expression text is preserved as an opaque string**, never interpreted: `expression:` on a
+  constraint, `body:` (+ `bodyLanguage: kerml`) on a calc, produced by the existing
+  `render_expression` used for transition guards. Constructs that renderer cannot print
+  (conditional, select, collect, ...) appear as its fixed placeholder text — the same documented
+  limitation as elsewhere. `bodyLanguage: budget` and `evaluate:` stay hand-authored.
+- **`parameters:`** from `in`/`out`/`inout` declarations as `{name, typedBy, direction}`; a calc's
+  `return` declarations are added with `direction: return` and the first also sets `returnType:`.
+- **Use cases reuse the case-family lift** (`case_body_fields`) because the parser gives use cases
+  the same body type as `case def`: `subject`, `actors`, `objectives`, `result`, `isAbstract`, doc.
+  `include`/`extend` are not lifted: the AST carries a usage name, not the qualified target of the
+  native `includes:`/`extends:`. A non-draft ingested `UseCaseDef` raises the existing advisory
+  `W307`; no code is added or changed.
+- **Reachability follows the parser.** Package level: constraint def/usage, calc def, use case
+  def/usage. A `calc` *usage* and `use case` usage are also reachable in a `part def` body,
+  `constraint` usage also in a `part` usage body; a package-level `calc` usage or a nested
+  constraint *def* does not parse, so there is nothing to map (graceful `W541` as before).
+- **`typedBy:` scoping is unchanged**: the new usages' `typedBy:` and defs' `supertype:` go through
+  the same scoped resolver (`REQ-TRS-SYSMLV2-016`), so an unresolved target is `E111`/`W600` as for
+  any other ingested element.
+- **`W543` accounting.** The mapped kinds were removed from `unmapped_kind`; the advisory,
+  `syscribe sysml` and MCP `sysml_submodels` therefore stop listing them. Remaining unmapped kinds:
+  `metadata def`/`metadata`, `occurrence def`/`occurrence`, `individual def`, `actor`, `alias`,
+  `satisfy` (package level), `dependency`, `filter`, `textual representation`, `library package`,
+  `namespace` and the KerML declaration forms. No code is added or changed.
+- **Not done.** Nested constraint members of a constraint body, `assert`/negation flags (not
+  surfaced by the parser), `doc` on `requirement def`/`requirement`.
+
+## Addendum: ingestion gap closure (REQ-TRS-SYSMLV2-043..048)
+
+- **Mapped where a sound native target exists.** `alias` inside a named package -> the Package's
+  existing `aliases:` field (the scoped resolver already honours it, so no new resolver);
+  `library package`/`namespace` -> `Package` (the `standard` flag is dropped); package-level
+  `metadata def` -> `MetadataDef`; package-level `satisfy R by X` -> `X`'s `satisfies:` when `X`
+  resolves after the whole subtree is merged; `doc` on `requirement def`/`requirement`; and usage
+  `multiplicity`/`subsets`/`redefines` into the same native fields a hand-authored usage uses.
+- **Deliberately still unmapped.** `include`/`extend` of use cases: the pinned parser's
+  `IncludeUseCase` carries only a name and a body, with no resolvable target, and SysML v2 has no
+  `extend` construct; `metadata` usages, `occurrence`, `individual def`, `actor` (package level),
+  `dependency`, `filter`, textual representation and the KerML declaration forms have no native
+  target. They stay counted by `W543`.
+- **No new validation code for typed-by kind.** An advisory when an ingested usage's `typedBy`
+  resolves to a non-definition kind was evaluated and not added: the native model already reports
+  unresolved targets (`E111`) and the strict part-vs-item typing rule is not one the native format
+  enforces for hand-authored elements, so an ingestion-only check would be inconsistent and noisy.
+
+## Addendum: parser upgrade evaluation, include/attribute-value ingestion, report accuracy (REQ-TRS-SYSMLV2-053..055, -059)
+
+- **Parser upgrade evaluated and deferred.** `sysml-v2-parser` 0.57.0 (current; 0.56.0 also in the
+  local cache) was tried against the whole workspace. The break is introduced by 0.55.0, not 0.56/0.57:
+  every declaration name, short name and qualified reference became a source-span handle
+  (`DeclarationName`, `QualifiedReferenceId`) that can only be read through the owning
+  `ParsedDocument`, literal and comment text became spans likewise, the `Doc` variants were removed
+  from the body-element enums, `Expression` was restructured (`MemberAccess`, `Index`, `Bracket`,
+  `LiteralWithUnit`, `Tuple` and `Parenthesized` changed shape or were removed), `StateDefBody` and
+  `PackageBody` gained span fields, and `Satisfy`, `TextualRep`, `FlowUsage`/`ConnectionUsageMember`
+  and the use-case/metadata nodes changed fields. Compiling `syscribe-model` against 0.57 produced 363
+  errors, all inside the 4,265-line `ingest.rs`, and fixing them is a re-derivation of every
+  construct reader (names threaded through a document handle, a new expression renderer, new
+  doc/metadata extraction), not an adaptation. A change of that size to the layer that every
+  submodel test and every ingested model depends on cannot be validated in one change without
+  risking silent mapping regressions, so the pin stays at `0.54.0` (reverted, tree clean).
+  The upgrade is now a scoped follow-up: it must (1) thread a `&ParsedDocument` through every
+  `convert_*` function, (2) rewrite `render_expression`/`connection_end_display`, (3) re-home
+  `Doc`/`MetadataAnnotation` extraction, and (4) re-establish the full `sysmlv2_*` suite as the
+  regression gate. What 0.57 would add that 0.54 cannot expose: a resolvable `include` target
+  (`IncludeUseCase::target`) including the qualified and declaring forms, and richer
+  connection/view usage declarations.
+- **A drift guard replaces silent staleness.** The version is reported (`syscribe sysml`, MCP
+  `sysml_submodels`) from a constant in `sysmlv2::report`, and a test reads the pin from
+  `crates/syscribe-model/Cargo.toml` and fails when they differ, so the upgrade cannot land without
+  the report following.
+- **`include` maps for the reference form.** The earlier "no resolvable target" statement is
+  refined: 0.54 exposes the *simple name* in `include X;`. That name is resolved innermost-scope-first
+  against the ingested use-case elements and stored in `includes:`; an unresolved name is counted in
+  `W543` as `include`. The qualified and declaring forms stay unparsed by 0.54.
+- **Attribute values.** A literal `= v [unit]` maps to `value:`/`unit:` on the `Attribute`; other
+  expressions are intentionally not mapped (a `value:` stays a literal).
+- **Report accuracy.** `syscribe sysml`/`sysml_submodels` take their per-file unmapped counts from
+  the ingestion pass itself, so unresolved package-level `satisfy` (and `include`) counted by `W543`
+  now also appear in the report. No code is added or changed.
+
+## Addendum: named steps, standard-library tables, compound units (REQ-TRS-SYSMLV2-060..066)
+
+- **Named control steps are a Syscribe convention over 0.54.** The pinned parser gives
+  `if`/`while`/`loop`/`for`/`assign`/`terminate` no name field, so a declared name cannot be read off
+  the statement. The faithful SysML spelling of a named step is an action usage owning the statement,
+  `action navigate { for w in ws { … } }`. Ingestion recognises exactly that shape (no typing,
+  subsetting, redefinition or accept/send clause; one statement in the body) and gives the entry the
+  usage's name; every other nested action usage stays a `PerformAction`. A named step leaves the
+  synthesized-name counters alone, so existing positional names are stable.
+- **No full library import.** The existing built-in tables (`ScalarValues`/`Base` members, the ISQ
+  quantity and SI unit dimension tables, the standard-library package list) are completed and
+  extended, and a compound unit expression derives its dimension from the same table. Unknown names
+  keep their prior handling (strict for the two closed packages, lenient for open library packages).
+- **Compound units.** The 0.54 lexer reads `[N*m]` as one token but `[N * m]` as an operator
+  expression, which ingestion used to drop silently; both now store the whitespace-free text, and
+  export writes the expression form rather than a quoted name.
+- **`W544`** is a plain advisory on ingested multiplicity text; it does not evaluate non-literal bounds.
+
+## Addendum: parser migration to 0.57.0 (REQ-TRS-SYSMLV2-073)
+
+The deferred upgrade was executed as a behaviour-preserving migration, gated by the existing
+`sysmlv2*` suites, the export round-trip tests and the repository ratchet, plus a differential run of
+the old (0.54) and new binaries over every `.sysml` fixture under `qual/fixtures`, `examples/` and
+`model/` (`sysml --json`, `export --ndjson`, `validate`, `export-sysml`: identical apart from an
+unrelated ordering of one `W407`).
+
+- **Design: the document is held in a scoped thread-local, not threaded through ~170 signatures.**
+  Every name/reference/literal is a span handle readable only through the owning `ParsedDocument`.
+  The converters are pure functions of the AST, so `ingest.rs` splits each parsed document into its
+  movable root and an `Rc<ParsedDocument>` shell (source plus reference arena, empty root), stores the
+  shell beside every merged body element, and installs it with `with_doc` for exactly the extent of
+  one conversion (`convert_merged`, the satisfy lift, each probe). `dn`/`qr`/`qr_segments` and the
+  `NameStr` helper read through it. This keeps the diff reviewable and makes a cross-file handle mix-up
+  impossible by construction (two files merging into one package each convert under their own
+  document; `names_resolve_against_their_own_file_when_packages_merge` locks it).
+- **Expression renderer rewritten for the new shape.** `MemberAccess{base,member,separator}`,
+  `Index`/`Bracket`/`Sequence` with a `SequenceExpressionList`, `FeatureRef`/`FeatureChainRef` ids and
+  span-backed literals. `12.5 [kg]` is a `Bracket` over the literal (was `LiteralWithUnit`);
+  `(a)`/`(a, b)` are both a parenthesised `Sequence`; a range renders `1..3` without spaces as before.
+- **Doc/metadata re-homed.** `Doc` and `MetadataAnnotation` are `Annotating(AnnotatingMember)`
+  members of every body; `@Name { k = v; }` bodies are `MetadataBody` (`Usage` redefinitions or
+  `Definition` attribute usages). Only the element kinds that read an annotation on 0.54 still do.
+- **Documented behaviour differences (all parser-driven, none lose data):**
+  1. A bare package-level `attribute x : T;`, `port p : T;`, `item i : T;` is the usage it is in SysML
+     v2 (`Attribute`/`Port`/`Item` with `typedBy:`); 0.54 read them as definitions (`supertype:`). A
+     bare `interface` stays an `InterfaceDef`. This is what makes a package-level attribute value
+     mappable.
+  2. Constructs 0.54 rejected for the whole file (`W541`) now parse: a `view` inside a `part` usage
+     (still not mapped as its own element), `then fork/join/decide/accept/send/if` successions (no
+     edge is emitted for them), anonymous `fork;`/`join;`, a `variant` reference body.
+  3. A placeholder guard such as `<conditional expression>` is no expression: 0.55+ rejects it, so the
+     export comment reason is "does not parse" (0.54: "does not read back identically").
+  4. `include use case v : V;` (declaring form) maps to nothing and is not counted; `include X;` is
+     unchanged.
+- **Test edits.** `sysmlv2_gaps` (literal-with-unit assertion now `Bracket` over a literal),
+  `sysmlv2_ingest` (differences 1), `sysmlv2_views` (difference 2), `sysmlv2_behavior_export`
+  (difference 3), `sysml_inspect` (version string). No behavioural expectation was loosened beyond
+  these.
+- **What the new parser now exposes that follow-up requirements can use:** `GuardedSuccession`
+  (`first a if g then b`), `IncludeUseCase::target` for qualified references, an attribute `value` on
+  package-level usages, `ActionUsage::via`/`to` and `TransitionAccept` `via`.
+
+## Addendum: exploiting the 0.57 parser (REQ-TRS-SYSMLV2-074..076)
+
+Three limitations recorded earlier in this ADR were upstream parser ceilings and are removed by the
+migration. (1) The `guard:` of a `successionConnections:` entry had no ingestion slot, so the four
+guarded successions of `model_sil` degraded to comments on export: 0.57 parses `first a if g then b;`
+(`GuardedSuccession`), which is ingested into the existing native `guard:` sub-field and exported
+only when it reads back identically; the ratchet budget drops to zero. (2) `include` was limited to
+the simple-name reference form: a qualified target and the declaring form `include use case v : V;`
+now both resolve through the same scoped lookup. (3) A bare package-level `attribute`/`port`/`item`
+was read as a definition and its value was lost: it is now the usage it is, with `value:`/`unit:`.
+
+## Addendum: native syntax for step fields, nested kinds, occurrences and dependencies (REQ-TRS-SYSMLV2-077..085)
+
+Read against the 0.57 grammar, most of what `@SyscribeStep` carried has native syntax after all.
+`accept x via p`/`send x via p to t` (`ActionUsage::accept`/`via`/`to`), `accept at/after/when e`
+(`TransitionAccept::TimeTrigger`), `assign a.b := v` and `loop { } until c;` are parsed, so ingestion
+and export now use them: `via`, `to`, `trigger`, `referent` and `until` are native, and the annotation
+survives only as a deprecated read path plus the two cases with no syntax (`valueKind` of an assign,
+a trigger beside a payload). `to` and the trigger kind `at` are additive native sub-fields. A
+`while c { } until d;` has no native counterpart and keeps only its `while` condition. The 0.57
+grammar also reaches views/viewpoints/renderings inside a `part` usage, names and multiplicities on
+a succession, and `then fork/join/decide/accept/send/if`; these map to existing native elements and
+fields, plus additive succession multiplicity sub-fields. `occurrence def`, `individual def`,
+`occurrence`/`event occurrence` usages and named `dependency` have native element types and are now
+ingested and exported. Not mapped, with the reason recorded in the guide: `actor` (no actor
+element type, and the AST keeps only the identification), package-level `filter` (no native target),
+`metadata` usages (the `metadata X about Y` form is ambiguous between name and type in the parser,
+and generic `@X { }` annotations would need a `metadata:` lift and export), KerML declarations
+(KerML semantics are not SysML structure), anonymous `dependency`, portion-kind occurrences, and a
+`then fork` body.
+
+## Addendum: metadata applications and the last small gaps (REQ-TRS-SYSMLV2-086..097)
+
+The 0.57 AST represents every metadata application form (`@T { k = v; }`, `@n : T`, `#T;`, a
+package-level `#T` prefix member, `metadata m : T about Y`, `@T about Y`), so the earlier reason for
+leaving them unmapped — "the parser reads `metadata X about Y` as a name" — no longer holds: a usage
+with no `:` typing has only one qualified name and the grammar's required typing makes it the type.
+They are lifted into the format's own `metadata:` application list (spec 3.8) rather than a new
+field: `type:` resolved innermost-scope-first to the ingested `MetadataDef`, tagged values typed from
+their literals, and two additive reserved keys — `name:` for a declared usage name and `about:` for a
+target that did not resolve — which `metadata_applications` skips so the existing `E317`/`E318`/`W045`
+rules apply unchanged. A resolvable `about` target receives the entry itself; an unresolved one stays
+on the holder and is the one case still counted in `W543`. `@Syscribe*` stays a separate, fixed
+channel. Export writes `@T { k = v; }` with double-quoted strings and bare numbers/booleans, so the
+lift is a round trip. The one form the parser drops outright (a `#T` prefix inside a definition body)
+is documented, not mapped.
+
+The remaining small items each had an additive native slot after all: `untilCondition:` on a
+`while` loop (keeping both conditions), `parameters:` on a control node (the pins of `fork f { in a; }`),
+`typedBy:` on a succession entry, `successionConnections:` on `PartDef`/`Part` (structural
+successions), `isPortion`/`portionKind` on an occurrence usage (already in spec 3.2), a synthesized
+`dependency_N` name (the same convention as `accept_N`/`if_N`), and the anchor package's `aliases:`
+for a root-level alias. Each is written back by `export-sysml` under the same read-back-identically
+rule. An expression payload (`send new Cmd() via p`) is now written unquoted when it re-parses and
+renders back identically, so the quoted-name form is reserved for genuine restricted names.
+
+Deliberately unmapped, with the reason recorded in the guide's §6 and counted by `W543`:
+package-level `actor` (no actor element type and the AST keeps only the identification) and
+`filter` (no native target — `filter:` exists only on views), KerML declarations, a bare root-level
+member other than `alias` (the files' packages are the anchor's members; a definition outside any
+package should be wrapped in one), and the unresolved forms of `satisfy`/`include`/`about`.
+
+## Addendum: bare root-level members merge under the anchor (REQ-TRS-SYSMLV2-098)
+
+The previous addendum left a definition or usage declared outside every `package` unmapped ("no
+package of its own to merge under; wrap it in a `package`"). That reasoning was incomplete: the
+anchor package *is* the package every file's root-level content belongs to. `REQ-TRS-SYSMLV2-007`
+already makes each file's `package`s the anchor's members, and the 0.57 AST carries a root-level
+member as the very same `PackageBodyElement` a package body carries (`RootElement::Member`), so
+treating the file root as the anchor package's own body is the one consistent reading — the
+alternative of fabricating a per-file package would invent a namespace the author never declared
+and would split same-named members across files instead of merging them. Root-level content
+therefore flows through the same merged-package path as a package body: definitions and usages
+become `<anchor>::X`, a `#T` prefix applies to the next member, a `satisfy` lifts, a metadata
+application lifts onto the anchor's own `_index.md` element (resolved the same innermost-scope-first
+way), a `doc` comment appends to its documentation, and a named `alias` keeps its
+`REQ-TRS-SYSMLV2-095` lift — now as a plain consequence of the general rule rather than a special
+case. `export-sysml` writes an `<anchor>::X` back as a direct member of the anchor package's body,
+so the round trip holds. `W543` stops counting `root-level member`; a root-level member counts
+under exactly the kind it would count under inside a package.
+
+## Addendum: the section 6 audit — usage prefixes, calc usages, qualified-name packages (REQ-TRS-SYSMLV2-099..100)
+
+Reading every remaining line of the guide's §6 against `ingest.rs` and the 0.57 AST found two
+statements that were not true and two members that vanished without a count.
+
+The parser does *not* drop a `#T` prefix inside a definition body. It keeps it in one of two shapes:
+as an extension keyword on the usage's own occurrence prefix (`part`, `item`, `port`, `connection`,
+`occurrence`, `constraint`, `view`, analysis case — the kinds whose prefix is an
+`OccurrenceUsagePrefix`), or as a bodiless `#T` member immediately preceding the usage (`attribute`,
+`action`, `state`, `interface`, `requirement`, `flow`, `allocation`, a `ref` usage). Ingestion was
+dropping both. The same `{type: T}` entry a package-level `#T part def B;` already receives is the
+sound target, so both shapes now lift onto the prefixed usage, wherever it is declared. The prefix
+on a member that becomes no element (an `actor`, a `ref`) is dropped, as before, and said so.
+
+An anonymous `alias` is a parse error in 0.57, so "anonymous alias" was never a reachable `W543`
+kind; the only reachable `alias` count was an alias inside a package declared with a *qualified*
+name (`package A::B { }`), a shape the parser accepts and the language gives no meaning to. Such a
+package was treated as anonymous and its whole body vanished, uncounted. There is no sound mapping
+(nesting `A` → `B` would invent a declaration the author did not write), so it is now counted once
+as `qualified package` and its members stay out. A package-level `calc estimate [1];` (a usage
+shape the parser cannot read as a `calc def`) had a converter already used inside part bodies and
+simply no package-level dispatch arm; it now maps to `Calculation`.
+
+The audit also found the §6 preamble over-claiming that every body member has a native target.
+`W543` counts package-level members only; inside a mapped definition's body, members outside the
+mapped set (`ref`, `bind`, `assert constraint`, `exhibit`, a nested `package`/`alias`/`import`/
+`metadata def`, a requirement's `require`/`frame` constraints, ...) are skipped silently. That
+is an accepted limit — counting body members would make `W543` fire on nearly every realistic
+submodel for content the format cannot carry — and the guide now says so instead of denying it.
+Every other §6 line checked out: `actor` keeps only its identification in the AST, a package-level
+`filter` scopes imports, KerML declarations are below SysML structure, an unresolved `about`/
+`satisfy`/`include` target has nothing to attach to, a `rep` has no native field, and the
+`other package member` relationship kinds have no package-level owner in the format.

@@ -1,28 +1,42 @@
 #![deny(warnings)]
 
 mod annotations;
+mod budgetcmd;
+mod designreportcmd;
+mod metacmd;
 mod audit;
 mod aw;
 mod baseline;
 mod build_config;
+mod cliargs;
 mod clusters;
 mod coanalysis;
 mod coverage;
+mod covtree;
+mod runhist;
+mod reqif_import;
+mod compliance;
+mod exec_cmd;
+mod evidence_cmd;
+mod mechanisms;
 mod cyberrisk;
 mod connectivity;
-mod diagram;
+mod diagram_export;
 mod digest;
 mod discover;
 mod export;
 mod export_html;
 mod fmea_report;
+mod heat_cmd;
 mod ftsearch;
 mod help;
 mod ingest;
 mod lint_docs;
+mod linktypes;
 mod lsp;
 mod matrix;
 mod mcp;
+mod fta_cmd;
 mod metrics_cmd;
 mod mgreport;
 mod mv;
@@ -36,17 +50,24 @@ mod reqif;
 mod reviews;
 mod safety_case;
 mod sbom;
+mod svgkit;
+mod claim;
 mod scaffold;
 mod scripting;
+mod set;
 mod stats;
 mod summarize;
 mod suspect;
+mod sysml_export;
+mod view_render;
 mod testplan;
 mod textstats;
 mod topics;
+mod trace_export;
 mod tradestudy;
 mod repos;
 mod plugins;
+mod analysis_cmd;
 mod zones;
 mod vdepth;
 mod spec;
@@ -56,7 +77,6 @@ use syscribe_model::{
     config::ValidateConfig,
     element::{ElementType, RawElement},
     resolver::{is_adr_id, is_req_id, is_tc_id, Resolver},
-    results::ResultsData,
     validator,
     walker,
 };
@@ -123,13 +143,15 @@ fn discover_model_root() -> Option<String> {
 
 /// Resolve the `--config` lens for a read-only analysis command (GH #35): returns
 /// the element set projected onto the configuration (only elements active per
-/// `appliesWhen`), or the full set when `--config` is absent or there is no
-/// feature model. Exits 1 on an unresolvable argument.
+/// `appliesWhen`), or the full set when `--config` is absent or names a stored
+/// `Configuration` in a model with no feature model. Exits 1 on an unresolvable
+/// argument, including one that names no stored `Configuration` in a model with
+/// no feature model (REQ-TRS-PROJ-001).
 fn projected_elements(elems: &[RawElement], config: Option<&str>) -> Vec<RawElement> {
-    use syscribe_model::projection::{project, resolve_selection, SelectionOutcome};
+    use syscribe_model::projection::{project, resolve_config_flag, SelectionOutcome};
     match config {
         None => elems.to_vec(),
-        Some(c) => match resolve_selection(elems, c) {
+        Some(c) => match resolve_config_flag(elems, c) {
             SelectionOutcome::Dormant => elems.to_vec(),
             SelectionOutcome::Resolved(sel) => project(elems, &sel),
             SelectionOutcome::Error(m) => {
@@ -140,12 +162,55 @@ fn projected_elements(elems: &[RawElement], config: Option<&str>) -> Vec<RawElem
     }
 }
 
+/// The `--config` lens for a single-element query command — `trace`, `why`,
+/// `who-verifies`, `refs`, `links` (REQ-TRS-PROJ-001, GH #139). Returns the
+/// projected element set (see [`projected_elements`], including its exit-1
+/// usage errors). When `key` names — by exact qualified name or stable id — an
+/// element of the full model that is **inactive** in the configuration, the
+/// command cannot answer inside the lens: a message naming the element and the
+/// configuration goes to stderr and the process exits 1 (the key is checked
+/// against the full model first so the fuzzy fallback can never silently
+/// substitute a different, active element). A key that is not an element at
+/// all is left to the command's own not-found handling.
+fn lensed_for_key(elems: &[RawElement], config: Option<&str>, key: &str) -> Vec<RawElement> {
+    let view = projected_elements(elems, config);
+    if let Some(c) = config {
+        if !key.is_empty() {
+            let full = Resolver::new(elems);
+            let exact = full.get(elems, key).or_else(|| full.get_by_id(elems, key));
+            if let Some(e) = exact {
+                if !view.iter().any(|v| v.qualified_name == e.qualified_name) {
+                    let named = if e.qualified_name == key {
+                        format!("'{key}'")
+                    } else {
+                        format!("'{key}' ({})", e.qualified_name)
+                    };
+                    eprintln!(
+                        "Error: {named} is not active in configuration '{c}' — its appliesWhen does not hold for that selection"
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    view
+}
+
 /// Resolve the `--plan TP-X` lens (REQ-TRS-PLAN-006), composing with the
 /// `--config` projection. The plan lens restricts the element set to the plan's
 /// in-scope requirements ∪ effective TestCases ∪ their satisfying architecture
 /// elements ∪ the plan's Configurations; `--config` then projects onto the
 /// variant. Either lens may be absent. Exits 1 on an unresolvable plan id and on
 /// an unresolvable configuration. Dormant-safe.
+/// `--config <C>` on `compile`, `mutate` and `inject`: run on the model projected onto the Configuration, so feature
+/// parameters used in a machine's expressions take its values (GH #311). Returns the other arguments.
+fn with_config_lens(args: &[String], elems: &[syscribe_model::element::RawElement]) -> (Vec<String>, Option<Vec<syscribe_model::element::RawElement>>) {
+    let Some(i) = args.iter().position(|a| a == "--config") else { return (args.to_vec(), None) };
+    let Some(c) = args.get(i + 1) else { return (args.to_vec(), None) };
+    let rest: Vec<String> = args.iter().enumerate().filter(|(j, _)| *j != i && *j != i + 1).map(|(_, a)| a.clone()).collect();
+    (rest, Some(lensed_elements(elems, None, Some(c.as_str()))))
+}
+
 fn lensed_elements(
     elems: &[RawElement],
     plan: Option<&str>,
@@ -189,7 +254,9 @@ fn parse_gate_options(args: &[String]) -> query::GateOptions {
     let mut i = 0;
     while i < args.len() {
         let a = &args[i];
-        if a == "--warnings-as-errors" {
+        if a == "--summary" {
+            gate.summary = true;
+        } else if a == "--warnings-as-errors" {
             gate.warnings_as_errors = true;
         } else if a == "--deny" {
             if let Some(val) = args.get(i + 1) {
@@ -444,6 +511,66 @@ fn first_positional<'a>(args: &'a [String], value_flags: &[&str]) -> Option<&'a 
     None
 }
 
+/// Remove `--results-as-of <run>` / `--results-as-of=<run>` from the command line; the run id (if any)
+/// is returned separately. A flag without a value exits 1.
+fn strip_results_as_of(args: Vec<String>) -> (Vec<String>, Option<String>) {
+    let mut out = Vec::with_capacity(args.len());
+    let mut run = None;
+    let mut it = args.into_iter();
+    while let Some(a) = it.next() {
+        if a == "--results-as-of" {
+            match it.next() {
+                Some(v) if !v.starts_with('-') => run = Some(v),
+                _ => {
+                    eprintln!("--results-as-of needs a run id (a run retained with `ingest-results --run <id>`)");
+                    std::process::exit(1);
+                }
+            }
+        } else if let Some(v) = a.strip_prefix("--results-as-of=") {
+            run = Some(v.to_string());
+        } else {
+            out.push(a);
+        }
+    }
+    (out, run)
+}
+
+/// The first command-line token after any leading `-m <root>` / `--model <root>` /
+/// `--model=<root>` / `-m<root>` model flags — the command name position.
+fn first_command_token(args: &[String]) -> Option<&str> {
+    let mut i = 1;
+    while let Some(a) = args.get(i) {
+        if a == "-m" || a == "--model" {
+            i += 2;
+        } else if a.starts_with("--model=") || (a.starts_with("-m") && !a.starts_with("--")) {
+            i += 1;
+        } else {
+            return Some(a.as_str());
+        }
+    }
+    None
+}
+
+/// The `-m`/`--model` value on the command line, if any (REQ-TRS-LINKTYPE-012).
+/// Parsed ahead of the normal model resolution because `--agent-instructions`
+/// is handled before it; only an explicit flag counts (no env/walk-up discovery),
+/// so the bare prompt stays model-independent.
+fn agent_instructions_model_root(args: &[String]) -> Option<String> {
+    let mut iter = args.iter().skip(1);
+    while let Some(a) = iter.next() {
+        if a == "-m" || a == "--model" {
+            return iter.next().cloned();
+        }
+        if let Some(v) = a.strip_prefix("--model=") {
+            return Some(v.to_string());
+        }
+        if let Some(v) = a.strip_prefix("-m").filter(|v| !v.is_empty() && !a.starts_with("--")) {
+            return Some(v.to_string());
+        }
+    }
+    None
+}
+
 fn build_cli() -> clap::Command {
     let mut cmd = clap::Command::new("syscribe")
         .disable_help_flag(true)
@@ -472,7 +599,23 @@ fn build_cli() -> clap::Command {
     cmd
 }
 
+/// Heading of the default Markdown validation report (REQ-TRS-OUT-001, GH #174):
+/// `<Name> Validation Report` from the model root package's `name:` (the root
+/// `_index.md`, qualified name `""`), else the neutral `Model Validation Report`.
+fn report_title(elems: &[RawElement]) -> String {
+    elems
+        .iter()
+        .find(|e| e.qualified_name.is_empty())
+        .and_then(|e| e.frontmatter.name.as_deref())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map_or_else(|| "Model Validation Report".to_string(), |n| format!("{n} Validation Report"))
+}
+
 fn main() {
+    // FMI plant co-simulation (REQ-TRS-FMI-001): present only in a build with `--features fmi`.
+    #[cfg(feature = "fmi")]
+    syscribe_fmi::register();
     // Restore the default SIGPIPE disposition. Rust ignores SIGPIPE at startup, so
     // writing to a pipe whose reader has closed early — `syscribe --help | head`,
     // `... | grep -q`, `... | less` quit early — turns into an EPIPE that makes
@@ -483,13 +626,16 @@ fn main() {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
-    let args: Vec<String> = std::env::args().collect();
+    // `--results-as-of <run>` is a global option like `-m` (GH #258): taken out before anything else
+    // looks at the command line, wherever it appears.
+    let (args, results_as_of) = strip_results_as_of(std::env::args().collect());
 
     // REQ-TRS-CLI-007: version reporting. `--version`, `-V`, or the `version`
     // subcommand print "syscribe <semver>" to stdout and exit 0, handled before any
     // model resolution so they work from any directory with no model present.
+    // A model flag before `version` (`-m <root> version`) is skipped (GH #133).
     if args.iter().skip(1).any(|a| a == "--version" || a == "-V")
-        || args.get(1).map(|a| a == "version").unwrap_or(false)
+        || first_command_token(&args) == Some("version")
     {
         println!("syscribe {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -502,7 +648,18 @@ fn main() {
     if let Some(pos) = args.iter().position(|a| a == "--agent-instructions") {
         let topic = args.get(pos + 1).map(|s| s.as_str()).filter(|t| !t.starts_with('-'));
         match topic {
-            None | Some("general") => print!("{}", AGENT_INSTRUCTIONS),
+            None | Some("general") => {
+                print!("{}", AGENT_INSTRUCTIONS);
+                // REQ-TRS-LINKTYPE-012 — with an explicit `-m <root>` whose
+                // `.syscribe.toml` declares link types, append the project's
+                // vocabulary so the agent never has to guess a `links:` key.
+                if let Some(root) = agent_instructions_model_root(&args) {
+                    let reg = syscribe_model::link_types::LinkTypeRegistry::load(std::path::Path::new(&root));
+                    if let Some(section) = syscribe_model::link_types::agent_instructions_section(&reg) {
+                        print!("{}", section);
+                    }
+                }
+            }
             Some("magicgrid") => print!("{}", MAGICGRID_INSTRUCTIONS),
             Some(other) => {
                 eprintln!(
@@ -554,6 +711,25 @@ fn main() {
         e.exit();
     }
 
+    // `eval` is model-free and takes an arbitrary expression, which may begin with `-m…` (`-max(1, 2)`):
+    // dispatch it before the `-m` short-flag stripping below ever sees its arguments. An optional
+    // `-m <root>` / `--model <root>` / `--model=<root>` / `-m<root>` may precede the command.
+    {
+        let mut at = 1;
+        while let Some(a) = args.get(at) {
+            if a == "-m" || a == "--model" {
+                at += 2;
+            } else if a.starts_with("--model=") || (a.starts_with("-m") && a.len() > 2) {
+                at += 1;
+            } else {
+                break;
+            }
+        }
+        if args.get(at).map(String::as_str) == Some("eval") {
+            std::process::exit(exec_cmd::cmd_eval(&args[at + 1..]));
+        }
+    }
+
     // Strip --model <path> or --model=<path> from args; collect remaining args.
     let mut remaining: Vec<String> = Vec::new();
     let mut model_flag: Option<String> = None;
@@ -602,6 +778,13 @@ fn main() {
         _ => {}
     }
 
+    // REQ-TRS-CLI-009 / GH #133: reject an unknown option (or a value-taking option
+    // with no value) on the checked commands before any model work, so the usage
+    // error is the same with or without a valid model directory.
+    if let Some(cmd) = subcommand_args.first() {
+        cliargs::or_exit(cliargs::check_known_options(cmd, &subcommand_args[1..]));
+    }
+
     let model_root = std::path::Path::new(&model_root_arg);
     let model_root_str = model_root.to_string_lossy().into_owned();
 
@@ -614,12 +797,20 @@ fn main() {
         std::process::exit(1);
     }
 
+    // The derived safety diagrams read `[cyber]` and the results sidecar from here.
+    syscribe_model::vis::derive::context::set_model_root(model_root);
+
     // `mcp` and `lsp` each own model loading (they build a long-lived, reloadable
     // store), so dispatch them before the eager `walk_model` below to avoid loading
     // the model twice.
+    if results_as_of.is_some() && matches!(subcommand_args.first().map(String::as_str), Some("mcp") | Some("lsp") | Some("ingest-results")) {
+        eprintln!("--results-as-of does not apply to `{}`.", subcommand_args[0]);
+        std::process::exit(1);
+    }
     if subcommand_args.first().map(String::as_str) == Some("mcp") {
         let read_only = subcommand_args.iter().any(|a| a == "--read-only");
-        if let Err(e) = mcp::cmd_mcp(model_root, read_only) {
+        let watch = !subcommand_args.iter().any(|a| a == "--no-watch");
+        if let Err(e) = mcp::cmd_mcp(model_root, read_only, watch) {
             eprintln!("Error: mcp server failed: {e}");
             std::process::exit(1);
         }
@@ -643,7 +834,28 @@ fn main() {
 
     // Validation config rooted at the model directory so on-disk references
     // (e.g. `sourceFile:`) resolve correctly per spec §11.12.
-    let vcfg = ValidateConfig::with_model_root(model_root);
+    let mut vcfg = ValidateConfig::with_model_root(model_root);
+    // `--results-as-of <run>` (GH #258): evaluate evidence against a retained run, not the latest sidecar.
+    if let Some(run) = &results_as_of {
+        if let Err(e) = runhist::set_as_of(model_root, run) {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        vcfg.results = runhist::as_of().cloned();
+    }
+    // `--config C` on an evidence-reading command judges the evidence as C sees it (GH #258): the
+    // global results overlaid with C's own. `diff` names two configurations and `ingest-results`
+    // *writes* one, so neither takes the lens.
+    let results_failures = subcommand_args.first().map(String::as_str) == Some("results") && subcommand_args.get(1).map(String::as_str) == Some("failures");
+    if results_failures || matches!(
+        subcommand_args.first().map(String::as_str),
+        Some("validate" | "audit" | "trace" | "why" | "who-verifies" | "safety-case" | "coverage" | "matrix" | "testplan" | "verification-depth" | "stats" | "digest" | "trace-export" | "hara")
+    ) {
+        if let Some(key) = subcommand_args.windows(2).find(|w| w[0] == "--config").and_then(|w| runhist::config_key(&elems, &w[1])) {
+            runhist::set_lens_config(&key);
+            vcfg.results = vcfg.results.take().map(runhist::lensed);
+        }
+    }
 
     // ── Subcommand dispatch ───────────────────────────────────────────────────
     // `report` (and a bare invocation with no subcommand) fall through to the default
@@ -659,7 +871,9 @@ fn main() {
                 let mut show_cfg = vcfg.clone();
                 show_cfg.magicgrid = true;
                 let result = validator::validate_with_config(&elems, &show_cfg);
-                query::cmd_show(&elems, &resolver, &result, &show_cfg, key);
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let show_related = !rest.iter().any(|a| a == "--no-related");
+                query::cmd_show(&elems, &resolver, &result, &show_cfg, key, show_related);
             }
             "ls" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
@@ -691,7 +905,65 @@ fn main() {
                 }
             }
             "links" => {
-                query::cmd_links(&elems, &resolver, key);
+                // --config lens (REQ-TRS-PROJ-001, GH #139).
+                let config = subcommand_args.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = lensed_for_key(&elems, config, key);
+                query::cmd_links(&view, &Resolver::new(&view), key);
+            }
+            "follow" => {
+                // REQ-TRS-LINKTYPE-007 — traverse one named link. Read-only.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = linktypes::cmd_follow(&elems, &resolver, &vcfg, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "budgets" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = budgetcmd::cmd_budgets(&elems, model_root, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "design-report" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = designreportcmd::cmd_design_report(&elems, model_root, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "meta" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = metacmd::cmd_meta(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "link-types" => {
+                // REQ-TRS-LINKTYPE-008 — the declared link-type vocabulary. Read-only.
+                let json = subcommand_args.iter().any(|a| a == "--json");
+                linktypes::cmd_link_types(&elems, &vcfg.link_types, json);
+            }
+            "sysml" => {
+                // REQ-TRS-SYSMLV2-031 — SysMLv2 submodel inspection. Read-only.
+                let json = subcommand_args.iter().any(|a| a == "--json");
+                linktypes::cmd_sysml(&elems, json);
+            }
+            "view" => {
+                // GH #205 — materialise a View: the elements its `expose:` selects.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = view_render::cmd_view(&elems, &resolver, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "export-sysml" => {
+                // REQ-TRS-SYSMLV2-037 — one-way SysML v2 textual export. Read-only on the model.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = sysml_export::cmd_export_sysml(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
             "connectivity" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
@@ -701,12 +973,24 @@ fn main() {
                 }
             }
             "refs" => {
-                query::cmd_refs(&elems, &resolver, key);
+                // --config lens (REQ-TRS-PROJ-001, GH #139).
+                let config = subcommand_args.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let view = lensed_for_key(&elems, config, key);
+                query::cmd_refs(&view, &Resolver::new(&view), key);
             }
             "plantuml" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let puml_cfg = syscribe_model::config::load_plantuml_config(model_root);
-                plantuml::cmd_plantuml(&elems, rest, &puml_cfg);
+                plantuml::cmd_plantuml(&elems, rest, &puml_cfg, model_root);
+            }
+            "diagram" => {
+                // `diagram export <qname> --format plantuml|mermaid|svg [--out <file>]`
+                // (REQ-TRS-VIS-009/010) — the one diagram subcommand after ADR-SYS-VIS-001.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = diagram_export::cmd_diagram(&elems, &resolver, model_root, &vcfg, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
             "render" => {
                 if key.is_empty() {
@@ -714,11 +998,6 @@ fn main() {
                     std::process::exit(1);
                 }
                 render::cmd_render(&elems, &resolver, key, &vcfg);
-            }
-            "diagram" => {
-                let sub = subcommand_args.get(1).map(|s| s.as_str()).unwrap_or("");
-                let rest: Vec<String> = subcommand_args.get(2..).unwrap_or(&[]).to_vec();
-                diagram::cmd_diagram(&elems, &resolver, sub, &rest, &vcfg);
             }
             "validate" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
@@ -759,12 +1038,21 @@ fn main() {
                 // turns on the gated MagicGrid validation pass for this run.
                 vcfg_run.magicgrid = profile_ref.is_some_and(|p| p.magicgrid);
                 if let Some(rf) = results_file {
-                    let fmt = rest.windows(2)
-                        .find(|w| w[0] == "--format")
-                        .map(|w| w[1].as_str());
                     let inferred = if rf.ends_with(".xml") { "junit" } else { "cargo-json" };
-                    if let Some(data) = ingest::parse_file(fmt.unwrap_or(inferred), rf) {
-                        vcfg_run.results = Some(data);
+                    let fmt = cliargs::or_exit(cliargs::enum_value(
+                        "validate",
+                        rest,
+                        "--format",
+                        &["cargo-json", "junit", "session-log"],
+                        inferred,
+                    ));
+                    // An unreadable/unparseable results file is a usage error, not a
+                    // run silently without results (GH #133); parse_file says why.
+                    match ingest::parse_file(fmt, rf) {
+                        Some(data) => vcfg_run.results = Some(data),
+                        None => cliargs::usage_exit(&format!(
+                            "validate: cannot use --results '{rf}' (format {fmt})"
+                        )),
                     }
                 }
                 // Opt-in: enable the .syscribe.toml download hook for remote sourceFiles.
@@ -775,26 +1063,67 @@ fn main() {
                         eprintln!("--fetch-remote: no [remote] download hook configured in .syscribe.toml");
                     }
                 }
+                // `--deny-meta <Def.key=value>` / `[gates] deny_meta` (REQ-TRS-META-051): a stereotype condition
+                // that must not hold. A hit lists the elements and trips the gate (exit 2) once the report is out.
+                let mut meta_conds: Vec<String> = syscribe_model::tagged_values::load_gate_conditions(model_root);
+                meta_conds.extend(rest.windows(2).filter(|w| w[0] == "--deny-meta").map(|w| w[1].clone()));
+                let meta_hits = match query::meta_gate_hits(&elems, elems.iter(), &meta_conds) {
+                    Ok(h) => h,
+                    Err(m) => {
+                        eprintln!("Error: {m}");
+                        std::process::exit(1);
+                    }
+                };
+                if !meta_hits.is_empty() {
+                    let lines: Vec<String> = meta_hits.iter().map(|(c, q)| format!("deny-meta {c}: {q}")).collect();
+                    if json {
+                        eprintln!("{}", lines.join("\n"));
+                    } else {
+                        println!("Metadata gate tripped ({} element(s)):\n{}\n", meta_hits.len(), lines.join("\n"));
+                    }
+                }
+                // `[[gates.coverage]]` (REQ-TRS-META-053): a threshold for the requirements a stereotype selector chooses.
+                let cov_lines = match covtree::coverage_gates(&elems, &vcfg_run, model_root) {
+                    Ok(l) => l,
+                    Err(m) => {
+                        eprintln!("Error: {m}");
+                        std::process::exit(1);
+                    }
+                };
+                if !cov_lines.is_empty() {
+                    if json {
+                        eprintln!("{}", cov_lines.join("\n"));
+                    } else {
+                        println!("Coverage gate tripped ({}):\n{}\n", cov_lines.len(), cov_lines.join("\n"));
+                    }
+                }
+                let meta_tripped = !meta_hits.is_empty() || !cov_lines.is_empty();
                 // Configuration lens: --all-configs gate, or --config <C> projection.
                 let all_configs = rest.iter().any(|a| a == "--all-configs");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                // Every mode honours the same gate, --profile and --file (issue #126);
+                // a usage error exits 1 — exit 2 is reserved for a tripped gate.
                 if all_configs {
-                    query::cmd_validate_all_configs(&elems, &vcfg_run, json);
+                    query::cmd_validate_all_configs(&elems, &vcfg_run, &gate, profile_ref, file_filter, json);
                 } else if let Some(c) = config {
-                    match syscribe_model::projection::resolve_selection(&elems, c) {
+                    match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
                             query::cmd_validate(&elems, &vcfg_run, &gate, profile_ref, file_filter, json)
                         }
                         syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
-                            query::cmd_validate_projected(&elems, &vcfg_run, &gate, json, &sel)
+                            query::cmd_validate_projected(&elems, &vcfg_run, &gate, profile_ref, file_filter, json, &sel)
                         }
                         syscribe_model::projection::SelectionOutcome::Error(m) => {
-                            eprintln!("{m}");
-                            std::process::exit(2);
+                            eprintln!("Error: {m}");
+                            std::process::exit(1);
                         }
                     }
                 } else {
                     query::cmd_validate(&elems, &vcfg_run, &gate, profile_ref, file_filter, json);
+                }
+                // validate itself exits 1 on errors and 2 on its own tripped gate; reaching here means it was clean.
+                if meta_tripped {
+                    std::process::exit(2);
                 }
             }
             "diff" => {
@@ -860,7 +1189,7 @@ fn main() {
                 let code = if all_configs {
                     audit::cmd_audit_all_configs(&elems, vcfg, profile.as_ref(), json)
                 } else if let Some(c) = config {
-                    match syscribe_model::projection::resolve_selection(&elems, c) {
+                    match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
                             audit::cmd_audit(&elems, vcfg, model_root, profile.as_ref(), None, ps, json)
                         }
@@ -889,10 +1218,7 @@ fn main() {
                 let status = rest.windows(2).find(|w| w[0] == "--status").map(|w| w[1].as_str());
                 let tag = rest.windows(2).find(|w| w[0] == "--tag").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let top_n = rest
-                    .windows(2)
-                    .find(|w| w[0] == "--package-top-n")
-                    .and_then(|w| w[1].parse::<usize>().ok());
+                let top_n = cliargs::or_exit(cliargs::usize_value("stats", rest, "--package-top-n"));
                 let wheres = parse_where_options(rest);
                 let opts = stats::StatsOptions {
                     group_by,
@@ -906,6 +1232,31 @@ fn main() {
                     std::process::exit(code);
                 }
             }
+            "coverage" => {
+                // Coverage roll-up through the derivation tree (GH #252). Read-only. Exit 0 · 1 usage/unresolved.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                if rest.first().map(|s| s.as_str()) != Some("tree") {
+                    eprintln!("Usage: syscribe --model <root> coverage tree <req> [--plan <TP>] [--config <id>] [--json]");
+                    std::process::exit(1);
+                }
+                let rest = &rest[1..];
+                let json = rest.iter().any(|a| a == "--json");
+                let Some(root) = first_positional(rest, &["--plan", "--config"]) else {
+                    eprintln!("Usage: syscribe --model <root> coverage tree <req> [--plan <TP>] [--config <id>] [--json]");
+                    std::process::exit(1);
+                };
+                // --plan / --config lenses (REQ-TRS-COVPLAN-001), composed as for `matrix`.
+                let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let lens = [plan.map(|p| format!("plan {p}")), config.map(|c| format!("configuration {c}"))].into_iter().flatten().collect::<Vec<_>>().join(", ");
+                let view = if plan.is_some() || config.is_some() { lensed_elements(&elems, plan, config) } else { elems.clone() };
+                let result = syscribe_model::validator::validate_with_config(&view, &vcfg);
+                let results = runhist::load_results(model_root);
+                let code = covtree::cmd_coverage_tree(&view, &result, results.as_ref(), &syscribe_model::config::CoveragePolicy::load(model_root), root, &lens, json);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
             "digest" => {
                 // Token-budgeted, one-line-per-requirement bulk view (REQ-TRS-OUT-022).
                 // Reuses the stats scoping + coverage 'verified' notion. Exit 0 · 1 usage.
@@ -914,8 +1265,8 @@ fn main() {
                 let status = rest.windows(2).find(|w| w[0] == "--status").map(|w| w[1].as_str());
                 let tag = rest.windows(2).find(|w| w[0] == "--tag").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let limit = rest.windows(2).find(|w| w[0] == "--limit").and_then(|w| w[1].parse::<usize>().ok());
-                let offset = rest.windows(2).find(|w| w[0] == "--offset").and_then(|w| w[1].parse::<usize>().ok());
+                let limit = cliargs::or_exit(cliargs::usize_value("digest", rest, "--limit"));
+                let offset = cliargs::or_exit(cliargs::usize_value("digest", rest, "--offset"));
                 let wheres = parse_where_options(rest);
                 let opts = digest::DigestOptions { wheres: &wheres, status, tag, limit, offset };
                 let code = digest::cmd_digest(&elems, config, &opts, json);
@@ -931,11 +1282,7 @@ fn main() {
                 let type_filter = rest.windows(2).find(|w| w[0] == "--type").map(|w| w[1].as_str());
                 let status = rest.windows(2).find(|w| w[0] == "--status").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let limit = rest
-                    .windows(2)
-                    .find(|w| w[0] == "--limit")
-                    .and_then(|w| w[1].parse::<usize>().ok())
-                    .unwrap_or(10);
+                let limit = cliargs::or_exit(cliargs::usize_value("search-text", rest, "--limit")).unwrap_or(10);
                 // Query = first positional token (skipping value-taking flags/their values).
                 let query = first_positional(rest, &["--type", "--status", "--config", "--limit"]).unwrap_or("");
                 let code = ftsearch::cmd_search_text(&elems, query, type_filter, status, config, limit, json);
@@ -951,7 +1298,7 @@ fn main() {
                 let no_cache = rest.iter().any(|a| a == "--no-cache");
                 let scope = rest.windows(2).find(|w| w[0] == "--scope").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let depth = rest.windows(2).find(|w| w[0] == "--depth").and_then(|w| w[1].parse::<usize>().ok());
+                let depth = cliargs::or_exit(cliargs::usize_value("summarize", rest, "--depth"));
                 let code = summarize::cmd_summarize(&elems, model_root, scope, depth, no_cache, config, json);
                 if code != 0 {
                     std::process::exit(code);
@@ -963,7 +1310,7 @@ fn main() {
                 let json = rest.iter().any(|a| a == "--json");
                 let type_filter = rest.windows(2).find(|w| w[0] == "--type").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let top = rest.windows(2).find(|w| w[0] == "--top").and_then(|w| w[1].parse::<usize>().ok()).unwrap_or(10);
+                let top = cliargs::or_exit(cliargs::usize_value("topics", rest, "--top")).unwrap_or(10);
                 let code = topics::cmd_topics(&elems, type_filter, top, config, json);
                 if code != 0 {
                     std::process::exit(code);
@@ -975,7 +1322,7 @@ fn main() {
                 let json = rest.iter().any(|a| a == "--json");
                 let type_filter = rest.windows(2).find(|w| w[0] == "--type").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
-                let k = rest.windows(2).find(|w| w[0] == "--k").and_then(|w| w[1].parse::<usize>().ok()).unwrap_or(8);
+                let k = cliargs::or_exit(cliargs::usize_value("clusters", rest, "--k")).unwrap_or(8);
                 let code = clusters::cmd_clusters(&elems, type_filter, k, config, json);
                 if code != 0 {
                     std::process::exit(code);
@@ -990,17 +1337,151 @@ fn main() {
                 let mut file: Option<&str> = None;
                 let mut i = 0;
                 while i < rest.len() {
-                    if rest[i] == "--format" { i += 2; continue; }
+                    if rest[i] == "--format" || rest[i] == "--run" || rest[i] == "--config" || rest[i] == "--environment" || rest[i] == "--build-commit" || rest[i] == "--operator" || rest[i] == "--artefact" || rest[i] == "--utc-offset" { i += 2; continue; }
                     if rest[i].starts_with("--") { i += 1; continue; }
                     file = Some(rest[i].as_str());
                     break;
                 }
-                match file {
-                    Some(f) => ingest::cmd_ingest_results(model_root, format, f),
-                    None => {
-                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit] <file>");
+                if let Some(r) = rest.windows(2).find(|w| w[0] == "--run").map(|w| w[1].as_str()) {
+                    if r.is_empty() || r.starts_with('-') {
+                        eprintln!("ingest-results: --run needs a run id that is not empty and does not start with '-' (got '{r}')");
                         std::process::exit(1);
                     }
+                }
+                match file {
+                    Some(f) => {
+                        let val = |name: &str| rest.windows(2).find(|w| w[0] == name).map(|w| w[1].as_str());
+                        let opts = ingest::RecordOpts {
+                            replace: rest.iter().any(|a| a == "--replace"),
+                            strict: rest.iter().any(|a| a == "--strict"),
+                            environment: val("--environment"),
+                            build_commit: val("--build-commit"),
+                            operator: val("--operator"),
+                            utc_offset: val("--utc-offset"),
+                            artefacts: rest.windows(2).filter(|w| w[0] == "--artefact").map(|w| w[1].as_str()).collect(),
+                        };
+                        ingest::cmd_ingest_results(model_root, format, f, val("--run"), val("--config"), &opts, &elems)
+                    }
+                    None => {
+                        eprintln!("Usage: syscribe --model <root> ingest-results [--format cargo-json|junit|session-log|records] [--run <run-id>] [--config <CONF-id>] [--replace] [--strict] [--environment <TE-id>] [--build-commit <sha>] [--operator <name>] [--artefact <file>]... [--utc-offset <Z|+HH:MM>] <file>");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "simulate" => {
+                // State-machine interpreter (GH #279). Read-only. Exit 0 · 1 usage · 2 run error.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let lens = |cfg: Option<&str>| lensed_elements(&elems, None, cfg);
+                let code = exec_cmd::cmd_simulate(&elems, rest, &lens, &model_root);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "mutate" => {
+                // Mutation analysis of state-machine scenarios (GH #282). Read-only. Exit 0 · 1 usage · 2 gate.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let (rest, projected) = with_config_lens(rest, &elems);
+                let elems = projected.as_deref().unwrap_or(&elems);
+                let code = exec_cmd::cmd_mutate(elems, &rest, &model_root);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "requirement-coverage" | "exec-coverage" => {
+                // Executable evidence per requirement / per architecture element (GH #344, #333). Read-only. Exit 0 · 1 usage · 2 gate.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let lens = |cfg: Option<&str>| lensed_elements(&elems, None, cfg);
+                let code = if subcommand_args[0] == "exec-coverage" { evidence_cmd::cmd_exec_coverage(&elems, rest, &lens, &model_root) } else { evidence_cmd::cmd_requirement_coverage(&elems, rest, &lens, &model_root) };
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "inject" => {
+                // Fault-injection campaign over a composite's @invariant scenarios (GH #306). Read-only. Exit 0 · 1 usage · 2 defeated.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].clone());
+                let (rest, projected) = with_config_lens(rest, &elems);
+                let elems = projected.as_deref().unwrap_or(&elems);
+                let code = exec_cmd::cmd_inject(elems, &rest, &model_root, config.as_deref());
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "export-scxml" => {
+                // SCXML export of a state machine (GH #283). Read-only. Exit 0 · 1 usage · 2 diagnostics.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = exec_cmd::cmd_export_scxml(&elems, rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "compile" => {
+                // State-machine IR (GH #278). Read-only. Exit 0 · 1 usage · 2 lowering diagnostics.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let (rest, projected) = with_config_lens(rest, &elems);
+                let elems = projected.as_deref().unwrap_or(&elems);
+                let code = exec_cmd::cmd_compile(elems, &rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "constraints" => {
+                // Parametric constraint checking (GH #274). Read-only. Exit 0 · 1 usage · 2 a check failed.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let lens = |cfg: Option<&str>| lensed_elements(&elems, None, cfg);
+                let code = exec_cmd::cmd_constraints(&elems, rest, &lens);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "mechanisms" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = mechanisms::cmd_mechanisms(&elems, rest.iter().any(|a| a == "--json"), rest.iter().any(|a| a == "--uncovered"));
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "compliance" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let val = |k: &str| rest.windows(2).find(|w| w[0] == k).map(|w| w[1].as_str());
+                let view = projected_elements(&elems, val("--config"));
+                let code = compliance::cmd_compliance(
+                    model_root,
+                    &view,
+                    val("--standard"),
+                    rest.iter().any(|a| a == "--json"),
+                    rest.iter().any(|a| a == "--fail-on-missing"),
+                );
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "import-reqif" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let val = |k: &str| rest.windows(2).find(|w| w[0] == k).map(|w| w[1].as_str());
+                let Some(file) = first_positional(rest, &["--into", "--id-prefix", "--class", "--domain"]) else {
+                    eprintln!("Usage: syscribe --model <root> import-reqif <file.reqif> [--into <package>] [--id-prefix <PFX>] [--class <reqClass>] [--domain <reqDomain>] [--update] [--dry-run]");
+                    std::process::exit(1);
+                };
+                let opts = reqif_import::ImportOptions {
+                    file,
+                    into: val("--into").unwrap_or("Requirements"),
+                    id_prefix: val("--id-prefix").unwrap_or("REQ-IMP"),
+                    req_class: val("--class").unwrap_or("stakeholder"),
+                    req_domain: val("--domain").unwrap_or("system"),
+                    update: rest.iter().any(|a| a == "--update"),
+                    dry_run: rest.iter().any(|a| a == "--dry-run"),
+                };
+                let code = reqif_import::cmd_import_reqif(model_root, &elems, &opts);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            "results" => {
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                let code = runhist::cmd_results(model_root, rest);
+                if code != 0 {
+                    std::process::exit(code);
                 }
             }
             "export" => {
@@ -1009,7 +1490,7 @@ fn main() {
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 match config {
                     None => export::cmd_export(&elems, &vcfg, ndjson),
-                    Some(c) => match syscribe_model::projection::resolve_selection(&elems, c) {
+                    Some(c) => match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
                             export::cmd_export(&elems, &vcfg, ndjson)
                         }
@@ -1026,7 +1507,13 @@ fn main() {
             }
             "export-html" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
-                export_html::cmd_export_html(&elems, &resolver, &vcfg, rest);
+                export_html::cmd_export_html(&elems, &resolver, &vcfg, &syscribe_model::cyber_config::CyberConfig::load(model_root), rest);
+            }
+            "trace-export" => {
+                // ADR-SYS-TREX-001 / REQ-TRS-TREX-004 — the single-document
+                // traceability export. Read-only; `--config` mirrors `export`.
+                let rest = subcommand_args.get(1..).unwrap_or(&[]);
+                trace_export::cmd_trace_export(model_root, &elems, &vcfg, rest);
             }
             "types" => {
                 query::cmd_types(&elems);
@@ -1054,10 +1541,17 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--feature")
                     .map(|w| w[1].as_str());
-                let metadata = rest
+                // Repeatable (all must hold); each value is a comma list (any) with `!` negation (GH #376).
+                let metadata: Vec<&str> = rest
                     .windows(2)
-                    .find(|w| w[0] == "--metadata")
-                    .map(|w| w[1].as_str());
+                    .filter(|w| w[0] == "--metadata")
+                    .map(|w| w[1].as_str())
+                    .collect();
+                let unknown = query::unknown_metadata_names(&elems, &metadata);
+                if !unknown.is_empty() {
+                    eprintln!("Error: --metadata names no MetadataDef in the model: {}", unknown.join(", "));
+                    std::process::exit(1);
+                }
                 let status = rest
                     .windows(2)
                     .find(|w| w[0] == "--status")
@@ -1069,6 +1563,23 @@ fn main() {
                 let has_wcet = rest.iter().any(|a| a == "--has-wcet");
                 let json = rest.iter().any(|a| a == "--json");
                 let wheres = parse_where_options(rest);
+                // `--rate-status <s>` (GH #343): fault-tree events and FMEA rows whose `rateStatus` is s
+                let rate_status = rest.windows(2).find(|w| w[0] == "--rate-status").map(|w| w[1].clone());
+                let elems: Vec<syscribe_model::element::RawElement> = match &rate_status {
+                    None => elems.clone(),
+                    Some(rs) => elems
+                        .iter()
+                        .filter(|e| {
+                            !matches!(e.frontmatter.element_type, Some(syscribe_model::element::ElementType::FaultTreeEvent) | Some(syscribe_model::element::ElementType::FMEAEntry))
+                                || match e.frontmatter.rate_status.as_deref() {
+                                    Some(s) => s == rs,
+                                    // `none`: a rate with no status, not an event with no rate at all
+                                    None => rs == "none" && e.frontmatter.failure_rate.is_some(),
+                                }
+                        })
+                        .cloned()
+                        .collect(),
+                };
                 // scope = first positional argument that is not a flag or flag
                 // value. Two-arg flags consume their value so it is not mistaken
                 // for the positional scope.
@@ -1078,7 +1589,7 @@ fn main() {
                     if matches!(
                         rest[i].as_str(),
                         "--tag" | "--config" | "--feature" | "--metadata" | "--status" | "--sil"
-                            | "--where"
+                            | "--where" | "--rate-status"
                     ) {
                         i += 2;
                         continue;
@@ -1091,14 +1602,14 @@ fn main() {
                     break;
                 }
                 match config {
-                    None => query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json),
-                    Some(c) => match syscribe_model::projection::resolve_selection(&elems, c) {
+                    None => query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json),
+                    Some(c) => match syscribe_model::projection::resolve_config_flag(&elems, c) {
                         syscribe_model::projection::SelectionOutcome::Dormant => {
-                            query::cmd_list(&elems, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json)
+                            query::cmd_list(&elems, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json)
                         }
                         syscribe_model::projection::SelectionOutcome::Resolved(sel) => {
                             let view = syscribe_model::projection::project(&elems, &sel);
-                            query::cmd_list(&view, key, scope, &tags, feature, metadata, status, sil, has_wcet, &wheres, json);
+                            query::cmd_list(&view, key, scope, &tags, feature, &metadata, status, sil, has_wcet, &wheres, json);
                         }
                         syscribe_model::projection::SelectionOutcome::Error(m) => {
                             eprintln!("{m}");
@@ -1126,6 +1637,19 @@ fn main() {
                     .windows(2)
                     .find(|w| w[0] == "--status")
                     .map(|w| w[1].as_str());
+                // `--select 'Def where <expr>'` (repeatable, ANDed): keep the requirements a stereotype selector matches
+                // (REQ-TRS-META-024).
+                let mut selectors = Vec::new();
+                for w in rest.windows(2).filter(|w| w[0] == "--select") {
+                    match syscribe_model::tagged_values::parse_selector(&serde_yaml::Value::String(w[1].clone())) {
+                        Ok(sel) => selectors.push(sel),
+                        Err(m) => {
+                            eprintln!("Error: --select '{}': {m}", w[1]);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                matrix::set_select(selectors);
                 let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 // --plan lens (REQ-TRS-PLAN-006), composing with --config.
@@ -1146,12 +1670,19 @@ fn main() {
                         });
                     }
                 }
-                if rest.iter().any(|a| a == "--features") {
+                if rest.iter().any(|a| a == "--rollup") {
+                    let result = syscribe_model::validator::validate_with_config(&view, &vcfg);
+                    let results = runhist::load_results(model_root);
+                    let code = covtree::cmd_rollup(&view, &result, results.as_ref(), &syscribe_model::config::CoveragePolicy::load(model_root), tag, status, json);
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                } else if rest.iter().any(|a| a == "--features") {
                     matrix::cmd_matrix_features(&view, json);
                 } else {
                     // Surface executed-evidence by default when a sidecar exists
                     // (issue #21); absent results, behaves exactly as before.
-                    let results = ResultsData::load_sidecar(model_root);
+                    let results = runhist::load_results(model_root);
                     matrix::cmd_matrix(
                         &view,
                         json,
@@ -1217,14 +1748,34 @@ fn main() {
                 let json = rest.iter().any(|a| a == "--json");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 let view = projected_elements(&elems, config);
-                metrics_cmd::cmd_metrics(&view, json);
+                let code = metrics_cmd::cmd_metrics(&view, json, rest.iter().any(|a| a == "--sensitivity"), std::path::Path::new(&model_root));
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
             "cyber-risk" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 let view = projected_elements(&elems, config);
-                cyberrisk::cmd_cyber_risk(&view, json);
+                let cfg = syscribe_model::cyber_config::CyberConfig::load(model_root);
+                if let Some(f) = analysis_cmd::format_arg(rest) {
+                    if !analysis_cmd::is_graph_format(f) && !["md", "html", "json"].contains(&f) {
+                        let all: Vec<&str> = ["md", "html", "json"].into_iter().chain(analysis_cmd::GRAPH_FORMATS.iter().copied()).collect();
+                        cliargs::usage_exit(&format!("cyber-risk: invalid value '{f}' for --format; valid values: {}", all.join(", ")));
+                    }
+                }
+                if let Some(fmt) = analysis_cmd::format_arg(rest).filter(|f| analysis_cmd::is_graph_format(f)) {
+                    // GH #223: the threat graph (threat, damage, asset, goal, control) with risk tones.
+                    let code = analysis_cmd::cmd_model_graph("cyber-risk", syscribe_model::vis::DiagramKind::ThreatGraph, &view, &cfg, None, fmt);
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                } else if let Some(fmt) = heat_cmd::parse_format("cyber-risk", rest) {
+                    heat_cmd::cyber_heat(&view, &cfg, fmt);
+                } else {
+                    cyberrisk::cmd_cyber_risk(&view, &cfg, json);
+                }
             }
             "safety-case" => {
                 // GSN safety-argument tree (issue #20). Read-only; reuses Resolver
@@ -1233,11 +1784,27 @@ fn main() {
                 let json = rest.iter().any(|a| a == "--json");
                 let no_implicit = rest.iter().any(|a| a == "--no-implicit");
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                // `--format text|json|dot|mermaid` (GH #223); `--json` stays the JSON shorthand.
+                let format = match rest.windows(2).find(|w| w[0] == "--format") {
+                    Some(w) => match safety_case::Format::parse(&w[1]) {
+                        Some(f) => f,
+                        None => {
+                            eprintln!(
+                                "Error: invalid value '{}' for --format; valid values: {}",
+                                w[1],
+                                safety_case::Format::VALUES.join(", ")
+                            );
+                            std::process::exit(1);
+                        }
+                    },
+                    None if json => safety_case::Format::Json,
+                    None => safety_case::Format::Text,
+                };
                 // optional positional <SG-id> = first non-flag arg that is not a flag value.
                 let mut goal = "";
                 let mut gi = 0;
                 while gi < rest.len() {
-                    if rest[gi] == "--config" {
+                    if rest[gi] == "--config" || rest[gi] == "--format" {
                         gi += 2;
                         continue;
                     }
@@ -1248,17 +1815,20 @@ fn main() {
                     goal = rest[gi].as_str();
                     break;
                 }
-                let results = ResultsData::load_sidecar(model_root);
+                let results = runhist::load_results(model_root);
                 let sidecar_loaded = results.is_some();
                 let view = projected_elements(&elems, config);
                 let view_resolver = Resolver::new(&view);
-                safety_case::cmd_safety_case(&view, &view_resolver, goal, results.as_ref(), json, no_implicit, sidecar_loaded);
+                let code = safety_case::cmd_safety_case(&view, &view_resolver, goal, results.as_ref(), format, no_implicit, sidecar_loaded, Some(model_root.as_ref()), config);
+                if code != 0 {
+                    std::process::exit(code);
+                }
             }
             "testplan" => {
                 // Read-only TestPlan surface (GH #38 / REQ-TRS-PLAN-005).
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
-                let results = ResultsData::load_sidecar(model_root);
+                let results = runhist::load_results(model_root);
                 // First non-flag positional = optional TP-id.
                 let tp = rest.iter().find(|a| !a.starts_with("--")).map(|s| s.as_str());
                 match tp {
@@ -1295,7 +1865,19 @@ fn main() {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let json = rest.iter().any(|a| a == "--json");
                 let coverage = rest.iter().any(|a| a == "--coverage");
-                zones::cmd_zones(&elems, coverage, json);
+                // `--format dot|mermaid|plantuml|svg` (GH #223): the zones and conduits as a diagram.
+                if let Some(fmt) = analysis_cmd::format_arg(rest) {
+                    if !analysis_cmd::is_graph_format(fmt) {
+                        eprintln!("Error: invalid value '{fmt}' for --format; valid values: {}", analysis_cmd::GRAPH_FORMATS.join(", "));
+                        std::process::exit(1);
+                    }
+                    let code = analysis_cmd::cmd_model_graph("zones", syscribe_model::vis::DiagramKind::ZoneConduit, &elems, &Default::default(), None, fmt);
+                    if code != 0 {
+                        std::process::exit(code);
+                    }
+                } else {
+                    zones::cmd_zones(&elems, coverage, json);
+                }
             }
             "conduits" => {
                 // IEC 62443 conduits (§13, GH #61). Read-only.
@@ -1340,10 +1922,11 @@ fn main() {
                             .filter(|a| !a.starts_with("--"))
                             .map(|s| s.as_str());
                         let dry_run = rest.iter().any(|a| a == "--dry-run");
+                        let report = rest.windows(2).find(|w| w[0] == "--report").map(|w| w[1].as_str());
                         match alias {
-                            Some(a) if dry_run => plugins::cmd_run(&vcfg, model_root, a),
+                            Some(a) if dry_run => plugins::cmd_run(&vcfg, model_root, a, report),
                             _ => {
-                                eprintln!("Usage: plugins run <alias> --dry-run");
+                                eprintln!("Usage: plugins run <alias> --dry-run   (a foreign-format plugin)\n       plugins run <alias> --report <file> --dry-run   (a results plugin)");
                                 1
                             }
                         }
@@ -1386,7 +1969,7 @@ fn main() {
             "sbom" => {
                 // SBOM generation (§18, GH #66). Read-only.
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
-                let format = rest.windows(2).find(|w| w[0] == "--format").map(|w| w[1].as_str()).unwrap_or("cyclonedx");
+                let format = cliargs::or_exit(cliargs::enum_value("sbom", rest, "--format", &["cyclonedx", "spdx"], "cyclonedx"));
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 let scope = rest.windows(2).find(|w| w[0] == "--scope").map(|w| w[1].as_str());
                 let output = rest.windows(2).find(|w| w[0] == "--output").map(|w| w[1].as_str());
@@ -1409,8 +1992,8 @@ fn main() {
                 // Behavioral coverage report (§20, GH #72). Read-only.
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let scope = first_positional(rest, &["--depth", "--format"]);
-                let depth = rest.windows(2).find(|w| w[0] == "--depth").and_then(|w| w[1].parse::<usize>().ok());
-                let format = rest.windows(2).find(|w| w[0] == "--format").map(|w| w[1].as_str()).unwrap_or("text");
+                let depth = cliargs::or_exit(cliargs::usize_value("behavioral-coverage", rest, "--depth"));
+                let format = cliargs::or_exit(cliargs::enum_value("behavioral-coverage", rest, "--format", &["text", "json"], "text"));
                 let opts = bcov::BcovOptions {
                     scope,
                     depth,
@@ -1430,13 +2013,19 @@ fn main() {
                         std::process::exit(2);
                     }
                 };
-                let direction = match rest.windows(2).find(|w| w[0] == "--direction").map(|w| w[1].as_str()) {
-                    Some("upstream") => impact::Direction::Upstream,
-                    Some("both") => impact::Direction::Both,
+                let direction = match cliargs::or_exit(cliargs::enum_value(
+                    "impact",
+                    rest,
+                    "--direction",
+                    &["downstream", "upstream", "both"],
+                    "downstream",
+                )) {
+                    "upstream" => impact::Direction::Upstream,
+                    "both" => impact::Direction::Both,
                     _ => impact::Direction::Downstream,
                 };
-                let depth = rest.windows(2).find(|w| w[0] == "--depth").and_then(|w| w[1].parse::<usize>().ok());
-                let format = rest.windows(2).find(|w| w[0] == "--format").map(|w| w[1].as_str()).unwrap_or("text");
+                let depth = cliargs::or_exit(cliargs::usize_value("impact", rest, "--depth"));
+                let format = cliargs::or_exit(cliargs::enum_value("impact", rest, "--format", &["text", "json", "dot"], "text"));
                 let kinds = rest
                     .windows(2)
                     .find(|w| w[0] == "--kinds")
@@ -1448,16 +2037,8 @@ fn main() {
                 // N² interface matrix (§16, GH #64). Read-only.
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
                 let scope = first_positional(rest, &["--depth", "--format"]);
-                let depth = rest
-                    .windows(2)
-                    .find(|w| w[0] == "--depth")
-                    .and_then(|w| w[1].parse::<usize>().ok())
-                    .unwrap_or(1);
-                let format = rest
-                    .windows(2)
-                    .find(|w| w[0] == "--format")
-                    .map(|w| w[1].as_str())
-                    .unwrap_or("text");
+                let depth = cliargs::or_exit(cliargs::usize_value("n2", rest, "--depth")).unwrap_or(1);
+                let format = cliargs::or_exit(cliargs::enum_value("n2", rest, "--format", &["text", "html", "json"], "text"));
                 let opts = n2::N2Options {
                     scope,
                     depth,
@@ -1548,10 +2129,17 @@ fn main() {
                     .map(|w| w[1].as_str())
                     .unwrap_or("");
                 let all = subcommand_args.iter().any(|a| a == "--all-configs");
-                let format = subcommand_args.windows(2)
-                    .find(|w| w[0] == "--format")
-                    .map(|w| w[1].as_str())
-                    .unwrap_or("json");
+                // --all-configs always emits a JSON array, so only `json` is valid there.
+                let formats: &[&'static str] = if all {
+                    &["json"]
+                } else {
+                    &["cmake", "c-header", "makefile", "env", "json", "kconfig"]
+                };
+                let format = match cliargs::enum_value("build-config", subcommand_args, "--format", formats, "json") {
+                    Ok(f) => f,
+                    Err(m) if all => cliargs::usage_exit(&format!("{m} (--all-configs always emits JSON)")),
+                    Err(m) => cliargs::usage_exit(&m),
+                };
                 let prefix = subcommand_args.windows(2)
                     .find(|w| w[0] == "--prefix")
                     .map(|w| w[1].as_str())
@@ -1590,11 +2178,28 @@ fn main() {
                 query::cmd_next_id(&elems, key);
             }
             "template" => {
-                if key.is_empty() {
-                    eprintln!("Usage: syscribe --model <root> template <type>");
+                // The type is the first argument that is neither `--prefix` nor its value,
+                // so `template --prefix SYS Requirement` works too.
+                let mut ty = "";
+                let mut it = subcommand_args.iter().skip(1);
+                while let Some(a) = it.next() {
+                    if a == "--prefix" {
+                        it.next();
+                    } else if !a.starts_with("--") {
+                        ty = a.as_str();
+                        break;
+                    }
+                }
+                if ty.is_empty() {
+                    eprintln!("Usage: syscribe --model <root> template <type> [--prefix <id-prefix>]");
                     std::process::exit(1);
                 }
-                query::cmd_template(key);
+                let prefix = subcommand_args
+                    .iter()
+                    .position(|a| a == "--prefix")
+                    .and_then(|i| subcommand_args.get(i + 1))
+                    .map(|s| s.as_str());
+                query::cmd_template(ty, model_root, prefix);
             }
             "move" => {
                 let dest = subcommand_args.get(2).map(|s| s.as_str()).unwrap_or("");
@@ -1612,6 +2217,35 @@ fn main() {
                 }
                 let fix = subcommand_args.iter().any(|a| a == "--fix");
                 scaffold::cmd_scaffold_gherkin(&elems, &resolver, key, fix);
+            }
+            "set" => {
+                let rest = subcommand_args.get(2..).unwrap_or(&[]);
+                if key.is_empty() || rest.is_empty() {
+                    eprintln!("Usage: syscribe --model <root> set <qname|id> status=<value> | evidence.add ref=<id>|path=<path> | achieves.add <ref> | <scalar>=<value> | <list>.add <value>  [--dry-run]");
+                    std::process::exit(1);
+                }
+                let dry_run = rest.iter().any(|a| a == "--dry-run");
+                let op_args: Vec<&str> = rest.iter().map(|s| s.as_str()).filter(|a| *a != "--dry-run").collect();
+                set::cmd_set(model_root, &elems, &resolver, key, &op_args, dry_run);
+            }
+            "claim" => {
+                let rest = subcommand_args.get(2..).unwrap_or(&[]);
+                let by = rest.windows(2).find(|w| w[0] == "--by").map(|w| w[1].as_str());
+                if key.is_empty() || by.is_none() {
+                    eprintln!("Usage: syscribe --model <root> claim <PI-id> --by <agent-id> [--dry-run]");
+                    std::process::exit(1);
+                }
+                let dry_run = rest.iter().any(|a| a == "--dry-run");
+                claim::cmd_claim(model_root, &elems, &resolver, key, by.unwrap(), dry_run);
+            }
+            "release" => {
+                if key.is_empty() {
+                    eprintln!("Usage: syscribe --model <root> release <PI-id> [--dry-run]");
+                    std::process::exit(1);
+                }
+                let rest = subcommand_args.get(2..).unwrap_or(&[]);
+                let dry_run = rest.iter().any(|a| a == "--dry-run");
+                claim::cmd_release(model_root, &elems, &resolver, key, dry_run);
             }
             "applies-when" => {
                 if key.is_empty() {
@@ -1633,6 +2267,11 @@ fn main() {
                 aw::cmd_applies_when(model_root, &elems, &resolver, key, set_expr, clear, json, dry_run);
             }
             "trace" | "why" | "who-verifies" => {
+                // --config lens (REQ-TRS-PROJ-001, GH #139): the query, its
+                // resolver and the reverse indices all read the projected view.
+                let config = subcommand_args.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
+                let elems = lensed_for_key(&elems, config, key);
+                let resolver = Resolver::new(&elems);
                 let result = validator::validate_with_config(&elems, &vcfg);
                 match subcmd {
                     "trace" => {
@@ -1640,7 +2279,7 @@ fn main() {
                         let linked_only = rest.iter().any(|a| a == "--linked-only");
                         // Annotate verifying TestCases with ingested verdicts when a
                         // sidecar exists (issue #21).
-                        let results = ResultsData::load_sidecar(model_root);
+                        let results = runhist::load_results(model_root);
                         query::cmd_trace(
                             &elems,
                             &resolver,
@@ -1660,10 +2299,7 @@ fn main() {
                 let sil = rest.windows(2).find(|w| w[0] == "--sil").map(|w| w[1].as_str());
                 let status = rest.windows(2).find(|w| w[0] == "--status").map(|w| w[1].as_str());
                 let json = rest.iter().any(|a| a == "--json");
-                let min_levels = rest
-                    .windows(2)
-                    .find(|w| w[0] == "--min-levels")
-                    .and_then(|w| w[1].parse::<usize>().ok());
+                let min_levels = cliargs::or_exit(cliargs::usize_value("verification-depth", rest, "--min-levels"));
                 let config = rest.windows(2).find(|w| w[0] == "--config").map(|w| w[1].as_str());
                 let plan = rest.windows(2).find(|w| w[0] == "--plan").map(|w| w[1].as_str());
                 // --plan lens (REQ-TRS-PLAN-006), composing with --config.
@@ -1671,7 +2307,7 @@ fn main() {
                 let view_resolver = Resolver::new(&view);
                 let result = validator::validate_with_config(&view, &vcfg);
                 let ok = vdepth::cmd_verification_depth(
-                    &view, &view_resolver, &result, sil, status, min_levels, json,
+                    &view, &view_resolver, &result, sil, status, min_levels, json, vcfg.results.as_ref(),
                 );
                 if !ok {
                     std::process::exit(2);
@@ -1693,40 +2329,118 @@ fn main() {
                 let json = rest.iter().any(|a| a == "--json");
                 let sheet_filter = rest.windows(2).find(|w| w[0] == "--fmea-sheet").map(|w| w[1].as_str());
                 match sub {
-                    "report" => fmea_report::cmd_fmea_report(&elems, sheet_filter, json),
+                    "report" => {
+                        let heat = heat_cmd::parse_format("fmea", rest);
+                        let code = fmea_report::cmd_fmea_report(&elems, sheet_filter, json, heat);
+                        if code != 0 {
+                            std::process::exit(code);
+                        }
+                    }
                     _ => {
-                        eprintln!("Usage: syscribe -m <model> fmea report [--fmea-sheet <id>] [--json]");
+                        eprintln!("Usage: syscribe -m <model> fmea report [--fmea-sheet <id>] [--json | --format md|html|json]");
                         std::process::exit(1);
                     }
+                }
+            }
+            "hara" => {
+                let sub = subcommand_args.get(1).map(String::as_str).unwrap_or("");
+                let rest = subcommand_args.get(2..).unwrap_or(&[]);
+                let code = if sub == "trace" {
+                    // GH #223: the hazard-to-test graph with the ingested test verdicts.
+                    let results = runhist::load_results(model_root);
+                    let cyber = syscribe_model::cyber_config::CyberConfig::load(model_root);
+                    analysis_cmd::cmd_hara_trace(&elems, &cyber, results.as_ref(), rest)
+                } else {
+                    heat_cmd::cmd_hara(&elems, sub, rest)
+                };
+                if code != 0 {
+                    std::process::exit(code);
                 }
             }
             "fault-tree" => {
                 let sub = subcommand_args.get(1).map(|s| s.as_str()).unwrap_or("");
                 let rest = subcommand_args.get(2..).unwrap_or(&[]);
-                let ft_id = rest.iter().find(|a| !a.starts_with("--")).map(|s| s.as_str()).unwrap_or("");
+                let ft_id = {
+                    // First positional that is not the value of `--format`.
+                    let mut found = "";
+                    let mut i = 0;
+                    while i < rest.len() {
+                        if rest[i] == "--format" {
+                            i += 2;
+                            continue;
+                        }
+                        if !rest[i].starts_with("--") {
+                            found = rest[i].as_str();
+                            break;
+                        }
+                        i += 1;
+                    }
+                    found
+                };
                 match sub {
                     "render" => {
                         if ft_id.is_empty() {
-                            eprintln!("Usage: syscribe -m <model> fault-tree render <FaultTree-id>");
+                            eprintln!("{}", fta_cmd::RENDER_USAGE);
                             std::process::exit(1);
                         }
-                        fmea_report::cmd_fault_tree_render(&elems, ft_id);
+                        match rest.windows(2).find(|w| w[0] == "--format").map(|w| w[1].as_str()) {
+                            // GH #223: the analysed diagram (gate symbols, cut sets,
+                            // probabilities) from the Diagram IR.
+                            Some(format) => {
+                                let code = fta_cmd::cmd_fault_tree_render_diagram(&elems, ft_id, format);
+                                if code != 0 {
+                                    std::process::exit(code);
+                                }
+                            }
+                            None => fmea_report::cmd_fault_tree_render(&elems, ft_id),
+                        }
+                    }
+                    "analyze" => {
+                        let args = match fta_cmd::parse_args(rest) {
+                            Ok(a) => a,
+                            Err(msg) => {
+                                eprintln!("Error: {msg}");
+                                eprintln!("{}", fta_cmd::USAGE);
+                                std::process::exit(1);
+                            }
+                        };
+                        let code = fta_cmd::cmd_fault_tree_analyze(&elems, &args);
+                        if code != 0 {
+                            std::process::exit(code);
+                        }
                     }
                     _ => {
-                        eprintln!("Usage: syscribe -m <model> fault-tree render <FaultTree-id>");
+                        eprintln!("{}", fta_cmd::RENDER_USAGE);
+                        eprintln!("       {}", fta_cmd::USAGE.trim_start_matches("Usage: "));
                         std::process::exit(1);
                     }
                 }
             }
             "lint-docs" => {
                 let rest = subcommand_args.get(1..).unwrap_or(&[]);
-                let json = rest.iter().any(|a| a == "--json");
-                let paths: Vec<&str> = rest.iter().filter(|a| !a.starts_with("--")).map(|s| s.as_str()).collect();
+                const USAGE: &str = "Usage: syscribe -m <model> lint-docs <path>... [--json] [--deny <CODES>]";
+                let parsed = match lint_docs::parse_lint_args(rest) {
+                    Ok(p) => p,
+                    Err(msg) => {
+                        eprintln!("Error: {msg}");
+                        eprintln!("{USAGE}");
+                        std::process::exit(1);
+                    }
+                };
+                let paths: Vec<&str> = parsed.paths.iter().map(|s| s.as_str()).collect();
                 if paths.is_empty() {
-                    eprintln!("Usage: syscribe -m <model> lint-docs <path>... [--json]");
+                    eprintln!("{USAGE}");
                     std::process::exit(1);
                 }
-                let code = lint_docs::cmd_lint_docs(&elems, &paths, json);
+                // A nonexistent path is a usage error, not a clean run (issue #130).
+                let missing = lint_docs::missing_paths(&paths);
+                if !missing.is_empty() {
+                    for p in &missing {
+                        eprintln!("Error: lint-docs: path '{p}' does not exist");
+                    }
+                    std::process::exit(1);
+                }
+                let code = lint_docs::cmd_lint_docs(&elems, &paths, parsed.json, &parsed.deny);
                 if code != 0 {
                     std::process::exit(code);
                 }
@@ -1760,6 +2474,25 @@ fn main() {
     }
 
     let result = validator::validate_with_config(&elems, &vcfg);
+
+    // REQ-TRS-LINKTYPE-006 — the report sections below read the reporting view: a
+    // `coverage = true` user-defined link extending satisfies/verifies/derivedFrom
+    // counts as that base link (labelled `(via <type>)` where a list shows it).
+    // Validation above ran on the authored elements; borrowed when unused.
+    let (cov_elems, link_prov) =
+        syscribe_model::link_types::coverage_view_with_provenance(&elems, &vcfg.link_types);
+    let elems: &[RawElement] = &cov_elems;
+    // `entries` of `e`'s `base` field, each suffixed ` (via <type>)` when contributed.
+    let labelled = |e: &RawElement, base: syscribe_model::link_types::BaseLink, entries: &[String]| -> Vec<String> {
+        entries
+            .iter()
+            .enumerate()
+            .map(|(i, t)| match link_prov.via(&e.qualified_name, base, i) {
+                Some(n) => format!("{t} (via {n})"),
+                None => t.clone(),
+            })
+            .collect()
+    };
 
     let error_count = result.errors().count();
     let warning_count = result.warnings().count();
@@ -1811,7 +2544,7 @@ fn main() {
         .count();
 
     // ── Header ────────────────────────────────────────────────────────────────
-    println!("# UAV Model Validation Report");
+    println!("# {}", report_title(elems));
     println!();
 
     // ── Section 1: Executive Summary ─────────────────────────────────────────
@@ -2116,7 +2849,7 @@ fn main() {
             .frontmatter
             .verifies
             .as_ref()
-            .map(|v| v.join(", "))
+            .map(|v| labelled(e, syscribe_model::link_types::BaseLink::Verifies, v).join(", "))
             .unwrap_or_else(|| "—".to_string());
         println!("| {} | {} | {} | {} | {} |", id, level, scenarios, status, verifies);
     }
@@ -2187,14 +2920,11 @@ fn main() {
             // resolution, not a display gate. Filtering on it here silently hid
             // qname-form targets even though they resolve correctly and correctly
             // suppress W300 elsewhere.
-            let satisfies_targets: Vec<&str> = e
-                .frontmatter
-                .satisfies
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|s| s.as_str())
-                .collect();
+            let satisfies_targets: Vec<String> = labelled(
+                e,
+                syscribe_model::link_types::BaseLink::Satisfies,
+                e.frontmatter.satisfies.as_ref().unwrap(),
+            );
             let sat_str = if satisfies_targets.is_empty() {
                 "—".to_string()
             } else {
@@ -2359,6 +3089,7 @@ leaf hardware parts (Motor, Rotor, IMU, etc.) that are not directly allocated a 
             !parent_ids.contains(id) // leaf only
                 && e.frontmatter.sil_level.is_none()
                 && e.frontmatter.asil_level.is_none()
+                && !e.frontmatter.integrity_pending()
         })
         .filter_map(|e| e.frontmatter.id.as_deref())
         .collect();
@@ -2401,7 +3132,7 @@ leaf hardware parts (Motor, Rotor, IMU, etc.) that are not directly allocated a 
 
     // For each top-level package, count elements by type
     let mut pkg_map: BTreeMap<String, HashMap<String, usize>> = BTreeMap::new();
-    for e in &elems {
+    for e in elems {
         let pkg = top_level_package(&e.file_path, &model_root_str);
         let type_str = e
             .frontmatter
@@ -2451,5 +3182,28 @@ mod cli_router_tests {
                 "command '{name}' has a man page but is not registered in build_cli()"
             );
         }
+    }
+
+    /// GH #174 — the report is titled from the model root package's `name:`,
+    /// with a neutral fallback, never a fixed example name.
+    #[test]
+    fn report_title_comes_from_the_root_package_name() {
+        let elem = |qname: &str, yaml: &str| RawElement {
+            qualified_name: qname.to_string(),
+            file_path: format!("{qname}/_index.md"),
+            frontmatter: serde_yaml::from_str(yaml).unwrap(),
+            doc: String::new(),
+            parse_issue: None,
+            derived: Default::default(),
+            derive_findings: vec![],
+            locale_docs: Default::default(),
+            about_notes: Default::default(),
+        };
+        let named = [elem("", "type: Package\nname: EngineECU\n"), elem("Sub", "type: Package\nname: Other\n")];
+        assert_eq!(report_title(&named), "EngineECU Validation Report");
+        let unnamed_root = [elem("", "type: Package\nname: \"  \"\n")];
+        assert_eq!(report_title(&unnamed_root), "Model Validation Report");
+        let no_root = [elem("Sub", "type: Package\nname: Other\n")];
+        assert_eq!(report_title(&no_root), "Model Validation Report");
     }
 }

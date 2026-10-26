@@ -17,7 +17,7 @@ syscribe supports five test levels that map to standard V-model practice:
 
 ### 4.2 Authoring a TestCase
 
-```yaml
+````markdown
 ---
 type: TestCase
 id: TC-SCHED-001
@@ -29,9 +29,9 @@ verifies:
 sourceFile: tests/host/src/scheduler_tests.rs
 testFunctions:
   - function: test_priority_ordering
-    scenario: "Two threads at different priorities; lower-priority never runs first"
+    scenario: "Higher priority thread runs first"
   - function: test_preemption_on_unblock
-    scenario: "Higher-priority thread unblocked mid-execution preempts the running thread"
+    scenario: "Preemption on unblock"
 tags: [safety, scheduler]
 ---
 
@@ -48,7 +48,7 @@ Feature: Scheduler priority ordering
     When thread B (priority 10) is unblocked
     Then a context switch to B occurs immediately
 ```
-```
+````
 
 The body **must** contain a `gherkin` fenced block (E011 if absent). This is the machine-
 readable test specification that can be compared against actual test code.
@@ -103,7 +103,7 @@ securityTestMethod: penetration_test   # or: fuzz · security_regression ·
 W809 fires if the method is set to an unrecognised value.
 
 Use a `TestPlan` with `scope: security` and `demonstrates:` pointing to your CSGs as the
-formal security verification evidence package (see §7.6 below).
+formal security verification evidence package (see §7.8 of the ISO/SAE 21434 guide, `iso-21434.md`).
 
 ### 4.5 Coverage and gap analysis
 
@@ -144,5 +144,84 @@ syscribe -m model ingest-results --format cargo-json test-output.json
 ```
 
 This turns the matrix from a static traceability view into a live verification dashboard.
+
+### 4.7 Manual/exploratory verification (`session-log`)
+
+Not every scenario fits a `#[test]` function — verifying something that requires a live
+end-to-end session (server restarts, requests issued as different roles, a throwaway probe
+client, reading back stored rows) produces evidence `cargo test`/CI can't run standalone. Record
+it as a `session-log` instead of a hand-typed "Verified live: ..." sentence nothing can check:
+
+```json
+[
+  {
+    "testCase": "TC-WEB-011",
+    "scenario": "An empty/unset allowlist denies everything",
+    "steps": [
+      {"cmd": "curl -X POST .../admin/devices/x/commands -d command=restart_hmi", "expect_status": 400}
+    ],
+    "result": "pass",
+    "timestamp": "2026-09-12T08:02:29Z"
+  }
+]
+```
+
+```bash
+syscribe -m model ingest-results --format session-log session.json   # always explicit --format
+```
+
+### System and integration tests (`--format records`)
+
+Results from a rig, a hardware-in-the-loop run or an integration suite are rarely JUnit. Write them as
+normalised records, with the facts an audit asks for: which build, which rig, what was measured, where
+the raw log is.
+
+```json
+[{"testCase": "TC-SYS-012", "scenario": "Brake request reaches the actuator in time", "verdict": "pass",
+  "measurements": [{"name": "latency", "value": "4.2 ms", "limit": {"op": "<", "value": "5 ms"}}],
+  "provenance": {"build": {"commit": "abc1234"}, "environment": "TE-HIL-01",
+                 "startedAt": "2026-10-01T08:00:00Z", "finishedAt": "2026-10-01T08:00:05Z"}}]
+```
+
+```bash
+syscribe -m model ingest-results --format records rig-run.json
+syscribe -m model ingest-results --format records --replace rig-run.json   # drop records not in this file
+```
+
+**Cucumber.** Tag each scenario with the TestCase it evidences (`@TC-SYS-012`, or `@extref:RIG:SYS-012`), or tag the
+feature to cover all its scenarios, and write the report with the `json` formatter (`cucumber-js --format
+json:report.json`, `--format json` in Ruby and JVM). `--format cucumber` is optional, since the report is
+recognised by its shape. A scenario titled like a `Scenario:` of the TestCase is recorded against it, the rows of
+a Scenario Outline are `<title> [row N]` with the outline's title carrying the worst, a failed or ambiguous step
+or failing hook fails it, and pending, undefined or skipped steps leave it `not-run`. If your runner retries,
+JVM and Ruby write every attempt and a pass after a failure is recorded as `flaky`; Cucumber.js writes only the
+last attempt. Worked example, with reports from all three: `examples/results-cucumber/`.
+
+**Robot Framework.** Tag each Robot test with the TestCase it evidences (`[Tags]    TC-SYS-012`, or
+`extref:RIG:SYS-012` for the TestCase's `extRef`) and ingest the `output.xml`; `--format robot` is optional
+because the file is recognised by its `<robot>` root. A test named exactly like a `Scenario:` title is recorded
+against that scenario, any other test as the TestCase's own verdict, and several tests for one TestCase count
+as one (the worst decides). Tags that are not TestCases (`REQ-…`, `smoke`) are ignored, and a test with no
+matching tag is reported as unmatched. Give the rig and build on the command line
+(`--environment TE-HIL-01 --build-commit abc1234`); Robot's times carry no zone, so state it with `--utc-offset`.
+A worked example is in `examples/results-robot/`.
+
+Name the test by its TestCase id, or by the identifier your tool already uses: put it in the TestCase's
+`extRef:` (for example `extRef: "RIG:SYS-012"`) and use that value as `testCase`. A record that names no
+TestCase is reported and counts for nothing; `--strict` rejects the file. When the TestCase, or a requirement
+it verifies, is edited after the result was recorded, `validate` warns `W091` and `trace` shows `[stale]`:
+re-run the test and ingest again.
+
+Use `blocked` when the rig was unavailable and `not-run` when a test was not executed; neither is a pass.
+Use `waived` only with a `rationale`: it shows as `[waived]` and is never counted as passing. Results from
+another rig are kept beside this one unless you pass `--replace`. A worked example is in
+`examples/results-records/`.
+
+`scenario` must match a `Scenario:`/`Scenario Outline:` title in that `TestCase`'s body exactly.
+A malformed record (empty `steps`, an unrecognized `result`) is a hard error — nothing is
+written, unlike `cargo-json`/`junit`'s tolerant line-skipping. Once ingested, a `TestCase` with
+**no** `testFunctions:` (the norm for a manually-verified one) gets the same `[pass]`/`[fail]`
+annotation in `trace`/`matrix`/`safety-case`/`testplan` an automated one gets — `Pass` only once
+every scenario in its body has a recorded pass, `Fail` if any recorded a fail.
 
 ---

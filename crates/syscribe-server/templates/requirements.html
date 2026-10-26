@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="req-explorer" class="req-explorer" data-focus="{{ focus }}" data-depth="{{ depth }}" data-config="{{ config }}">
+  <form id="req-controls" class="req-controls" autocomplete="off">
+    <label>Root <input id="req-root" type="text" size="26" placeholder="REQ-… or qualified name" value="{{ focus }}"></label>
+    <label>Depth
+      <select id="req-depth">
+        <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+      </select>
+    </label>
+    <label>Configuration <input id="req-config" type="text" size="14" placeholder="CONF-… (optional)" value="{{ config }}"></label>
+    <button type="submit">Show</button>
+    <span id="req-status" class="req-status" role="status"></span>
+    <label>Search <input id="req-search" type="search" size="22" placeholder="id or name" aria-controls="req-search-results"></label>
+    <ul id="req-search-results" class="req-search-results" aria-live="polite"></ul>
+    <span class="req-actions">
+      <button type="button" id="req-view-table" aria-pressed="false" aria-controls="req-table">Table view</button>
+      <button type="button" id="req-view-matrix" aria-pressed="false" aria-controls="req-matrix">Matrix view</button>
+      <label>Columns <select id="req-matrix-cols" hidden><option>tests</option><option>architecture</option><option>features</option><option>safety</option><option>security</option></select></label>
+      <button type="button" id="req-export-json">Export JSON</button>
+      <button type="button" id="req-export-csv">Export CSV</button>
+      <button type="button" id="req-export-svg">Export SVG</button>
+    </span>
+    <label>Layout <select id="req-layout"><option value="hops">by hop</option><option value="v-model">v-model</option></select></label>
+    <label>Trace to
+      <select id="req-trace"><option value="">(off)</option><option>tests</option><option>architecture</option><option>features</option><option>safety</option><option>security</option></select>
+    </label>
+    <fieldset id="req-filters" class="req-kinds"><legend>Show only (tick to restrict)</legend>
+      <span id="req-filter-types"></span> <span id="req-filter-verification"></span> <span id="req-filter-asil"></span>
+    </fieldset>
+    <fieldset id="req-kinds" class="req-kinds"><legend>Relations</legend></fieldset>
+  </form>
+  <div id="req-overview" class="req-overview" aria-live="polite"></div>
+  <div class="req-body">
+    <div class="req-canvas"><svg id="req-graph" role="group" aria-label="Traceability graph: each element is a button that opens its card" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="req-legend">
+        <span class="lg lg-verified">verified</span><span class="lg lg-planned">planned</span>
+        <span class="lg lg-unverified">unverified</span><span class="lg lg-na">other element</span>
+      </div>
+    </div>
+    <div id="req-table" class="req-table" hidden></div>
+    <div id="req-matrix" class="req-table" hidden></div>
+    <aside id="req-detail" class="req-detail"><p class="req-hint">Select a node to see its element card.</p></aside>
+  </div>
+</div>
+<script src="/static/js/requirements-explorer.js" defer></script>
+{% endblock %}

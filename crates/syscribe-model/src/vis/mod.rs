@@ -1,0 +1,358 @@
+//! Visualisation (`ADR-SYS-VIS-001`, `REQ-TRS-VIS-*`; design in
+//! `docs/design/visualisation.md`).
+//!
+//! One Diagram IR ([`ir::DiagramGraph`]) is built per `Diagram` element,
+//! either from the author's `shapes:`/`edges:`/`layout:` manifest
+//! ([`manifest`]) or — when the element declares a `subject:` and no
+//! `shapes:` — derived from the model by the generator for its kind. Every
+//! renderer and exporter is a pure function of that value. Node sizes come
+//! from the shared text metrics ([`metrics`], [`size`]) and automatic layout
+//! from the embedded ELK ([`layout`]) — the same engine and sizes the
+//! browser client uses (`REQ-TRS-VIS-016`/`-017`).
+//!
+//! Source selection needs no mode field (`REQ-TRS-VIS-003`): the presence of
+//! `shapes:` picks the manifest; a `subject:` alone picks derivation.
+
+pub mod derive;
+pub mod dot;
+pub mod variant;
+pub mod ir;
+pub mod layout;
+pub mod manifest;
+pub mod mermaid;
+pub mod metrics;
+mod metrics_table;
+pub mod shape;
+pub mod size;
+pub mod sprotty;
+pub mod flow;
+pub mod stereo;
+pub mod style;
+pub mod svg;
+
+use crate::element::{ElementType, RawElement, RawFrontmatter};
+use crate::resolver::Resolver;
+
+pub use ir::{DiagramGraph, DiagramKind, Edge, EdgeKind, LayoutDirection, LayoutHints, Node, NodeKind, NodeMark, Point, PortDirection, Rect, Side, Tone};
+pub use layout::{layout, Layout, LayoutError};
+pub use manifest::Issue;
+pub use dot::render_dot;
+pub use mermaid::render_mermaid;
+pub use metrics::TextMetrics;
+pub use size::{size_graph, Sizes};
+pub use style::{ArrowHead, EdgeStyle, NodeStyle, PortStyle};
+pub use svg::{render_svg, SvgError};
+
+/// The applied-stereotype banners of an element (`REQ-TRS-VIS-012`): one
+/// entry per `metadata:` application, naming the applied `MetadataDef` — its
+/// `name` when the reference resolves, else the last segment of the reference
+/// as written (standard-library metadata such as `ModelingMetadata::Rationale`
+/// has no in-model file). Declaration order; never deduplicated.
+pub fn banners_of(elem: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Vec<String> {
+    crate::element::metadata_applications(&elem.frontmatter.metadata)
+        .into_iter()
+        .map(|app| {
+            resolver
+                .resolve_ref(elements, &app.def)
+                .filter(|d| matches!(d.frontmatter.element_type, Some(ElementType::MetadataDef)))
+                .and_then(|d| d.frontmatter.name.clone())
+                .unwrap_or_else(|| app.def.rsplit("::").next().unwrap_or(&app.def).to_string())
+        })
+        .collect()
+}
+
+/// The fallback `diagramKind` used when a `Diagram` element doesn't declare
+/// one — the single source of truth for the literal `"SVG"` the server's UI
+/// routes report for an un-kinded diagram.
+pub const DEFAULT_DIAGRAM_KIND: &str = "SVG";
+
+/// Where a `Diagram` element's content comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// The author listed the content in `shapes:` (and `edges:`/`layout:`).
+    Manifest,
+    /// Only a `subject:` is declared: the generator for the diagram's kind
+    /// walks it.
+    Derived,
+    /// Neither `shapes:` nor `subject:`: nothing to draw (`W400`/`W401`
+    /// already cover the missing pieces).
+    Empty,
+}
+
+/// The source of a `Diagram` element's content (`REQ-TRS-VIS-003`).
+pub fn source_of(fm: &RawFrontmatter) -> Source {
+    let has_shapes = matches!(fm.shapes.as_ref(), Some(v) if !v.is_null());
+    if has_shapes {
+        Source::Manifest
+    } else if fm.subject.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+        Source::Derived
+    } else {
+        Source::Empty
+    }
+}
+
+/// Whether the element is a `Diagram` whose kind has an IR (everything but
+/// the hand-authored `Mermaid`/`PlantUML` kinds).
+pub fn has_ir(elem: &RawElement) -> bool {
+    matches!(elem.frontmatter.element_type, Some(ElementType::Diagram))
+        && DiagramKind::parse(elem.frontmatter.diagram_kind.as_deref()).is_some()
+}
+
+/// Build the IR of a `Diagram` element, with the issues found on the way:
+/// `E405`/`W416` from the manifest parser, `W417`/`W418` from the generators.
+/// `None` when the element is not a `Diagram` or its kind has no IR
+/// (`Mermaid`, `PlantUML`).
+pub fn build_graph(elem: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Option<(DiagramGraph, Vec<Issue>)> {
+    build_graph_with(elem, elements, resolver, &Default::default())
+}
+
+/// [`build_graph`] under the project's `[cyber]` configuration, which the
+/// `ThreatGraph` kind reads for its risk tones (GH #223).
+/// Drop every `appliesWhen:` (element and inline feature) from a model already projected onto one
+/// Configuration: everything left is present in that product, so its diagrams badge nothing `optional`
+/// (GH #336). Only for drawing a projected view; validation keeps the conditions.
+pub fn settle_variant(elements: &mut [RawElement]) {
+    for e in elements.iter_mut() {
+        e.frontmatter.applies_when = None;
+        for f in e.frontmatter.features.iter_mut().flatten() {
+            if let Some(m) = f.as_mapping_mut() {
+                m.remove("appliesWhen");
+            }
+        }
+    }
+}
+
+pub fn build_graph_with(
+    elem: &RawElement,
+    elements: &[RawElement],
+    resolver: &Resolver,
+    cyber: &crate::cyber_config::CyberConfig,
+) -> Option<(DiagramGraph, Vec<Issue>)> {
+    if !matches!(elem.frontmatter.element_type, Some(ElementType::Diagram)) {
+        return None;
+    }
+    let kind = DiagramKind::parse(elem.frontmatter.diagram_kind.as_deref())?;
+    match source_of(&elem.frontmatter) {
+        Source::Manifest => {
+            let (mut graph, mut issues) = manifest::build(elem, kind, elements, resolver);
+            // A hand-listed sequence diagram carries no geometry; place it as a
+            // derived one is, so it is never piled at the origin (REQ-TRS-VIS-025).
+            if kind == DiagramKind::Sequence {
+                derive::sequence::place_manifest(&mut graph);
+            }
+            let filters = derive::Filters::of(elem);
+            if filters.group_by.is_some() {
+                issues.push(derive::w420("`groupBy` applies only to a derived IBD (one with a `subject` and no `shapes`) — ignored".to_string()));
+            }
+            if filters.view.is_some() {
+                issues.push(derive::w421("the mapping form of `include` applies only to a derived IBD (one with a `subject` and no `shapes`) — ignored".to_string()));
+            } else if !filters.is_empty() {
+                issues.push(derive::w417(
+                    "`include`/`exclude` apply only to a derived diagram (one with a `subject` and no `shapes`) — ignored".to_string(),
+                ));
+            }
+            Some((graph, issues))
+        }
+        Source::Derived => Some(derive::derive_with(elem, kind, elements, resolver, cyber)),
+        Source::Empty => {
+            let name = elem
+                .frontmatter
+                .name
+                .clone()
+                .unwrap_or_else(|| elem.qualified_name.rsplit("::").next().unwrap_or(&elem.qualified_name).to_string());
+            Some((
+                DiagramGraph::empty(kind, &elem.qualified_name, &name, elem.frontmatter.subject.as_deref()),
+                Vec::new(),
+            ))
+        }
+    }
+}
+
+/// [`build_graph`] under the project's `.syscribe.toml` at `model_root`: its `[cyber]` table (risk tones) and its
+/// `[diagram]` table (flow-kind styles and port sides, GH #335).
+pub fn build_graph_in(elem: &RawElement, elements: &[RawElement], resolver: &Resolver, model_root: &std::path::Path) -> Option<(DiagramGraph, Vec<Issue>)> {
+    let (mut graph, issues) = build_graph_with(elem, elements, resolver, &crate::cyber_config::CyberConfig::load(model_root))?;
+    let cfg = flow::DiagramConfig::load(model_root);
+    flow::apply(&mut graph, &cfg);
+    stereo::apply(&mut graph, elements, resolver, &cfg);
+    Some((graph, issues))
+}
+
+/// The safety diagrams (GH #223) a model element can be viewed as without a
+/// `Diagram` element behind it, the first being the element's primary view: a
+/// `FaultTree` its fault tree, an `AttackTree` its attack tree, a `SafetyGoal`
+/// its GSN argument (and its fault tree when a `FaultTree` names it as
+/// `topEvent`), an `Argument` the argument it belongs to, a `ThreatScenario`
+/// the attack tree that substantiates it. Empty for every other element. The
+/// web detail panel embeds these in place of "no diagram".
+pub fn safety_kinds_of(elem: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Vec<DiagramKind> {
+    use crate::element::ElementType as T;
+    let names = |ty: T, field: fn(&RawElement) -> Option<&str>| {
+        elements.iter().filter(|t| t.frontmatter.element_type.as_ref() == Some(&ty)).any(|t| {
+            field(t).and_then(|r| resolver.resolve_ref(elements, r)).is_some_and(|g| g.qualified_name == elem.qualified_name)
+        })
+    };
+    match elem.frontmatter.element_type {
+        Some(T::FaultTree) => vec![DiagramKind::FaultTree],
+        Some(T::AttackTree) => vec![DiagramKind::AttackTree],
+        Some(T::SafetyGoal) => {
+            let mut kinds = vec![DiagramKind::SafetyCase];
+            if names(T::FaultTree, |t| t.frontmatter.top_event.as_deref()) {
+                kinds.push(DiagramKind::FaultTree);
+            }
+            kinds
+        }
+        Some(T::Argument) => vec![DiagramKind::SafetyCase],
+        Some(T::ThreatScenario) if names(T::AttackTree, |t| t.frontmatter.threat_ref.as_deref()) => vec![DiagramKind::AttackTree],
+        _ => Vec::new(),
+    }
+}
+
+/// The derived diagram of `kind` with `subject` as its subject — what a
+/// `Diagram` element declaring that kind and subject would build, without the
+/// element ([`safety_kinds_of`] lists the kinds a subject supports). `W417`
+/// cannot arise (no filters); `W418` says the subject does not fit the kind.
+pub fn build_subject_graph(subject: &RawElement, kind: DiagramKind, elements: &[RawElement], resolver: &Resolver) -> (DiagramGraph, Vec<Issue>) {
+    build_subject_graph_with(subject, kind, elements, resolver, &Default::default())
+}
+
+/// [`build_subject_graph`] under the project's `[cyber]` configuration.
+pub fn build_subject_graph_with(
+    subject: &RawElement,
+    kind: DiagramKind,
+    elements: &[RawElement],
+    resolver: &Resolver,
+    cyber: &crate::cyber_config::CyberConfig,
+) -> (DiagramGraph, Vec<Issue>) {
+    let name = subject
+        .frontmatter
+        .name
+        .clone()
+        .unwrap_or_else(|| subject.qualified_name.rsplit("::").next().unwrap_or(&subject.qualified_name).to_string());
+    let mut graph = DiagramGraph::empty(kind, &subject.qualified_name, &name, Some(&subject.qualified_name));
+    graph.derived = true;
+    let mut issues = Vec::new();
+    let filters = derive::Filters { cyber: cyber.clone(), ..Default::default() };
+    derive::generate_into(&mut graph, subject, kind, elements, resolver, &filters, &mut issues);
+    (graph, issues)
+}
+
+/// [`build_subject_graph`] under the project's `.syscribe.toml` at `model_root` (see [`build_graph_in`]).
+pub fn build_subject_graph_in(subject: &RawElement, kind: DiagramKind, elements: &[RawElement], resolver: &Resolver, model_root: &std::path::Path) -> (DiagramGraph, Vec<Issue>) {
+    let (mut graph, issues) = build_subject_graph_with(subject, kind, elements, resolver, &crate::cyber_config::CyberConfig::load(model_root));
+    let cfg = flow::DiagramConfig::load(model_root);
+    flow::apply(&mut graph, &cfg);
+    stereo::apply(&mut graph, elements, resolver, &cfg);
+    (graph, issues)
+}
+
+/// The analysis graph of `kind` (`Traceability`, `ZoneConduit`, `ThreatGraph`)
+/// over the whole model, without a `Diagram` element behind it: what the
+/// `zones`, `cyber-risk` and `hara trace` reports draw with `--format`.
+/// `verdict_of` gives the test verdicts of a traceability graph (a results
+/// sidecar's, or `unknown`); any other kind is empty.
+pub fn build_model_graph(
+    kind: DiagramKind,
+    elements: &[RawElement],
+    resolver: &Resolver,
+    cyber: &crate::cyber_config::CyberConfig,
+    verdict_of: &dyn Fn(&RawElement) -> crate::safety_case::Verdict,
+) -> (DiagramGraph, Vec<Issue>) {
+    let subject = derive::analysis::model_root_subject();
+    let mut graph = DiagramGraph::empty(kind, "", "Model", None);
+    graph.derived = true;
+    let mut issues = Vec::new();
+    let filters = derive::Filters { cyber: cyber.clone(), ..Default::default() };
+    match kind {
+        DiagramKind::Traceability => derive::traceability::generate_with(&mut graph, &subject, elements, resolver, &filters, &mut issues, verdict_of),
+        DiagramKind::ZoneConduit | DiagramKind::ThreatGraph => derive::generate_into(&mut graph, &subject, kind, elements, resolver, &filters, &mut issues),
+        _ => {}
+    }
+    (graph, issues)
+}
+
+/// Every diagram the web detail panel can embed for an element without a
+/// `Diagram` element behind it: [`safety_kinds_of`] (fault tree, attack tree,
+/// GSN argument) followed by the analysis graphs (GH #223) — `Traceability` for
+/// a hazardous event, a safety goal, or a requirement that traces to a goal;
+/// `ZoneConduit` for a zone or conduit; `ThreatGraph` for a threat scenario,
+/// damage scenario, asset, cybersecurity goal or security control.
+pub fn embedded_kinds_of(elem: &RawElement, elements: &[RawElement], resolver: &Resolver) -> Vec<DiagramKind> {
+    use crate::element::ElementType as T;
+    let mut kinds = safety_kinds_of(elem, elements, resolver);
+    let extra = match elem.frontmatter.element_type {
+        Some(T::HazardousEvent | T::SafetyGoal) => Some(DiagramKind::Traceability),
+        Some(T::Requirement) if derive::traceability::traces_to_goal(elem, elements, resolver) => Some(DiagramKind::Traceability),
+        Some(T::Zone | T::Conduit) => Some(DiagramKind::ZoneConduit),
+        Some(T::ThreatScenario | T::DamageScenario | T::Asset | T::CybersecurityGoal | T::SecurityControl) => Some(DiagramKind::ThreatGraph),
+        _ => None,
+    };
+    kinds.extend(extra);
+    kinds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(qname: &str, fm: RawFrontmatter) -> RawElement {
+        RawElement {
+            qualified_name: qname.to_string(),
+            file_path: format!("{}.md", qname.replace("::", "/")),
+            frontmatter: fm,
+            doc: String::new(),
+            parse_issue: None,
+            derived: Default::default(),
+            derive_findings: Vec::new(),
+            locale_docs: Default::default(),
+            about_notes: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn source_is_selected_by_frontmatter_presence() {
+        let mut fm = RawFrontmatter::default();
+        assert_eq!(source_of(&fm), Source::Empty);
+        fm.subject = Some("Sys".into());
+        assert_eq!(source_of(&fm), Source::Derived);
+        fm.shapes = Some(serde_yaml::from_str("a: Sys::A").unwrap());
+        assert_eq!(source_of(&fm), Source::Manifest);
+        fm.shapes = Some(serde_yaml::Value::Null);
+        assert_eq!(source_of(&fm), Source::Derived, "an empty `shapes:` key does not select the manifest");
+    }
+
+    #[test]
+    fn hand_authored_kinds_and_non_diagrams_have_no_ir() {
+        let mut e = raw("D", RawFrontmatter { element_type: Some(ElementType::Diagram), ..Default::default() });
+        assert!(has_ir(&e));
+        e.frontmatter.diagram_kind = Some("Mermaid".into());
+        assert!(!has_ir(&e));
+        e.frontmatter.diagram_kind = Some("IBD".into());
+        e.frontmatter.element_type = Some(ElementType::PartDef);
+        assert!(!has_ir(&e));
+        let elements = vec![e.clone()];
+        let resolver = Resolver::new(&elements);
+        assert!(build_graph(&e, &elements, &resolver).is_none());
+    }
+
+    #[test]
+    fn derived_source_yields_an_empty_graph_with_subject() {
+        let e = raw(
+            "Diagrams::D",
+            RawFrontmatter {
+                element_type: Some(ElementType::Diagram),
+                diagram_kind: Some("IBD".into()),
+                subject: Some("Sys::Engine".into()),
+                ..Default::default()
+            },
+        );
+        let elements = vec![e.clone()];
+        let resolver = Resolver::new(&elements);
+        let (g, issues) = build_graph(&e, &elements, &resolver).unwrap();
+        assert!(issues.is_empty());
+        assert_eq!(g.kind, DiagramKind::Ibd);
+        assert_eq!(g.subject.as_deref(), Some("Sys::Engine"));
+        assert_eq!(g.name, "D");
+        assert!(g.nodes.is_empty());
+    }
+}

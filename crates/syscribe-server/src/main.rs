@@ -13,8 +13,9 @@ struct Cli {
     #[arg(short = 'm', long, env = "SYSCRIBE_MODEL", default_value = "model")]
     model: PathBuf,
 
-    /// Address to listen on
-    #[arg(long, default_value = "0.0.0.0:3000")]
+    /// Address to listen on. The server has write routes and no authentication, so it listens
+    /// on the loopback interface only; pass e.g. `0.0.0.0:3000` to expose it deliberately.
+    #[arg(long, default_value = "127.0.0.1:3000")]
     bind: String,
 }
 
@@ -33,6 +34,7 @@ async fn main() -> Result<()> {
     let model_root = cli.model;
 
     info!("Loading model from {:?}", model_root);
+    syscribe_model::vis::derive::context::set_model_root(&model_root);
     let elements = walk_model(&model_root)?;
     info!("Loaded {} elements", elements.len());
 
@@ -79,6 +81,12 @@ fn spawn_watcher(model_root: PathBuf, state: SharedState, reload_tx: ReloadTx) {
                 // (`ModelStore::reload`) — the same method the guarded-write
                 // mutation routes call after a successful commit.
                 let rt = tokio::runtime::Handle::current();
+                // A change the store already knows (its own guarded write reloaded after committing) is not
+                // reloaded or broadcast again.
+                let now = syscribe_server::state::fingerprint(&model_root);
+                if rt.block_on(async { state.read().await.fingerprint == now }) {
+                    continue;
+                }
                 let result = rt.block_on(async {
                     let mut store = state.write().await;
                     store.reload()

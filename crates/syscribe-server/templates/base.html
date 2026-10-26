@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SysML Model Browser</title>
   <script src="/static/js/htmx.min.js"></script>
+  <script src="/static/js/tree-toggle.js"></script>
   <script src="/static/js/mermaid.min.js" defer></script>
   <!-- Sprotty-based editable diagram client (ADR-SYS-DE-001, REQ-TRS-DE-004).
        One static bundle built by crates/syscribe-server/frontend (esbuild),
@@ -23,6 +24,7 @@
        not deferred and therefore runs during parsing, before any deferred
        script executes. -->
   <script src="/static/js/live-reload.js" defer></script>
+  <script src="/static/js/planning-core.js" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       if (window.mermaid) {
@@ -36,6 +38,7 @@
   <header>
     <span>SysML Model Browser</span>
     <span class="subtitle">Syscribe · Axum + HTMX</span>
+    <nav class="top-nav"><a href="/">Model</a><a href="/features">Features</a><a href="/planning">Planning</a><a href="/heat">Heat</a><a href="/requirements">Requirements</a></nav>
   </header>
   <div class="workspace">
     {% block content %}{% endblock %}
@@ -95,7 +98,9 @@
 
       if (isSprottyKind(tab.kind)) {
         document.getElementById('mermaid-view').style.display = 'none';
-        document.getElementById('sprotty-viewport').style.display = '';
+        // 'block', not '': `#sprotty-viewport` is `display: none` in app.css, so clearing the
+        // inline style would leave it hidden (the diagram tab would open to a blank canvas).
+        document.getElementById('sprotty-viewport').style.display = 'block';
         if (window.DiagramEditor) {
           try {
             await window.DiagramEditor.activate(id);
@@ -185,20 +190,49 @@
         bar.style.display = 'none';
         return;
       }
-      bar.style.display = '';
+      // 'block', not '': `#canvas-tabs` is `display: none` in app.css ("shown when tabs
+      // exist"), so clearing the inline style would keep the tab bar hidden.
+      bar.style.display = 'block';
       inner.innerHTML = [...tabState.entries()].map(([id, { name }]) => {
         const isActive = id === activeTabId;
-        return `<div class="canvas-tab${isActive ? ' active' : ''}" onclick="activateTab(${JSON.stringify(id)})">
+        return `<div class="canvas-tab${isActive ? ' active' : ''}" data-tab="${escHtml(id)}">
           <span class="tab-icon">&#x25C8;</span>
           <span class="tab-name">${escHtml(name)}</span>
-          <button class="tab-close" title="Close" onclick="closeTab(${JSON.stringify(id)}, event)">&#x2715;</button>
+          <button class="tab-close" title="Close" data-close="${escHtml(id)}">&#x2715;</button>
         </div>`;
       }).join('');
     }
 
+    // One delegated listener: tab ids are directory names, so they travel in data- attributes
+    // (escaped) and never inside an inline handler's source text.
+    document.addEventListener('DOMContentLoaded', () => {
+      const inner = document.getElementById('canvas-tabs-inner');
+      if (!inner) return;
+      inner.addEventListener('click', ev => {
+        const close = ev.target.closest('[data-close]');
+        if (close) {
+          closeTab(close.getAttribute('data-close'), ev);
+          return;
+        }
+        const tab = ev.target.closest('[data-tab]');
+        if (tab) activateTab(tab.getAttribute('data-tab'));
+      });
+    });
+
     function escHtml(s) {
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
+
+    // A node of an embedded safety diagram (fault tree, attack tree, GSN; GH #223)
+    // is a link to its element: open that element in the detail panel instead of
+    // leaving the page.
+    document.addEventListener('click', ev => {
+      const a = ev.target.closest && ev.target.closest('.safety-diagram a');
+      if (!a) return;
+      ev.preventDefault();
+      const href = a.getAttribute('href') || a.getAttribute('xlink:href');
+      if (href && window.htmx) htmx.ajax('GET', href, { target: '#modal-content', swap: 'innerHTML' });
+    });
 
     // Open modal whenever #modal-content receives new content via HTMX
     document.body.addEventListener('htmx:afterSwap', e => {
@@ -260,7 +294,12 @@
       const qname  = editEl.dataset.qname;
       const name   = document.getElementById('edit-name').value.trim();
       const doc    = document.getElementById('edit-doc').value;
-      const extraYaml = document.getElementById('edit-extra').value;
+      const extraEl = document.getElementById('edit-extra');
+      const extraYaml = extraEl.value;
+      // Only send `name` when it was edited: an element with no `name:` is pre-filled with its qualified
+      // name for display, and saving that back would write `name: A::B`.
+      const nameEl = document.getElementById('edit-name');
+      const fields = name !== nameEl.defaultValue.trim() ? { name } : {};
       const btn    = editEl.querySelector('.btn-primary');
       showEditError('');
       btn.textContent = 'Saving…'; btn.disabled = true;
@@ -268,7 +307,7 @@
         const resp = await fetch('/api/elements/' + qname.replace(/::/g, '/'), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: { name }, extraYaml, doc, dryRun: false }),
+          body: JSON.stringify({ fields, extraYaml, extraYamlOriginal: extraEl.defaultValue, doc, dryRun: false }),
         });
         const result = await resp.json().catch(() => null);
         if (resp.ok && result && result.written) {

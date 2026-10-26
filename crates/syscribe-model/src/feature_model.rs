@@ -386,11 +386,35 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
         for r in requires.iter().chain(excludes.iter()) {
             if !fnames.contains(r.as_str()) {
                 f.push(err("E212", &fd.file_path,
-                    format!("requires/excludes entry '{}' does not resolve to a FeatureDef", r)));
+                    format!("requires/excludes entry '{}' on '{}' does not resolve to a FeatureDef ({}){}",
+                        r, fd.qualified_name, crate::variability::FORMS_TREE_REF,
+                        crate::variability::did_you_mean_feature(r, elements))));
             }
         }
         req.insert(fd.qualified_name.as_str(), requires);
         exc.insert(fd.qualified_name.as_str(), excludes);
+    }
+
+    let abstract_names: HashSet<&str> = fdefs.iter().filter(|e| e.frontmatter.is_abstract == Some(true)).map(|e| e.qualified_name.as_str()).collect();
+
+    // ── W240: too many features to derive abstract values (REQ-TRS-FMED-004) ──
+    if !abstract_names.is_empty() && fdefs.len() > MAX_DEEP_FEATURES {
+        if let Some(fd) = fdefs.iter().find(|e| abstract_names.contains(e.qualified_name.as_str())) {
+            f.push(warn("W240", &fd.file_path, format!(
+                "the model has {} features, over the limit of {} for deriving abstract features' values: an `appliesWhen:` on an abstract feature (here '{}') reads false in every configuration",
+                fdefs.len(), MAX_DEEP_FEATURES, fd.qualified_name)));
+        }
+    }
+
+    // ── W239: an abstract feature that groups nothing (REQ-TRS-FMED-004) ─────
+    if !abstract_names.is_empty() {
+        let tree = crate::feature_tree::feature_tree(elements);
+        for n in tree.iter().filter(|n| abstract_names.contains(n.qname.as_str()) && n.children.is_empty()) {
+            if let Some(fd) = fdefs.iter().find(|e| e.qualified_name == n.qname) {
+                f.push(warn("W239", &fd.file_path, format!(
+                    "abstract feature '{}' has no children: it groups nothing — drop `isAbstract:` or add the features it groups", n.qname)));
+            }
+        }
     }
 
     // ── E219/E220 (per Configuration) + selection counts for W011/W012 ───────
@@ -425,12 +449,21 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
             if fd.frontmatter.group_kind.as_deref() != Some("optional") {
                 continue;
             }
+            // An abstract feature is not a choice: its value is derived, so "never/always selected" says nothing.
+            if fd.frontmatter.is_abstract == Some(true) {
+                continue;
+            }
+            // `groupKind` groups the children; membership is `mandatory:` (REQ-TRS-FM-004).
+            // A mandatory group with optional children is meant to be in every product,
+            // so "always selected" is expected, not a hint to change it (REQ-TRS-FM-007).
+            let is_mandatory = fd.frontmatter.mandatory == Some(true);
             let q = fd.qualified_name.as_str();
             match sel_count.get(q).copied().unwrap_or(0) {
                 0 => f.push(warn("W011", &fd.file_path,
-                    format!("optional feature '{}' is selected in no Configuration (possible dead feature)", q))),
-                n if n == configs.len() => f.push(warn("W012", &fd.file_path,
-                    format!("optional feature '{}' is selected in every Configuration (consider groupKind: mandatory)", q))),
+                    format!("{} '{}' is selected in no Configuration (possible dead feature)",
+                        if is_mandatory { "feature" } else { "optional feature" }, q))),
+                n if n == configs.len() && !is_mandatory => f.push(warn("W012", &fd.file_path,
+                    format!("optional feature '{}' is selected in every Configuration (consider mandatory: true)", q))),
                 _ => {}
             }
         }
@@ -518,7 +551,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     }
     if !binds.is_empty() {
         for cfg in &configs {
-            let Some(serde_yaml::Value::Mapping(b)) = &cfg.frontmatter.parameter_bindings else {
+            let Some(serde_yaml::Value::Mapping(b)) = cfg.frontmatter.effective_parameter_bindings() else {
                 continue;
             };
             for bp in &binds {
@@ -644,7 +677,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
                     continue;
                 }
                 let resolve = |r: &str| -> Option<f64> {
-                    if let Some(serde_yaml::Value::Mapping(b)) = &cfg.frontmatter.parameter_bindings {
+                    if let Some(serde_yaml::Value::Mapping(b)) = cfg.frontmatter.effective_parameter_bindings() {
                         if let Some(v) = b.get(serde_yaml::Value::String(r.to_string())) {
                             if let Some(n) = num(v) {
                                 return Some(n);
@@ -697,7 +730,10 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
     for fd in &fdefs {
         let q = fd.qualified_name.as_str();
         let referenced = referenced_by_applies_when.contains(q);
-        let selected = sel_count.get(q).copied().unwrap_or(0) > 0;
+        // GH #228: a group parent is selected whenever one of its descendants is.
+        let prefix = format!("{q}::");
+        let selected = sel_count.get(q).copied().unwrap_or(0) > 0
+            || sel_count.iter().any(|(k, n)| *n > 0 && k.starts_with(&prefix));
         if !referenced && !selected {
             f.push(warn("W024", &fd.file_path, format!(
                 "orphan feature '{}' is referenced by no appliesWhen and selected true by no Configuration", q)));
@@ -716,7 +752,7 @@ pub fn check_feature_model(elements: &[RawElement]) -> Vec<Finding> {
 
 /// Conservative size guard (REQ-TRS-FMA-006): above this feature count the deep
 /// analysis is skipped with a diagnostic rather than risking blow-up.
-pub const MAX_DEEP_FEATURES: usize = 1000;
+pub const MAX_DEEP_FEATURES: usize = 5000;
 
 /// Structured result of the deep analysis.
 pub struct DeepReport {
@@ -772,9 +808,40 @@ struct Encoding {
     parent: HashMap<String, Option<String>>,
     optional: Vec<String>,
     cons: Vec<Constraint>,
+    /// Features marked `isAbstract: true`: grouping features with no realisation of their own.
+    /// They stay in the formula, but they do not distinguish products and a configuration need
+    /// not spell them out (`REQ-TRS-FMED-004`).
+    is_abstract: HashSet<String>,
 }
 
 impl Encoding {
+    /// The variables of the concrete (non-abstract) features, which are what distinguish products.
+    fn concrete_vars(&self) -> Vec<usize> {
+        self.names.iter().enumerate().filter(|(_, n)| !self.is_abstract.contains(*n)).map(|(i, _)| i).collect()
+    }
+
+    /// Whether `selection` (concrete features chosen on or off, absent meaning off) can be
+    /// completed by some choice of the abstract features. Returns `None` when it can, else the
+    /// constraints that clash. Requires/excludes obligations are left to `E219`/`E220`.
+    fn abstract_completion_clash(&self, selection: &std::collections::BTreeMap<String, bool>) -> Option<Vec<String>> {
+        let keep: Vec<usize> = (0..self.cons.len()).filter(|&i| !matches!(self.cons[i].kind, CKind::Requires | CKind::Excludes)).collect();
+        let assumptions: Vec<Lit> = self
+            .names
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| !self.is_abstract.contains(*n))
+            .map(|(i, n)| if selection.get(n).copied().unwrap_or(false) { Lit::pos(i) } else { Lit::neg(i) })
+            .collect();
+        if crate::solver::is_sat(&self.cnf_subset(&keep), &assumptions) {
+            return None;
+        }
+        // Which constraints: the core over the structural ones.
+        let mut core: Vec<String> = self.unsat_core(&assumptions).into_iter().filter(|&c| keep.contains(&c)).map(|c| self.cons[c].label.clone()).collect();
+        core.sort();
+        core.dedup();
+        Some(core)
+    }
+
     fn cnf(&self) -> Cnf {
         self.cnf_subset(&(0..self.cons.len()).collect::<Vec<_>>())
     }
@@ -791,13 +858,44 @@ impl Encoding {
     /// remains unsatisfiable (under `assumptions`) but where dropping any member
     /// becomes satisfiable. Assumes the full set is already unsatisfiable.
     fn unsat_core(&self, assumptions: &[Lit]) -> Vec<usize> {
-        let mut keep: Vec<usize> = (0..self.cons.len()).collect();
-        for i in 0..self.cons.len() {
-            let trial: Vec<usize> = keep.iter().copied().filter(|&x| x != i).collect();
-            if !crate::solver::is_sat(&self.cnf_subset(&trial), assumptions) {
-                keep = trial;
+        // One persistent solver with a selector variable per constraint (a clause
+        // is only binding while its selector is assumed true). The solver's own
+        // failed-assumption set is a small starting core; deletion then drops
+        // every constraint that is not needed, each drop one incremental solve.
+        let n = self.names.len();
+        let mut cnf = Cnf::new(n + self.cons.len());
+        for (c, con) in self.cons.iter().enumerate() {
+            for cl in &con.clauses {
+                let mut cl = cl.clone();
+                cl.push(Lit::neg(n + c));
+                cnf.add(cl);
             }
         }
+        let mut solver = crate::solver::Solver::from_cnf(&cnf);
+        let with = |sel: &[usize]| -> Vec<Lit> {
+            let mut a: Vec<Lit> = sel.iter().map(|&c| Lit::pos(n + c)).collect();
+            a.extend_from_slice(assumptions);
+            a
+        };
+        let all: Vec<usize> = (0..self.cons.len()).collect();
+        let mut keep: Vec<usize> = match solver.solve_failed(&with(&all)) {
+            Ok(()) => return all, // not unsatisfiable: the contract was broken; every constraint is the honest answer
+            Err(failed) => failed.into_iter().filter(|v| *v >= n).map(|v| v - n).collect(),
+        };
+        if keep.is_empty() {
+            // Unsatisfiable on the user's assumptions alone (or the solver gave no core).
+            return if solver.is_sat(&with(&[])) { all } else { Vec::new() };
+        }
+        let mut i = 0;
+        while i < keep.len() {
+            let trial: Vec<usize> = keep.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, c)| *c).collect();
+            if !solver.is_sat(&with(&trial)) {
+                keep = trial;
+            } else {
+                i += 1;
+            }
+        }
+        keep.sort_unstable();
         keep
     }
     fn core_labels(&self, core: &[usize]) -> String {
@@ -972,9 +1070,6 @@ fn build_encoding(fdefs: &[&RawElement]) -> Encoding {
     for n in &names {
         let e = by_name[n.as_str()];
         let gk = e.frontmatter.group_kind.as_deref().unwrap_or("optional");
-        if gk == "optional" {
-            optional.push(n.clone());
-        }
         // Membership is orthogonal to grouping (REQ-TRS-FM-004): the explicit
         // `mandatory: true` flag, or the legacy `groupKind: mandatory` shorthand,
         // both make a feature a mandatory member.
@@ -982,6 +1077,11 @@ fn build_encoding(fdefs: &[&RawElement]) -> Encoding {
             Some(m) => m,
             None => gk == "mandatory",
         };
+        // Only a feature that is an optional member can be false-optional; a
+        // mandatory one with the default group kind is simply mandatory.
+        if gk == "optional" && !is_mandatory {
+            optional.push(n.clone());
+        }
         let p = parent.get(n).cloned().flatten();
         if let Some(p) = &p {
             cons.push(Constraint {
@@ -1063,7 +1163,193 @@ fn build_encoding(fdefs: &[&RawElement]) -> Encoding {
         }
     }
 
-    Encoding { var_of, names, files, parent, optional, cons }
+    let is_abstract: HashSet<String> = fdefs.iter().filter(|e| e.frontmatter.is_abstract == Some(true)).map(|e| e.qualified_name.clone()).collect();
+    Encoding { var_of, names, files, parent, optional, cons, is_abstract }
+}
+
+/// Give every `Configuration` a value for each abstract feature (`REQ-TRS-FMED-004`).
+///
+/// An abstract feature is not a choice (a configuration that names one is `E238`), so its value
+/// is **entailed** by the concrete features the configuration selects: on exactly when the
+/// feature model forces it on given those choices (a selected child, a mandatory abstract
+/// parent, a `requires:`), else off. For a configuration whose concrete choices already
+/// contradict `requires:`/`excludes:` only the group structure is used (the clash is reported on
+/// its own); if they break the structure too, the value falls back to "some feature below it is
+/// selected" (`E225`). Values are fixed one at a time so together they form one real model. The values land in the
+/// configuration's effective selection, so `appliesWhen:`, projection, the matrix and every other
+/// reader see an abstract feature like any other.
+pub fn derive_abstract_selections(elements: &mut [RawElement]) {
+    let fdefs: Vec<&RawElement> = elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if !fdefs.iter().any(|e| e.frontmatter.is_abstract == Some(true)) || fdefs.len() > MAX_DEEP_FEATURES {
+        return;
+    }
+    let enc = build_encoding(&fdefs);
+    let alias = crate::variability::feature_id_to_qname(elements);
+    let tree = crate::feature_tree::feature_tree(elements);
+    let structural: Vec<usize> = (0..enc.cons.len()).filter(|&i| !matches!(enc.cons[i].kind, CKind::Requires | CKind::Excludes)).collect();
+    let mut full = crate::solver::Solver::from_cnf(&enc.cnf());
+    let mut relaxed = crate::solver::Solver::from_cnf(&enc.cnf_subset(&structural));
+    let mut updates: Vec<(usize, std::collections::BTreeMap<String, bool>, Vec<String>)> = Vec::new();
+    for (idx, e) in elements.iter().enumerate() {
+        if !is(e, ElementType::Configuration) {
+            continue;
+        }
+        let mut sel = crate::variability::canon_selection(&e.frontmatter.feature_selections(), &alias);
+        // A configuration's own entries for abstract features are discarded: they are errors, not input.
+        let mut assumptions: Vec<Lit> = enc
+            .names
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| !enc.is_abstract.contains(*n))
+            .map(|(i, n)| if sel.get(n).copied().unwrap_or(false) { Lit::pos(i) } else { Lit::neg(i) })
+            .collect();
+        // The whole model if the concrete choices fit it; else just its structure (the
+        // `requires:`/`excludes:` clash is reported on its own); else nothing is entailed.
+        let solver = if full.is_sat(&assumptions) {
+            Some(&mut full)
+        } else if relaxed.is_sat(&assumptions) {
+            Some(&mut relaxed)
+        } else {
+            None
+        };
+        // Children before parents. Each value is fixed in turn (off unless the model forces it
+        // on, given what is already fixed), so the result is one real model of the feature
+        // model and never a set of values that are each right alone but wrong together.
+        let mut derived: Vec<String> = Vec::new();
+        let mut solver = solver;
+        for n in tree.iter().rev().filter(|n| enc.is_abstract.contains(&n.qname)) {
+            let var = enc.var_of[&n.qname];
+            let on = match solver.as_deref_mut() {
+                Some(sat) => {
+                    let mut a = assumptions.clone();
+                    a.push(Lit::neg(var));
+                    let on = !sat.is_sat(&a);
+                    assumptions.push(if on { Lit::pos(var) } else { Lit::neg(var) });
+                    on
+                }
+                None => n.children.iter().any(|c| sel.get(c).copied().unwrap_or(false)),
+            };
+            sel.insert(n.qname.clone(), on);
+            derived.push(n.qname.clone());
+        }
+        derived.sort();
+        updates.push((idx, sel, derived));
+    }
+    for (idx, features, derived) in updates {
+        let fm = &mut elements[idx].frontmatter;
+        let parameter_bindings = fm.effective_parameter_bindings().cloned();
+        fm.inherited = Some(Box::new(crate::element::InheritedConfiguration { features, parameter_bindings, derived }));
+    }
+}
+
+/// The structural constraints a configuration's selection breaks. With abstract features the
+/// selection is judged on its concrete features and the abstract ones are completed (a
+/// configuration need not name them); without any it is checked as written.
+fn config_violations(enc: &Encoding, sel: &std::collections::BTreeMap<String, bool>) -> Vec<String> {
+    if !enc.is_abstract.is_empty() {
+        return enc.abstract_completion_clash(sel).unwrap_or_default();
+    }
+    let assign: Vec<bool> = enc.names.iter().map(|n| sel.get(n).copied().unwrap_or(false)).collect();
+    let mut violated: Vec<String> = Vec::new();
+    for c in &enc.cons {
+        if matches!(c.kind, CKind::Requires | CKind::Excludes) {
+            continue;
+        }
+        if c.clauses.iter().any(|cl| !cl.iter().any(|l| assign[l.var] != l.neg)) {
+            violated.push(c.label.clone());
+        }
+    }
+    violated
+}
+
+/// The deep analysis as structured data for the browser (`REQ-TRS-FMED-002`):
+/// whether the model is void, and for every feature its state (`dead`, `core`,
+/// `falseOptional` or `normal`) with the constraints responsible as human
+/// labels. `features` is keyed by qualified name. Reasons are computed only
+/// for the features that need one (dead, false-optional) and for a void model.
+pub fn analysis_json(elements: &[RawElement]) -> serde_json::Value {
+    use serde_json::json;
+    let fdefs: Vec<&RawElement> = elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if fdefs.is_empty() {
+        return json!({ "hasFeatureModel": false, "void": false, "skipped": null, "features": {}, "conflicts": [], "diagnoses": [], "invalidConfigurations": [], "counts": {"features": 0, "dead": 0, "core": 0, "falseOptional": 0} });
+    }
+    if fdefs.len() > MAX_DEEP_FEATURES {
+        return json!({
+            "hasFeatureModel": true, "void": false, "features": {}, "conflicts": [], "diagnoses": [], "invalidConfigurations": [],
+            "skipped": format!("deep analysis skipped: {} features exceeds the limit of {}", fdefs.len(), MAX_DEEP_FEATURES),
+            "counts": {"features": fdefs.len(), "dead": 0, "core": 0, "falseOptional": 0},
+        });
+    }
+    let enc = build_encoding(&fdefs);
+    let labels = |core: &[usize]| -> Vec<String> {
+        let mut l: Vec<String> = core.iter().map(|&i| enc.cons[i].label.clone()).collect();
+        l.sort();
+        l.dedup();
+        l
+    };
+    let mut sat = Probe::new(&enc.cnf());
+    let mut features = serde_json::Map::new();
+    let (mut dead, mut core_n, mut false_opt) = (0usize, 0usize, 0usize);
+
+    if !sat.sat(&[]) {
+        let conflicts = labels(&enc.unsat_core(&[]));
+        for n in &enc.names {
+            features.insert(n.clone(), json!({ "state": "dead", "reasons": ["the feature model is void"] }));
+        }
+        return json!({
+            "hasFeatureModel": true, "void": true, "skipped": null, "features": features,
+            "conflicts": conflicts, "diagnoses": enc.correction_sets(), "invalidConfigurations": [],
+            "counts": {"features": enc.names.len(), "dead": enc.names.len(), "core": 0, "falseOptional": 0},
+        });
+    }
+
+    let mut dead_set: HashSet<&str> = HashSet::new();
+    for (i, name) in enc.names.iter().enumerate() {
+        if !sat.sat(&[Lit::pos(i)]) {
+            dead_set.insert(name.as_str());
+            dead += 1;
+            let reasons = labels(&enc.unsat_core(&[Lit::pos(i)]));
+            features.insert(name.clone(), json!({ "state": "dead", "reasons": reasons }));
+        } else if !sat.sat(&[Lit::neg(i)]) {
+            core_n += 1;
+            features.insert(name.clone(), json!({ "state": "core", "core": true, "reasons": [] }));
+        }
+    }
+    for name in &enc.optional {
+        if dead_set.contains(name.as_str()) {
+            continue;
+        }
+        let i = enc.var_of[name];
+        let cond = match enc.parent.get(name).cloned().flatten() {
+            Some(p) => vec![Lit::pos(enc.var_of[&p]), Lit::neg(i)],
+            None => vec![Lit::neg(i)],
+        };
+        if !sat.sat(&cond) {
+            false_opt += 1;
+            let reasons = labels(&enc.unsat_core(&cond));
+            // A false-optional feature is also core (selected in every product): state
+            // names the defect, `core` keeps the fact.
+            let core = features.get(name).is_some_and(|f| f["state"] == "core");
+            features.insert(name.clone(), json!({ "state": "falseOptional", "core": core, "reasons": reasons }));
+        }
+    }
+    for n in &enc.names {
+        features.entry(n.clone()).or_insert_with(|| json!({ "state": "normal", "reasons": [] }));
+    }
+
+    let feat_alias = crate::variability::feature_id_to_qname(elements);
+    let mut invalid: Vec<String> = Vec::new();
+    for cfg in elements.iter().filter(|e| is(e, ElementType::Configuration)) {
+        let sel = crate::variability::canon_selection(&cfg.frontmatter.feature_selections(), &feat_alias);
+        if !config_violations(&enc, &sel).is_empty() {
+            invalid.push(cfg.frontmatter.id.clone().unwrap_or_else(|| cfg.qualified_name.clone()));
+        }
+    }
+    json!({
+        "hasFeatureModel": true, "void": false, "skipped": null, "features": features,
+        "conflicts": [], "diagnoses": [], "invalidConfigurations": invalid,
+        "counts": {"features": enc.names.len(), "dead": dead, "core": core_n, "falseOptional": false_opt},
+    })
 }
 
 /// Run the solver-backed deep analysis. Empty report when no feature model;
@@ -1158,20 +1444,7 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     // requires/excludes obligations already reported as E219/E220.
     for cfg in elements.iter().filter(|e| is(e, ElementType::Configuration)) {
         let sel = sel_of(cfg);
-        let assign: Vec<bool> = enc.names.iter().map(|n| sel.get(n).copied().unwrap_or(false)).collect();
-        let mut violated: Vec<String> = Vec::new();
-        for c in &enc.cons {
-            if matches!(c.kind, CKind::Requires | CKind::Excludes) {
-                continue;
-            }
-            for cl in &c.clauses {
-                let ok = cl.iter().any(|l| assign[l.var] != l.neg);
-                if !ok {
-                    violated.push(c.label.clone());
-                    break;
-                }
-            }
-        }
+        let mut violated = config_violations(&enc, &sel);
         if !violated.is_empty() {
             violated.sort();
             violated.dedup();
@@ -1211,6 +1484,11 @@ pub fn check_feature_model_deep(elements: &[RawElement]) -> DeepReport {
     for x in elements {
         let aw_x = elem_aw(x); // None ⇒ always active (true)
         for (kind, target) in crate::projection::outbound_refs(x) {
+            // An Allocation inherits the gate of its endpoints (GH #234): it is inactive wherever an
+            // endpoint is, so its endpoint references cannot escape.
+            if is(x, ElementType::Allocation) && kind == crate::projection::RefKind::Structural {
+                continue;
+            }
             let Some(y) = resolver.resolve_ref(elements, &target) else { continue };
             let Some(aw_y) = elem_aw(y) else { continue }; // Y always active ⇒ implication holds
             let mut cnf = enc.cnf();
@@ -1434,6 +1712,315 @@ pub fn configure(elements: &[RawElement], conf: &str) -> ConfigureOutcome {
     }
 }
 
+/// A solver that remembers the models it has found, so a question some earlier
+/// model already answers ("can this feature be on while its parent is?") costs a
+/// scan instead of a solve. Each satisfying answer witnesses every feature at
+/// once, so a model of thousands of features needs a handful of solves rather
+/// than two per feature (`REQ-TRS-FMED-007`).
+struct Probe {
+    sat: crate::solver::Solver,
+    models: Vec<Vec<bool>>,
+}
+
+impl Probe {
+    const KEEP: usize = 256;
+
+    fn new(cnf: &Cnf) -> Probe {
+        Probe { sat: crate::solver::Solver::from_cnf(cnf), models: Vec::new() }
+    }
+
+    fn witnessed(&self, assumptions: &[Lit]) -> bool {
+        self.models.iter().any(|m| assumptions.iter().all(|l| m[l.var] != l.neg))
+    }
+
+    /// Satisfiable under `assumptions`?
+    fn sat(&mut self, assumptions: &[Lit]) -> bool {
+        if self.witnessed(assumptions) {
+            return true;
+        }
+        match self.sat.solve(assumptions) {
+            Some(m) => {
+                if self.models.len() >= Probe::KEEP {
+                    self.models.remove(0);
+                }
+                self.models.push(m);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+// ── Interactive configuration (REQ-TRS-FMED-003) ─────────────────────────────
+
+/// The package the feature definitions live in, for a new `Configuration`'s
+/// `featureModel:`: the longest qualified-name prefix shared by every root feature.
+fn feature_model_package(enc: &Encoding) -> String {
+    let roots: Vec<&String> = enc.names.iter().filter(|n| enc.parent.get(*n).cloned().flatten().is_none()).collect();
+    let Some(first) = roots.first() else { return String::new() };
+    let mut prefix: Vec<&str> = first.split("::").collect();
+    prefix.pop();
+    for r in &roots[1..] {
+        let segs: Vec<&str> = r.split("::").collect();
+        let common = prefix.iter().zip(segs.iter()).take_while(|(a, b)| a == b).count();
+        prefix.truncate(common);
+    }
+    prefix.join("::")
+}
+
+/// Count the valid products consistent with `assumptions`, enumerating up to
+/// `cap` or until `budget` runs out. Returns the count and whether it is only a
+/// lower bound.
+fn count_products(enc: &Encoding, assumptions: &[Lit], cap: usize, budget: std::time::Duration) -> (usize, bool) {
+    let mut cnf = enc.cnf();
+    for a in assumptions {
+        cnf.add(vec![*a]);
+    }
+    let mut sat = crate::solver::Solver::from_cnf(&cnf);
+    let concrete = enc.concrete_vars();
+    let start = std::time::Instant::now();
+    let mut n = 0usize;
+    // Products differ in their concrete features: abstract ones do not multiply them.
+    while sat.next_model_projected(&concrete).is_some() {
+        n += 1;
+        if n >= cap || start.elapsed() > budget {
+            return (n, true);
+        }
+    }
+    (n, false)
+}
+
+/// Propagate a partial selection through the feature model (`REQ-TRS-FMED-003`).
+///
+/// `selection` maps a feature (qualified name or `FEAT-*` id) to the user's
+/// choice. The result gives every feature one of `selected`/`deselected` (the
+/// user's choices), `forcedOn`/`forcedOff` (implied by them and the model) or
+/// `free`; whether the selection can still be completed; for one that cannot,
+/// the smallest set of the user's choices that clash and the constraints they
+/// clash with; the number of valid products that remain; and, when satisfiable,
+/// one complete product (`completion`) consistent with the choices, which is what
+/// "save as a Configuration" writes.
+pub fn configure_selection(elements: &[RawElement], selection: &std::collections::BTreeMap<String, bool>) -> serde_json::Value {
+    use serde_json::json;
+    let fdefs: Vec<&RawElement> = elements.iter().filter(|e| is(e, ElementType::FeatureDef)).collect();
+    if fdefs.is_empty() {
+        return json!({ "hasFeatureModel": false, "satisfiable": true, "features": {}, "conflict": null, "products": null, "completion": {}, "unknown": [], "skipped": null, "featureModel": "" });
+    }
+    if fdefs.len() > MAX_DEEP_FEATURES {
+        return json!({ "hasFeatureModel": true, "satisfiable": true, "features": {}, "conflict": null, "products": null, "completion": {}, "unknown": [], "featureModel": "",
+            "skipped": format!("configuration skipped: {} features exceeds the limit of {}", fdefs.len(), MAX_DEEP_FEATURES) });
+    }
+    let enc = build_encoding(&fdefs);
+    let alias = crate::variability::feature_id_to_qname(elements);
+    let mut chosen: Vec<(usize, bool)> = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
+    for (k, v) in selection {
+        let q = crate::variability::canon_feature_ref(k, &alias);
+        match enc.var_of.get(&q) {
+            Some(&i) => chosen.push((i, *v)),
+            None => unknown.push(k.clone()),
+        }
+    }
+    chosen.sort();
+    chosen.dedup();
+    let lit = |(i, v): (usize, bool)| if v { Lit::pos(i) } else { Lit::neg(i) };
+    let assumptions: Vec<Lit> = chosen.iter().map(|c| lit(*c)).collect();
+    let mut sat = Probe::new(&enc.cnf());
+    let package = feature_model_package(&enc);
+
+    if !sat.sat(&assumptions) {
+        // The smallest clashing subset of the user's choices, then the constraints they clash with.
+        let mut keep = chosen.clone();
+        let mut i = 0;
+        while i < keep.len() {
+            let trial: Vec<Lit> = keep.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, c)| lit(*c)).collect();
+            if !sat.sat(&trial) {
+                keep.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        let keep_lits: Vec<Lit> = keep.iter().map(|c| lit(*c)).collect();
+        let core = enc.unsat_core(&keep_lits);
+        let mut labels: Vec<String> = core.iter().map(|&c| enc.cons[c].label.clone()).collect();
+        labels.sort();
+        labels.dedup();
+        let choices: Vec<serde_json::Value> = keep.iter().map(|(i, v)| json!({ "feature": enc.names[*i], "selected": v })).collect();
+        let mut features = serde_json::Map::new();
+        for (i, v) in &chosen {
+            features.insert(enc.names[*i].clone(), json!({ "state": if *v { "selected" } else { "deselected" } }));
+        }
+        return json!({
+            "hasFeatureModel": true, "satisfiable": false, "features": features,
+            "conflict": { "choices": choices, "constraints": labels }, "products": { "count": 0, "capped": false },
+            "completion": {}, "unknown": unknown, "skipped": null, "featureModel": package,
+        });
+    }
+
+    let fixed: HashMap<usize, bool> = chosen.iter().cloned().collect();
+    let mut features = serde_json::Map::new();
+    for (i, name) in enc.names.iter().enumerate() {
+        let state = match fixed.get(&i) {
+            Some(true) => "selected",
+            Some(false) => "deselected",
+            None => {
+                let mut a = assumptions.clone();
+                a.push(Lit::neg(i));
+                if !sat.sat(&a) {
+                    "forcedOn"
+                } else {
+                    let mut a = assumptions.clone();
+                    a.push(Lit::pos(i));
+                    if !sat.sat(&a) { "forcedOff" } else { "free" }
+                }
+            }
+        };
+        features.insert(name.clone(), json!({ "state": state }));
+    }
+    let completion = {
+        let mut cnf = enc.cnf();
+        for a in &assumptions {
+            cnf.add(vec![*a]);
+        }
+        let bits = crate::solver::solve_model(&cnf).unwrap_or_default();
+        let mut m = serde_json::Map::new();
+        for (i, n) in enc.names.iter().enumerate() {
+            m.insert(n.clone(), json!(bits.get(i).copied().unwrap_or(false)));
+        }
+        m
+    };
+    // A large model gets a short budget: the count is a nicety, the propagation above is the answer.
+    let budget = std::time::Duration::from_millis(if enc.names.len() > 300 { 120 } else { 400 });
+    let (count, capped) = count_products(&enc, &assumptions, 10_000, budget);
+    json!({
+        "hasFeatureModel": true, "satisfiable": true, "features": features, "conflict": null,
+        "products": { "count": count, "capped": capped }, "completion": completion,
+        "unknown": unknown, "skipped": null, "featureModel": package,
+    })
+}
+
+/// What a feature affects (`REQ-TRS-FMED-005`): the elements whose `appliesWhen:`
+/// names it (their own, grouped by type; and those conditioned only through a
+/// package that names it, counted per package), the configurations that select
+/// or deselect it, the features that require or exclude it and that it requires
+/// or excludes, and how much of the tree hangs below it. `found` is false when
+/// `feature` names no feature.
+pub fn impact_json(elements: &[RawElement], feature: &str) -> serde_json::Value {
+    use serde_json::json;
+    let tree = crate::feature_tree::feature_tree(elements);
+    let alias = crate::variability::feature_id_to_qname(elements);
+    let q = crate::variability::canon_feature_ref(feature, &alias).replace('/', "::");
+    let Some(f) = tree.iter().find(|f| f.qname == q) else {
+        return json!({ "found": false, "feature": feature });
+    };
+    let who = |e: &RawElement| json!({
+        "qname": e.qualified_name,
+        "id": e.frontmatter.id,
+        "name": e.frontmatter.name.clone().unwrap_or_else(|| e.qualified_name.rsplit("::").next().unwrap_or("").to_string()),
+    });
+
+    let pkg = crate::variability::package_conditions(elements);
+    let mut direct: std::collections::BTreeMap<String, Vec<serde_json::Value>> = std::collections::BTreeMap::new();
+    let mut via: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for e in elements {
+        if matches!(e.frontmatter.element_type, Some(ElementType::FeatureDef) | Some(ElementType::Configuration)) {
+            continue;
+        }
+        let Some((value, source)) = crate::variability::effective_applies_when(e, &pkg) else { continue };
+        let Ok(Some(expr)) = crate::variability::applies_when_expr(&value) else { continue };
+        let names_it = expr.operands().iter().any(|o| crate::variability::canon_feature_ref(o, &alias) == q);
+        if !names_it {
+            continue;
+        }
+        match source {
+            None => direct.entry(e.frontmatter.element_type.as_ref().map(|t| t.name().to_string()).unwrap_or_else(|| "Unknown".to_string())).or_default().push(who(e)),
+            Some(p) => *via.entry(p).or_default() += 1,
+        }
+    }
+    const SHOWN: usize = 50;
+    let by_type: Vec<serde_json::Value> = direct
+        .into_iter()
+        .map(|(t, mut els)| {
+            els.sort_by(|a, b| a["qname"].as_str().cmp(&b["qname"].as_str()));
+            let count = els.len();
+            els.truncate(SHOWN);
+            json!({ "type": t, "count": count, "elements": els })
+        })
+        .collect();
+    let direct_total: usize = by_type.iter().map(|t| t["count"].as_u64().unwrap_or(0) as usize).sum();
+    let inherited: Vec<serde_json::Value> = via.iter().map(|(p, n)| json!({ "package": p, "elements": n })).collect();
+
+    let sel = |c: &RawElement| crate::variability::canon_selection(&c.frontmatter.feature_selections(), &alias);
+    let mut selected_by = Vec::new();
+    let mut deselected_by = Vec::new();
+    for c in elements.iter().filter(|e| is(e, ElementType::Configuration)) {
+        match sel(c).get(&q) {
+            Some(true) => selected_by.push(who(c)),
+            Some(false) => deselected_by.push(who(c)),
+            None => {}
+        }
+    }
+    // Every configuration binding of one of this feature's parameters.
+    let mut bindings: Vec<serde_json::Value> = Vec::new();
+    for c in elements.iter().filter(|e| is(e, ElementType::Configuration)) {
+        let Some(b) = c.frontmatter.parameter_bindings.as_ref().and_then(|v| v.as_mapping()) else { continue };
+        for (k, v) in b {
+            let Some((fq, param)) = k.as_str().and_then(|s| s.split_once('.')) else { continue };
+            if crate::variability::canon_feature_ref(fq, &alias) == q {
+                bindings.push(json!({ "configuration": who(c), "parameter": param, "value": v }));
+            }
+        }
+    }
+    let name_of = |qn: &String| tree.iter().find(|x| &x.qname == qn).map(|x| json!({ "qname": x.qname, "id": x.id, "name": x.name })).unwrap_or_else(|| json!({ "qname": qn }));
+    let required_by: Vec<serde_json::Value> = tree.iter().filter(|x| x.requires.contains(&q)).map(|x| name_of(&x.qname)).collect();
+    let excluded_by: Vec<serde_json::Value> = tree.iter().filter(|x| x.excludes.contains(&q)).map(|x| name_of(&x.qname)).collect();
+    fn below(tree: &[crate::feature_tree::FeatureNode], q: &str) -> usize {
+        tree.iter().filter(|x| x.parent.as_deref() == Some(q)).map(|x| 1 + below(tree, &x.qname)).sum()
+    }
+    json!({
+        "found": true,
+        "feature": { "qname": f.qname, "id": f.id, "name": f.name },
+        "gates": { "direct": direct_total, "byType": by_type, "inheritedThroughPackages": inherited },
+        "bindings": bindings,
+        "selectedBy": selected_by,
+        "deselectedBy": deselected_by,
+        "requires": f.requires.iter().map(name_of).collect::<Vec<_>>(),
+        "requiredBy": required_by,
+        "excludes": f.excludes.iter().map(name_of).collect::<Vec<_>>(),
+        "excludedBy": excluded_by,
+        "children": f.children.len(),
+        "descendants": below(&tree, &f.qname),
+    })
+}
+
+/// Every stored `Configuration` with its selection in canonical (qualified-name)
+/// form, for the configurator's "load" list.
+pub fn configurations_json(elements: &[RawElement]) -> serde_json::Value {
+    let alias = crate::variability::feature_id_to_qname(elements);
+    let mut out: Vec<serde_json::Value> = elements
+        .iter()
+        .filter(|e| is(e, ElementType::Configuration))
+        .map(|c| {
+            let mut sel = crate::variability::canon_selection(&c.frontmatter.feature_selections(), &alias);
+            // Abstract features' values are derived, not choices: leave them out of what is loaded as choices.
+            if let Some(inh) = &c.frontmatter.inherited {
+                for d in &inh.derived {
+                    sel.remove(d);
+                }
+            }
+            serde_json::json!({
+                "id": c.frontmatter.id,
+                "qname": c.qualified_name,
+                "name": c.frontmatter.name.clone().unwrap_or_else(|| c.qualified_name.clone()),
+                "status": c.frontmatter.status,
+                "selection": sel,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| a["qname"].as_str().cmp(&b["qname"].as_str()));
+    serde_json::Value::Array(out)
+}
+
 // ── Variant-space count / enumeration (REQ-TRS-FMA-009) ──────────────────────
 
 pub enum EnumOutcome {
@@ -1464,16 +2051,18 @@ pub fn enumerate_variants(elements: &[RawElement], cap: usize) -> EnumOutcome {
     let mut sat = crate::solver::Solver::from_cnf(&enc.cnf());
     let mut configs: Vec<Vec<String>> = Vec::new();
     let mut truncated = false;
-    while let Some(bits) = sat.next_model() {
+    let concrete = enc.concrete_vars();
+    while let Some(bits) = sat.next_model_projected(&concrete) {
         if configs.len() >= cap {
             truncated = true;
             break;
         }
+        // A product is its concrete features; abstract ones are not part of what is built.
         let selected: Vec<String> = enc
             .names
             .iter()
             .enumerate()
-            .filter(|(i, _)| bits[*i])
+            .filter(|(i, n)| bits[*i] && !enc.is_abstract.contains(*n))
             .map(|(_, n)| n.clone())
             .collect();
         configs.push(selected);
@@ -1621,5 +2210,239 @@ mod tests {
         assert_eq!(ec("F::T.A >= 2"), Some(true));
         // two-char operator preferred over one-char prefix
         assert_eq!(ec("F::T.A <= 4"), Some(true));
+    }
+}
+
+#[cfg(test)]
+mod analysis_json_tests {
+    use super::*;
+
+    fn els(files: &[(&str, &str)]) -> Vec<RawElement> {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!("syscribe-fa-{}-{}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (p, c) in files {
+            let path = dir.join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, c).unwrap();
+        }
+        crate::walker::walk_model(&dir).unwrap()
+    }
+
+    const ROOT: &str = "---\ntype: FeatureDef\nid: FEAT-ROOT\nname: Root\nmandatory: true\n---\n";
+
+    #[test]
+    fn no_features_reports_no_model() {
+        let e = els(&[("_index.md", "---\ntype: Package\nname: R\n---\n")]);
+        let j = analysis_json(&e);
+        assert_eq!(j["hasFeatureModel"], false);
+    }
+
+    #[test]
+    fn dead_core_false_optional_and_normal_with_reasons() {
+        // Root (mandatory) has A (mandatory, so core), B (optional), C (optional; Root requires C via B? no).
+        // D excludes A, and A is core, so D is dead. E is optional but required by core A: false-optional.
+        let e = els(&[
+            ("_index.md", "---\ntype: Package\nname: R\n---\n"),
+            ("F/_index.md", "---\ntype: Package\nname: F\n---\n"),
+            ("F/Root.md", ROOT),
+            ("F/Root/A.md", "---\ntype: FeatureDef\nid: FEAT-AAA\nname: A\nmandatory: true\nrequires: [FEAT-EEE]\n---\n"),
+            ("F/Root/B.md", "---\ntype: FeatureDef\nid: FEAT-BBB\nname: B\n---\n"),
+            ("F/Root/D.md", "---\ntype: FeatureDef\nid: FEAT-DDD\nname: D\nexcludes: [FEAT-AAA]\n---\n"),
+            ("F/Root/E.md", "---\ntype: FeatureDef\nid: FEAT-EEE\nname: E\n---\n"),
+        ]);
+        let j = analysis_json(&e);
+        assert_eq!(j["void"], false);
+        let f = &j["features"];
+        assert_eq!(f["F::Root"]["state"], "core");
+        assert_eq!(f["F::Root::A"]["state"], "core");
+        assert_eq!(f["F::Root::B"]["state"], "normal");
+        assert_eq!(f["F::Root::D"]["state"], "dead");
+        let why = f["F::Root::D"]["reasons"].to_string();
+        assert!(why.contains("excludes"), "{why}");
+        assert_eq!(f["F::Root::E"]["state"], "falseOptional");
+        assert_eq!(j["counts"]["dead"], 1);
+        assert_eq!(j["counts"]["core"], 3, "Root, A and E (forced by A)");
+        assert_eq!(f["F::Root::E"]["core"], true, "false-optional is also core");
+        assert_eq!(j["counts"]["falseOptional"], 1);
+        assert_eq!(j["counts"]["features"], 5);
+    }
+
+    #[test]
+    fn a_mandatory_feature_with_the_default_group_kind_is_not_false_optional() {
+        // Regression: `mandatory: true` with `groupKind` left at its default was
+        // reported as W018 because the check looked only at the group kind.
+        let e = els(&[
+            ("_index.md", "---\ntype: Package\nname: R\n---\n"),
+            ("F/_index.md", "---\ntype: Package\nname: F\n---\n"),
+            ("F/Root.md", ROOT),
+            ("F/Root/Sub.md", "---\ntype: FeatureDef\nid: FEAT-SUB\nname: Sub\nmandatory: true\n---\n"),
+        ]);
+        let deep = check_feature_model_deep(&e);
+        assert!(deep.false_optional.is_empty(), "{:?}", deep.false_optional);
+        assert!(deep.findings.iter().all(|f| f.code != "W018"), "{:?}", deep.findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        let j = analysis_json(&e);
+        assert_eq!(j["features"]["F::Root::Sub"]["state"], "core");
+    }
+
+    fn small() -> Vec<RawElement> {
+        els(&[
+            ("_index.md", "---\ntype: Package\nname: R\n---\n"),
+            ("F/_index.md", "---\ntype: Package\nname: F\n---\n"),
+            ("F/Car.md", "---\ntype: FeatureDef\nid: FEAT-CAR\nname: Car\nmandatory: true\n---\n"),
+            ("F/Car/Engine.md", "---\ntype: FeatureDef\nid: FEAT-ENGINE\nname: Engine\nmandatory: true\ngroupKind: alternative\n---\n"),
+            ("F/Car/Engine/Petrol.md", "---\ntype: FeatureDef\nid: FEAT-PETROL\nname: Petrol\n---\n"),
+            ("F/Car/Engine/Electric.md", "---\ntype: FeatureDef\nid: FEAT-ELECTRIC\nname: Electric\nrequires: [FEAT-CHARGER]\n---\n"),
+            ("F/Car/Charger.md", "---\ntype: FeatureDef\nid: FEAT-CHARGER\nname: Charger\n---\n"),
+            ("F/Car/Roof.md", "---\ntype: FeatureDef\nid: FEAT-ROOF\nname: Roof\n---\n"),
+        ])
+    }
+
+    fn sel(pairs: &[(&str, bool)]) -> std::collections::BTreeMap<String, bool> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn an_empty_selection_leaves_the_forced_features_forced_and_counts_every_product() {
+        let j = configure_selection(&small(), &sel(&[]));
+        assert_eq!(j["satisfiable"], true);
+        assert_eq!(j["features"]["F::Car"]["state"], "forcedOn");
+        assert_eq!(j["features"]["F::Car::Engine"]["state"], "forcedOn");
+        assert_eq!(j["features"]["F::Car::Roof"]["state"], "free");
+        // Engine is XOR(Petrol, Electric); Electric requires Charger; Roof free:
+        // (Petrol, Charger?, Roof?) = 4 and (Electric, Charger, Roof?) = 2 -> 6.
+        assert_eq!(j["products"]["count"], 6, "{j}");
+        assert_eq!(j["products"]["capped"], false);
+        assert_eq!(j["featureModel"], "F");
+    }
+
+    #[test]
+    fn a_choice_propagates_to_what_it_forces_and_forbids() {
+        let j = configure_selection(&small(), &sel(&[("FEAT-ELECTRIC", true)]));
+        assert_eq!(j["satisfiable"], true);
+        assert_eq!(j["features"]["F::Car::Engine::Electric"]["state"], "selected");
+        assert_eq!(j["features"]["F::Car::Charger"]["state"], "forcedOn", "Electric requires Charger");
+        assert_eq!(j["features"]["F::Car::Engine::Petrol"]["state"], "forcedOff", "the alternative group allows one");
+        assert_eq!(j["features"]["F::Car::Roof"]["state"], "free");
+        assert_eq!(j["products"]["count"], 2);
+        let c = &j["completion"];
+        assert_eq!(c["F::Car::Charger"], true);
+        assert_eq!(c["F::Car::Engine::Petrol"], false);
+        assert_eq!(c["F::Car::Engine::Electric"], true);
+    }
+
+    #[test]
+    fn a_conflicting_choice_names_the_clashing_choices_and_constraints_and_nothing_else() {
+        let j = configure_selection(&small(), &sel(&[("F::Car::Roof", true), ("FEAT-ELECTRIC", true), ("F::Car::Charger", false)]));
+        assert_eq!(j["satisfiable"], false);
+        let choices: Vec<String> = j["conflict"]["choices"].as_array().unwrap().iter().map(|c| c["feature"].as_str().unwrap().to_string()).collect();
+        assert_eq!(choices, vec!["F::Car::Charger", "F::Car::Engine::Electric"], "the roof choice is innocent: {j}");
+        let why = j["conflict"]["constraints"].to_string();
+        assert!(why.contains("requires"), "{why}");
+        assert_eq!(j["products"]["count"], 0);
+    }
+
+    #[test]
+    fn unknown_features_are_reported_and_ignored() {
+        let j = configure_selection(&small(), &sel(&[("Nope", true)]));
+        assert_eq!(j["unknown"], serde_json::json!(["Nope"]));
+        assert_eq!(j["satisfiable"], true);
+    }
+
+    #[test]
+    fn stored_configurations_are_listed_in_canonical_form() {
+        let mut e = small();
+        let conf = "---\ntype: Configuration\nid: CONF-ONE\nname: One\nstatus: draft\nfeatureModel: F\nfeatures:\n  FEAT-ROOF: true\n  F::Car::Charger: false\n---\n";
+        let mut more = els(&[("_index.md", "---\ntype: Package\nname: R\n---\n"), ("C/CONF-ONE.md", conf)]);
+        e.append(&mut more);
+        let j = configurations_json(&e);
+        let c = &j.as_array().unwrap()[0];
+        assert_eq!(c["id"], "CONF-ONE");
+        assert_eq!(c["selection"]["F::Car::Roof"], true, "a FEAT id key is canonicalised to the qualified name");
+        assert_eq!(c["selection"]["F::Car::Charger"], false);
+    }
+
+    #[test]
+    fn impact_lists_what_a_feature_gates_who_selects_it_and_what_depends_on_it() {
+        let mut e = small();
+        let mut more = els(&[
+            ("_index.md", "---\ntype: Package\nname: R\n---\n"),
+            ("P/_index.md", "---\ntype: Package\nname: P\nappliesWhen: FEAT-CHARGER\n---\n"),
+            ("P/InPkg.md", "---\ntype: PartDef\nname: InPkg\n---\n"),
+            ("P/Other.md", "---\ntype: PartDef\nname: Other\n---\n"),
+            ("Q/Plug.md", "---\ntype: PartDef\nname: Plug\nappliesWhen: F::Car::Charger and not F::Car::Roof\n---\n"),
+            ("Q/Req.md", "---\ntype: Requirement\nid: REQ-IMP-001\nname: R\nstatus: draft\nreqDomain: software\nappliesWhen: FEAT-CHARGER\n---\nText.\n"),
+            ("Q/Unrelated.md", "---\ntype: PartDef\nname: Unrelated\nappliesWhen: F::Car::Roof\n---\n"),
+            ("C/CONF-A-001.md", "---\ntype: Configuration\nid: CONF-A-001\nname: A\nstatus: draft\nfeatureModel: F\nfeatures:\n  F::Car::Charger: true\n---\n"),
+            ("C/CONF-B-001.md", "---\ntype: Configuration\nid: CONF-B-001\nname: B\nstatus: draft\nfeatureModel: F\nfeatures:\n  FEAT-CHARGER: false\n---\n"),
+        ]);
+        e.append(&mut more);
+        let j = impact_json(&e, "FEAT-CHARGER");
+        assert_eq!(j["found"], true);
+        assert_eq!(j["feature"]["qname"], "F::Car::Charger");
+        assert_eq!(j["gates"]["direct"], 3, "the package that declares the condition, a part and a requirement: {j}");
+        let types: Vec<String> = j["gates"]["byType"].as_array().unwrap().iter().map(|t| format!("{}:{}", t["type"].as_str().unwrap(), t["count"])).collect();
+        assert_eq!(types, vec!["Package:1", "PartDef:1", "Requirement:1"], "{types:?}");
+        assert_eq!(j["gates"]["inheritedThroughPackages"], serde_json::json!([{ "package": "P", "elements": 2 }]), "the package's two members, not the package itself: {j}");
+        assert_eq!(j["selectedBy"][0]["id"], "CONF-A-001");
+        assert_eq!(j["deselectedBy"][0]["id"], "CONF-B-001");
+        assert_eq!(j["requiredBy"][0]["name"], "Electric", "{j}");
+        assert_eq!(j["children"], 0);
+        let car = impact_json(&e, "F::Car");
+        assert_eq!(car["descendants"], 5);
+        assert_eq!(impact_json(&e, "Nope")["found"], false);
+    }
+
+    #[test]
+    fn a_void_model_names_the_conflict_and_offers_corrections() {
+        let e = els(&[
+            ("_index.md", "---\ntype: Package\nname: R\n---\n"),
+            ("F/_index.md", "---\ntype: Package\nname: F\n---\n"),
+            ("F/Root.md", "---\ntype: FeatureDef\nid: FEAT-ROOT\nname: Root\nmandatory: true\nexcludes: [FEAT-XXX]\n---\n"),
+            ("F/Root/X.md", "---\ntype: FeatureDef\nid: FEAT-XXX\nname: X\nmandatory: true\n---\n"),
+        ]);
+        let j = analysis_json(&e);
+        assert_eq!(j["void"], true, "{j}");
+        assert!(!j["conflicts"].as_array().unwrap().is_empty(), "{j}");
+        assert!(!j["diagnoses"].as_array().unwrap().is_empty(), "{j}");
+    }
+
+    fn w012_files(feature: &str) -> Vec<(&'static str, String)> {
+        let conf = |id: &str| format!(
+            "---\ntype: Configuration\nid: {id}\nname: C\nfeatureModel: F\nfeatures:\n  F::Root: true\n  F::Root::Prot: true\n---\n");
+        vec![
+            ("F/Root.md", ROOT.to_string()),
+            ("F/Root/Prot.md", feature.to_string()),
+            ("C/A.md", conf("CONF-AAA-001")),
+            ("C/B.md", conf("CONF-BBB-001")),
+        ]
+    }
+
+    fn codes_for(files: &[(&'static str, String)], code: &str) -> Vec<Finding> {
+        let refs: Vec<(&str, &str)> = files.iter().map(|(p, c)| (*p, c.as_str())).collect();
+        check_feature_model(&els(&refs)).into_iter().filter(|f| f.code == code).collect()
+    }
+
+    #[test]
+    fn mandatory_group_with_optional_children_selected_everywhere_is_not_w012() {
+        // REQ-TRS-FM-007 / GH #326: `mandatory: true` is membership, `groupKind: optional`
+        // groups the children; being in every product is what mandatory means.
+        let fs = w012_files("---\ntype: FeatureDef\nid: FEAT-PROT\nname: Prot\nmandatory: true\ngroupKind: optional\n---\n");
+        assert!(codes_for(&fs, "W012").is_empty());
+    }
+
+    #[test]
+    fn optional_feature_selected_everywhere_is_still_w012() {
+        let fs = w012_files("---\ntype: FeatureDef\nid: FEAT-PROT\nname: Prot\ngroupKind: optional\n---\n");
+        let w = codes_for(&fs, "W012");
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].message.contains("mandatory: true"), "{}", w[0].message);
+    }
+
+    #[test]
+    fn mandatory_false_is_an_optional_member_for_w012() {
+        let fs = w012_files("---\ntype: FeatureDef\nid: FEAT-PROT\nname: Prot\nmandatory: false\ngroupKind: optional\n---\n");
+        assert_eq!(codes_for(&fs, "W012").len(), 1);
     }
 }

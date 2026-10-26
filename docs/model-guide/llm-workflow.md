@@ -28,6 +28,8 @@ syscribe --agent-instructions | pbcopy
 
 The prompt and the validator are always in sync: `--agent-instructions` is embedded at compile time from `prompts/create-model.md`.
 
+The prompt covers the core authoring workflow and, near the top, tells the agent how to **discover the rest from the installed binary** rather than guess: `syscribe help` (command index), `syscribe help <command>`, `syscribe spec <section>` (including `behaviour`, `evidence`, `diagrams` and `variability`, which print the model-guide pages), `template <type>`, and over MCP `describe_type` and `explain_finding`. A test (`agent_prompt_covers_every_command`) fails when a command is added without a row in the prompt's CLI tables, and another checks that every `spec` section the prompt names exists.
+
 ---
 
 ## Two Modes
@@ -95,7 +97,7 @@ Elements affected by this change:
 Get the existing IDs from the validator output:
 
 ```bash
-syscribe model/ 2>/dev/null | grep -E 'REQ-|TC-|ADR-'
+syscribe -m model/ 2>/dev/null | grep -E 'REQ-|TC-|ADR-'
 ```
 
 ---
@@ -109,11 +111,11 @@ The prompt instructs the LLM to **validate after every batch of files**, not at 
 | Batch | Contents | Errors to watch |
 |---|---|---|
 | 1 — Skeleton | All `_index.md` package files | None expected |
-| 2 — Architecture elements | PartDef, ItemDef, PortDef, InterfaceDef, ActionDef, Part, Port | E303 (`domain` invalid), E315 (cross-domain supertype) |
+| 2 — Architecture elements | PartDef, ItemDef, PortDef, InterfaceDef, ActionDef, Part, Port | E303 (`domain` invalid), E315 (cross-domain supertype), E110/E111 (unresolved `supertype`/`typedBy`) |
 | 3 — ADRs | All `ADR` elements — must exist before Requirements cite them | E300 (bad ID pattern), E301 (missing fields), E304 (bad status) |
 | 4 — Requirements | Parent Requirements first, then children | E310 (missing `breakdownAdr`), E311 (unresolved `breakdownAdr`), E103 (bad `derivedFrom`) |
 | 5 — TestCases | One per leaf Requirement | E011 (no gherkin), E013 (empty `verifies`), E102 (unresolved `verifies`) |
-| 6 — Satisfaction links | Add `satisfies:` to architecture elements | E312 (parent in satisfies), E313 (domain mismatch) |
+| 6 — Satisfaction links | Add `satisfies:` to architecture elements | E114 (unresolved `satisfies`), E312 (parent in satisfies), E313 (domain mismatch) |
 | 7 — Allocations | `Allocation` elements for cross-domain binding | E502/E503 (unresolved from/to) |
 | 8 — Diagrams | `Diagram` elements — after all model elements exist | E400 (no mermaid block), W402 (unresolved shape ref), W403 (bad edge endpoint) |
 
@@ -133,7 +135,7 @@ status: accepted
 ---
 ...
 
-Running: syscribe model/
+Running: syscribe -m model/
 
 ## 2. Validation Findings
 > All validation rules pass — 0 errors, 0 warnings.
@@ -147,7 +149,8 @@ If there are errors, the LLM fixes them in the same response before declaring th
 
 ```
 0 errors
-≤ 2 warnings (W404 for ScalarValues::* standard-library types — expected)
+0 warnings — or only advisory warnings you have reviewed and accepted
+(standard-library types such as ScalarValues::* resolve built-in and raise nothing)
 ```
 
 ---
@@ -158,8 +161,10 @@ The eight batches above are a plan for building the model; `PlanningItem` (`ADR-
 
 This is optional — nothing about the eight-batch workflow requires it. It's most valuable for a multi-session or multi-agent effort, where "what's left, what's blocked, what counts as proof of done" needs to survive between sessions the same way the model itself does. This repository's own `model/Planning/` tracks its own feature work this way (see e.g. `PI-HPLE-001` and its children); `examples/planning-item/` is a complete standalone worked example.
 
+<!-- syscribe-example: expect E719 reason="the evidence path is illustrative and absent on disk, so the done item has no resolving evidence in isolation" -->
 ```yaml
 # model/Planning/MyFeature/PI-MYFEATURE-001.md — one PlanningItem per unit of work
+---
 type: PlanningItem
 id: PI-MYFEATURE-001
 name: "Add the thing"
@@ -171,6 +176,28 @@ evidence:
 ---
 ```
 
+Prefer `syscribe set`/`claim`/`release` over hand-editing these fields once a `PlanningItem` exists:
+
+```bash
+syscribe -m model/ set PI-MYFEATURE-001 evidence.add path=crates/syscribe-model/tests/myfeature.rs
+syscribe -m model/ set PI-MYFEATURE-001 status=done   # refuses a typo'd enum value outright; on a
+                                                      # PlanningItem this also warns (non-blocking) if
+                                                      # an achieves: Requirement isn't actually verified
+                                                      # yet (W310), instead of that surfacing later,
+                                                      # buried in a full-model `validate` run
+```
+
+For a multi-agent effort specifically, `claim`/`release` make "is anyone already on this?" answerable without reconstructing it from `git status` or an orchestrator's own memory of what it dispatched:
+
+```bash
+syscribe -m model/ claim PI-MYFEATURE-001 --by agent-session-01VRUS   # refuses if claimed by someone else
+syscribe -m model/ release PI-MYFEATURE-001                           # on completion or handoff
+```
+
+Two simultaneously-active (`in_progress` or claimed) `PlanningItem`s that overlap by `achieves:`
+or an `evidence[].path` raise `W311` on the next `validate` — the same signal, surfaced
+automatically even if `claim` was skipped.
+
 ---
 
 ## Diagram Generation
@@ -181,7 +208,7 @@ The prompt includes full diagram instructions. The LLM generates two kinds of di
 
 Use `diagramKind: Mermaid` and embed a fenced mermaid block. No SVG authoring required. Best for: requirement derivation trees, architecture overviews, sequence interactions, state machine summaries.
 
-```yaml
+````markdown
 ---
 type: Diagram
 name: RequirementTrace
@@ -193,8 +220,11 @@ Requirement derivation showing how stakeholder goals break into leaf requirement
 
 ```mermaid
 graph TD
+  %% ref: REQ-AID-SAFE-000
   SAFE["REQ-AID-SAFE-000<br/>Safety Goal"]
+  %% ref: REQ-AID-FC-001
   FC["REQ-AID-FC-001<br/>Fault Detection ≤ 50 ms"]
+  %% ref: REQ-AID-LAND-001
   LAND["REQ-AID-LAND-001<br/>Safe Landing"]
 
   SAFE --> FC
@@ -204,13 +234,13 @@ graph TD
   style FC   fill:#fef3c7,stroke:#f59e0b
   style LAND fill:#fef3c7,stroke:#f59e0b
 ```
-```
+````
 
 ### Embedded SVG (preferred for BDD, IBD, StateMachine, Requirement)
 
 Use `svgMode: inline` and embed a fenced `svg` block. The `shapes:` and `edges:` frontmatter document the diagram for traceability; the SVG is what the browser renders. The browser loads a shared symbol library (`_diagram-symbols.svg`) so the LLM can reference standard SysML symbols by id.
 
-```yaml
+````markdown
 ---
 type: Diagram
 name: SystemBDD
@@ -242,12 +272,12 @@ Block Definition Diagram: top-level decomposition of AIDSystem.
     <text class="label"      x="80" y="38" text-anchor="middle">FlightController</text>
   </g>
 
-  <line x1="200" y1="76" x2="200" y2="140"
+  <line id="e-comp" x1="200" y1="76" x2="200" y2="140"
         stroke="#333" stroke-width="1.5"
         marker-start="url(#arrow-composition)"/>
 </svg>
 ```
-```
+````
 
 ### Available SVG symbols
 

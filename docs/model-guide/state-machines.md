@@ -6,8 +6,8 @@ Syscribe models state-based behaviour with `StateDef` / `State` elements, faithf
 SysMLv2 §7.18. A state machine is a composite state whose `subStates:` are connected by
 **transitions**; the tool validates it for completeness (dead/trap states, missing or
 duplicate initials, non-determinism, illegal cross-region transitions, and unresolved
-references) with the `W070`–`W079` checks. All of these are draft-suppressed and gateable
-with `--deny W07x`.
+references, incomplete transitions) with the `W070`–`W079` and `W929` checks. All of these are draft-suppressed and gateable
+with `--deny W07x` (and `--deny W929`).
 
 ## A flat state machine
 
@@ -81,6 +81,7 @@ the `StateDef` top level (with an explicit `source:`); both yield the same edge 
 | `W074` | **Multiple initial** — more than one `isInitial` substate in a region. |
 | `W076` | **Unresolved endpoint** — a transition `source`/`target` that names no state in the machine and resolves to no element. |
 | `W079` | **Unresolved behaviour** — an `entryAction`/`doAction`/`exitAction` or transition `effect` that resolves to no element. |
+| `W929` | **Incomplete transition** — a top-level transition with no `source:`, or any transition with no `target:`. It yields no edge, so every check above would otherwise ignore it. |
 
 A **decision** transition (two or more *guarded* transitions from the same source) is a
 legitimate branch and does **not** raise `W072` — guards are what disambiguate.
@@ -146,4 +147,52 @@ history) — those are not part of SysMLv2.
 ## See also
 
 - [Element Types](../format/elements.md) · [Frontmatter](../format/frontmatter.md#state-machine-transitions-statedefstate)
-- Full schema: `syscribe spec` (§8.8) · rule reference: [Validation Rules](../validation/rules.md#state-machine-warnings-w070w079-221)
+- Full schema: `syscribe spec` (§8.8) · rule reference: [Validation Rules](../validation/rules.md#state-machine-warnings-w070w079-w929-221)
+
+## Executing a machine
+
+A machine that declares `variables:` or uses `after`, `when`, `done`, `internal`, `assign` or `initialEffect` is *executable*. `syscribe compile` lowers it to an IR and `syscribe simulate` runs it; the semantics and where each rule comes from are in `docs/design/state-machine-execution-semantics.md`. Type and unit errors in the expressions (a guard comparing metres with a plain number, a non-boolean guard, an assignment of the wrong dimension) are found without running anything and reported as `E935`; names that are not variables, such as event payload fields, are never errors (`docs/design/static-typing.md`).
+
+```yaml
+type: StateDef
+name: Door
+variables:
+  - {name: obstructions, value: "0"}
+subStates:
+  - name: Closed
+    isInitial: true
+    transitions:
+      - {target: Opening, accept: Cmd::Open}
+  - name: Opening
+    transitions:
+      - {target: Open, accept: {after: "3 s"}, guard: "obstructions == 0"}
+      - {target: Closed, accept: {when: "obstructions > 2"}}
+  - name: Open
+    transitions:
+      - {internal: true, accept: Cmd::Obstruct, assign: "obstructions := obstructions + 1"}
+      - {target: Closed, accept: Cmd::Close}
+```
+
+### Feature parameters in a machine
+
+A guard, an assignment, a variable's initial value or a duration can use a feature parameter, written as a placeholder (`{{Features::GridProfile.reconnectDelayS}}`, see [Variability](variability.md)). `simulate`, `compile`, `mutate` and `inject` take `--config <Configuration>` and run on that product, with the placeholder replaced by the Configuration's binding, else the parameter's fixed or default value. `validate` checks the symbolic base model at the parameters' defaults. A parameter with no `value:` or `default:` (the usual `isRequired: true` profile value) has nothing to check at, so its expressions are checked with a stand-in of the parameter's type (the lower bound of `range:` or `0`, `false`, the empty string, or the first `enumValues` entry, with the unit after a `|unit` placeholder) and the parameter is reported once as `W248`, naming the machines that use it (not for a `bindingTime: runtime` or a derived/`bindTo:` parameter). `validate --config <Configuration>` checks the machines at that product's bound values instead, and `--all-configs` does so for each Configuration at its own bindings; suspect links and baselines still read the symbolic text. A value, bound or stand-in, is substituted as written, so quote a string or enum placeholder yourself: `'{{Features::GridProfile.region}}' == 'US'`. Without `--config` a run sees the written placeholder and reports it as an expression error.
+
+```text
+accept: {after: "{{Features::GridProfile.reconnectDelayS}} s"}
+guard: "s.v > {{Features::GridProfile.overVoltagePu}}"
+```
+
+Virtual time is kept on a grid of one nanosecond, so a delay split into parts (`99 ms` then `1 ms`) reaches a timer exactly like the whole (`100 ms`) at any absolute time; durations finer than 1 ns are rounded.
+
+### Strict mode
+
+`simulate --strict` turns silent tie-breaking into errors, so a run that depends on document order cannot pass unnoticed:
+
+* an event no transition accepts;
+* two enabled transitions out of one state, even when both go to the same target (their effects or assignments can differ, and only one runs);
+* two transitions in different parallel regions whose exit sets overlap, for example one region leaving the parallel state while another reacts to the same event; a deeper source preempting an ancestor's is a defined priority and is not reported;
+* two transitions taken together that assign the same variable, since the final value would depend on where the regions sit in the file. This is reported even for commutative updates such as `n := n + 1`; give each region its own variable.
+
+Without `--strict` document order decides and nothing is reported.
+
+Deviations from SCXML, deliberately: no history, fork/join, `invoke`, external `send` or multi-event transitions (none exist in the SysML v2 model); typed, unit-checked expressions instead of ECMAScript; a virtual clock instead of delayed sends; an expression error stops the run instead of raising `error.execution`; equal-priority conflicts (including two regions' transitions that exit the same states, which only document order would rank) and unhandled events are reported in strict mode; change triggers are SysML v2 one-shot observations, not SCXML level-triggered eventless transitions; behaviour references (`effect: Pkg::Action`, `entryAction: Pkg::Action`) are recorded in the trace but not executed.

@@ -2,6 +2,730 @@
 
 `RELEASES`
 
+## 0.56.0 — 2026-10-22
+
+- **New:** `syscribe design-report <part> [--json]` (#371, #403, REQ-TRS-DREP-001) lays out one software part as the detailed-design (ASPICE SWE.3) work product: level and description, interface (its own operations and those of the ports it contains), behaviour (the `ActionDef`s realising its operations), data (features with type, unit and `range`), resources (`ram`, `flash`, `nvm`, `stack`, `period`, `deadline`, `wcet`, `priority`), code (`implementedBy:`), the requirements it satisfies, and the tests that verify it with their verdicts. An empty section says `None.`; an element that is not a software part is a usage error.
+
+## 0.55.0 — 2026-10-22
+
+- **New:** stereotypes (metadata) are typed, queryable, styleable and checkable (#374–#379, #387, #389, #390). `MetadataDef` stereotypes carry tagged values, specialise one another and apply to any element; `syscribe meta [--def <D>] [--group-by <field>]` reports applications, `[diagram.stereotypes.<Def>]` styles diagrams (fill, stroke, frames, legend), `[[gates.coverage]]` sets a coverage threshold per stereotype, and the MCP server exposes the same surface.
+- **New:** architecture rules (#369, #388, #396). An `ArchitectureRule` element states a constraint over the software structure: `forbid-dependency`, `independence`, `allow-only`, `layering` (with `layer:` on parts and `layers:` on the rule) and `max-depth`. Findings are `E660`–`E663`/`W662`/`W663`; a `waivers:` entry with a rationale and an expiry date suppresses a finding for one element, and an expired or unused waiver is `W664`.
+- **New:** operations bound to behaviour (#364, #391). `errors:` on an operation (`E670`) and `realizedBy:` naming the `ActionDef` that implements it, whose signature must match (`E671`, `E672`).
+- **New:** operation call sites (#364, #398, #401). A `SendAction`/`PerformAction` names the operation it calls with `operation: <owner>::<name>`; an unknown operation is `E673` and arguments that do not match its input parameters are `E674`. Types and units of the values are not yet checked.
+- **New:** data types with value constraints (#366, #393): `range:`, `pattern:` and `default:` on an `AttributeDef`.
+- **New:** sequence diagrams take a part as subject through the actions it performs (#365, #392).
+- **New:** resource budgets (#368, #394, #395). `syscribe budgets [--json]` rolls up memory use (`ram`, `flash`, `nvm`, `stack` against `*Capacity` and `margin`, `E690`/`E691`) and CPU load (`period`, `deadline`, `wcet`, `priority`; utilisation against the Liu–Layland bound for rate-monotonic or 1 for EDF, `E692`/`E693`).
+- **New:** deployment structure (#370, #397). `deploymentKind` (`soc` … `thread`) makes a part a node; nodes nest outermost first (`E730`, `E731`), a component sits on one node unless `replicated: true` (`E732`), and a node may not have a lower integrity level than what it hosts (`E733`).
+- **New:** software design levels (#371, #400). `level: component | unit` on a software part; a non-draft unit needs an `implementedBy:` (with a `#symbol`, `W740`), a satisfied requirement, an L1 test and a containing component (`E740`–`E744`).
+- **New:** the breakdown ADR requirement can be switched off (#399). `[traceability] require_breakdown_adr = false` in `.syscribe.toml` stops `E310`; a cited ADR is still checked (`E311`, `W303`) and a malformed entry is `W632`.
+
+## 0.54.0 — 2026-10-13
+
+- **Changed (behaviour):** a command given an option it does not know now fails with a usage error (stderr names the option and lists the valid ones, exit 1) instead of ignoring it. About 40 commands used to ignore unknown options silently, among them `audit`, `matrix`, `metrics`, `cyber-risk`, `feature-check`, `export-html`, `diff`, `claim`, `suspect`, `baseline`, `plantuml`, `magicgrid`, `safety-case` and `zones`, so a mistyped `audit --deny` was never applied in CI. `scripts` still forwards its arguments to user scripts. A table-driven test covers about 48 commands, and the drift tests now require every accepted option to be documented on its help page.
+- **Changed (behaviour):** `impact --kinds <unknown>`, `export-reqif --scope <unknown>` and `trade-study --config <unknown>` are usage errors (exit 1); `export-reqif` used to write an empty document and `trade-study` an empty grid.
+- **Fixed:** `export-reqif` wrote mis-nested XHTML for a body that mixed bold and inline code (`<xhtml:code>…<xhtml:strong></xhtml:code>`), so `import-reqif` rejected the exporter's own output of the project model. The inline conversion is now nesting-safe, and the 412 requirements of `model/` round-trip.
+- **Fixed:** `suspect accept --all` and `--all-unbaselined` reported links whose source is a row of a TARA or FMEA sheet as baselined, but the baseline was written to the sheet where the exploded row never reads it, so the same links were counted again on every run. These bulk commands now skip such links and list them, a single `suspect accept` of one is an error, and the sheet file is left unchanged.
+- **Changed:** `feature` accepts a `FEAT-*` id as well as a qualified or bare name; the `cyber-risk --format` error lists all seven formats; `feature-check --summary` (accepted but ignored until now) prints counts per code and severity instead of each finding; `baseline create --date`, `magicgrid --output` and `plantuml -o` are documented.
+- **Fixed (docs):** a review of the CLI reference, the 98 help pages, the specification, the guides and the demo and qualification documents against the 0.53.0 binary. Among the corrections: the CLI reference examples were regenerated from real output; the `metrics`, `audit`, `set` and `safety-case` sections were rewritten; the usage-error exit codes (`connectivity`, `follow`, `impact` and `review` exit 2 on a missing argument) are stated; the specification no longer says `name:` is the qualified-name segment, marks the checks it describes but the tool does not make (`direction:` values, `typedBy:` on a definition, unresolved multiplicity bound names, the 120-character `name:` limit, built-in ignore lists, gitignore syntax in `.sysmlignore`) as not enforced, documents `import-reqif`, and states the real `W300`, `W303` and `W039` conditions; the `testLevel` meanings agree everywhere (L1 unit, L2 property/fuzz, L3 formal proof, L4 emulator integration, L5 hardware-in-the-loop); `satisfiedBy` is documented as a computed index; the demo-model tables match the models; the tool-qualification page states that 122 of 478 test cases are evidenced by Rust tests and that the tracked TVR is a 0.43.0 snapshot; `W050` is documented as catalogued but not currently emitted; `mkdocs` lists the seven design notes.
+
+- **Fixed (docs):** every frontmatter field the parser accepts is now documented in both the full specification and `syscribe spec fields`. 41 fields were missing from the CLI reference (the ResidualRisk, VulnerabilityReport, PlantDef, view and fault-rate fields among them) and 31 from the specification's Appendix A index (the plant, FMU, `flowKind`, attack-potential and common-cause fields among them). A new test, `every_frontmatter_field_is_documented`, reads the field names from the parser and fails when one has no entry in either document.
+- **Changed:** the LLM authoring prompt (`--agent-instructions`) gains a "Discovering what the tool can do" section (`help`, `help <command>`, `spec <section>`, `template`, MCP `describe_type`/`explain_finding`), a table of the executable-behaviour and evidence commands (`simulate`, `inject`, `mutate`, `eval`, `constraints`, `requirement-coverage`, `exec-coverage`, …), rows for the 17 commands it omitted, and a Part 9e map of executable models, plants, `models:`, context diagrams and feature placeholders. `syscribe spec` gains `behaviour`, `evidence`, `diagrams` and `variability` sections (the model-guide pages, embedded so they cannot drift), `spec fields` documents the plant, `models:`, `role` and `flowKind` fields, and the stale validation-code range in the spec index is gone. New tests `agent_prompt_covers_every_command` and `agent_prompt_spec_sections_exist` keep the prompt in step with the command list.
+- **Fixed:** selecting a feature selects its group parents (#228): a `parameterBindings:` entry on a parent no longer raises `E203` when a descendant is selected, and such a parent is not reported as an orphan (`W024`), matching what `configure` already did.
+- **Fixed:** `export-html` no longer embeds the whole namespace tree in every page (#225). Each page lists the top-level packages, the siblings along the path to the element and its own children; the complete listing is written once as `all-elements.html`. The `model/` site drops from about 175 MB to about 21 MB.
+- **Fixed:** `W007` no longer fires for a type used only as a transition `accept` payload, or an action used only as a state's `entryAction`/`doAction`/`exitAction` or a transition `effect` (#224).
+- **Fixed:** a `featureTree:` id derived from a long name (`Platform.HighPerformance`) is cut to the 12-character FEAT segment limit instead of failing `E006`; a 1-character segment still needs an explicit `id:`, and the `E006` message now says so (#227).
+
+- **New:** quantitative goal verdicts and the fault tree compared with the campaign (#343, REQ-TRS-GOALV-001, spec § Safety targets). `metrics` judges every goal with a quantified tree: the first-order PMHF/PFH when its events declare `diagnosticCoverage` (unchanged), else a rate-only PFH from the exact top-event probability over `missionTime`, or PFDavg = Σ Π λ·(1−DC)·TI^k/(k+1) when the goal's `target:` says `mode: demand` with a `proofTestInterval`. The limit is the goal's `target.value`, else `[reliability.targets]` in `.syscribe.toml`, else the built-in table, and the report names the source. A figure whose events fail with a probability above `[reliability] plausibleProbability` (default 0.1) over the mission is **not credible**; `rateSource:`/`rateStatus:` record a rate's provenance, a verdict on unverified rates says so, and `list --rate-status` finds them. `metrics --sensitivity` shows which events' rates move the verdict; `audit` and `safety-case` show the figure. `inject --ft <FT> --consistency [--consistency-order N] [--max-runs M]` reports every cut set with its executable verdict and every defeating set missing from the tree. New codes `E985` (malformed `target:`), `E986` (`rateStatus`), `W988` (claimed rate above the bound), `W989` (`[reliability]`); a rate-only or PFDavg figure gates (`W033`, `metrics` exit 2) only when the goal declares `target:` or `.syscribe.toml` sets the limit; otherwise its `fail` is advisory. On the grid-tie inverter SG-GTI-001's 1.4e-1 over 15 years is flagged not credible with FTE-GTI-005 its largest contributor, and the comparison finds sets the tree does not have (see the demo page).
+- **New:** richer invariants (#342, REQ-TRS-INV-001, spec §8.12.8). A composite scenario names a property with `Where <name> is <expression>` and gives its degraded form for a fault set with `Except under <fault> [and <fault>…]: <expression>`; a fault no clause names keeps the full property, and a set several clauses apply to needs a clause covering them all, else the run is an error, "no applicable degraded clause". `Then within <d>: …` must be reached by then and kept to the end, `Then always …` / `from now on` / `never` hold at every settled instant. `simulate` says when a scenario held only in a degraded clause, and `inject`, its report and its record mark such a set **survived (degraded)**. The grid-tie invariants now state the safe state of SG-GTI-001 (gates off and both relays open) with its degraded forms; checking `always` found that the sensing common cause FTE-GTI-009 alone lets the inverter energise a dead grid for 1.1 s at start-up, recorded as the proposed decision RISK-GTI-011.
+- **New:** in-process plants (#340, REQ-TRS-PLANT-001, spec §8.8.6). A `PlantDef` declares parameters, inputs, outputs, states and `der(x) = …` / `y := …` equations in the expression language; a part becomes the plant with `plant:` (a `PlantDef`, or a library plant: `Gain`, `FirstOrderLag`, `Integrator`, `Saturation`, `DelayLine`, `ImpedanceDivider`). It runs at the composite's `plantStep:` with fixed-step RK4 or Euler, needs no FMI build feature or toolchain, and gives the same trace bit for bit on every platform. Faults act on plant parts: `stuck`/`offset` on outputs, `silent`, and the new `parameter` kind. The expression language gains `exp`, `ln`, `sin`, `cos` and `tanh`. New codes `E938`, `E939`. The grid-tie inverter's anti-islanding check now runs against a grid impedance plant.
+- **New:** campaign evidence and residual-risk decisions (#341, REQ-TRS-RISK-001, spec §12.14). `inject --record [--run <id>] [--config <C>]` keeps a fault-injection campaign in `.syscribe/campaigns.json` (composite hash, invariants, every set with its origin, verdict and failing invariant, sets not run, engine version); `results campaigns [diff]` lists and compares the records, and `inject --report <file.json|file.md>` writes one for an assessor with the decision and failure rates of each defeated set. A new `ResidualRisk` element (`RISK-*`: `faultSet`, `status` proposed | accepted | mitigated | rejected, `goal`, `mitigatedBy`, `approvedBy`, `reviewDate`, `expires`, `campaignHash`) records the decision on one defeated set. A defeat no decision names is `W940` (gate it with `--deny W940`), a decision the campaign contradicts `W941`, a stale or expired decision `W942`/`W943`, a record of a composite that has changed `W944`; malformed decisions are `E942`/`E943`/`E944`. `safety-case` shows a solution node per campaign and `audit` the unexplained defeats. The grid-tie inverter records its US and India campaigns and proposes a decision on each defeated set.
+- **New:** deterministic diagram exports (#339, REQ-TRS-VIS-032). Text is measured with Liberation Sans advance widths compiled into syscribe instead of the installed fonts, so the same model exports the same bytes on every machine (boxes come out about a tenth wider than before: the installed-font path scaled glyphs by the font's line height instead of its em, so it measured Liberation Sans about 10 % narrow and the width margin only just made up for it). `diagram export --all` renders every diagram into `<model>/generated` (`--format`, `--out-dir`, one `--config` into `generated/<CONF-id>`), rewriting only what changed, writing PlantUML style includes relative to the file, and removing only renders it recorded in `.syscribe-generated` that no diagram produces any more; a render failure fails the run. `--check` writes nothing and exits 1 naming each file that differs, is missing or is left over. `model_gti/generated/` holds the grid-tie renders and CI checks them.
+- **New:** diagram views (#338, REQ-TRS-VIS-031, spec §8.16.10). On a derived IBD, `include:` may be a mapping of `kinds`, `domains`, `tags` and `features`: the parts and edges it selects are drawn as usual, the parts that contain them stay as frames, and the rest is faded in every writer. `style: <name>` applies a `[diagram.style.<name>]` table of `.syscribe.toml` (`context = "fade" | "hide"`, `flows.<kind>`, `extends`). `layout:` takes `flow: left-to-right | top-to-bottom` and `layers:` beside its pins. `diagram export --config A --config B` draws both products in one diagram, marking what only one has. A malformed view, style or hint is `W421`; a missing or cyclic `extends` is `W419`. `model_gti` gains `GtiPowerView`, `GtiProtectionView` and `GtiSoftwareView`.
+- **Fixed:** Mermaid output put a guard or label holding brackets (`[then]`, `[only CONF-A]`) unquoted inside an edge's `|…|` or a port's circle, which Mermaid cannot parse; such labels are now quoted (#338).
+- **New:** system context and external actors (#337, REQ-TRS-VIS-030, spec §12.13). A part usage marked `role: external` is an actor outside the product: derived IBDs draw it «actor» (an environment part «environment», dashed) and derived BDDs mark its definition «actor». In a context composite, a part holding an actor, a port of a product part that nothing reaches is `W996`. External parts are never evidence, like environment parts. `model_gti/Context/GtiContext` puts the inverter beside the PV array, the grid, the owner's head-end, the installer tool and the rapid-shutdown initiator, with the diagrams `GtiContextBdd` and `GtiContextIbd`; the inverter gains boundary ports bound to the parts that serve them.
+- **New:** grouping and containment in derived IBDs (#336, REQ-TRS-VIS-029, spec §8.16.8.2). `depth:` draws parts inside parts with their ports and connections; a deployment package allocated to hardware is drawn inside it; a safety level (`silLevel:`, `asilLevel:`, a `safety` stereotype) outlines a part with its level and `appliesWhen:` badges it optional, through the node mark, with an SVG legend when anything is marked; `groupBy: domain` frames the parts by `domain:` (containment wins; the domain becomes a banner). A self-containing definition is opened once and `depth:` is capped at 16; with several hosts a deployment package goes into the nearest; PlantUML and DOT draw the marks and containment; under `--config` nothing is badged optional. An unknown or misplaced `groupBy:` is `W420`. The GTI `GtiIbd` shows the firmware inside the STM32 inside the control board.
+- **New:** flow kinds in diagrams (#335, REQ-TRS-VIS-028, spec §8.16.9). `flowKind:` on a `PortDef`, a port feature or a `connections:` entry (`power`, `signal`, `command`, `data`, `protection`, `mechanical`) styles the edge in SVG, sprotty, DOT, Mermaid and PlantUML; a `[diagram]` table in `.syscribe.toml` restyles a kind (`[diagram.styles.<kind>]`) and places ports by kind (`[diagram.portSides]`), with a port's own `side:` winning. An unknown kind or side, or a malformed `[diagram]` entry, is `W419`. A model that names no flow kind draws exactly as before. The GTI model's power stage IBD now shows its DC, AC, gate-command and sensing paths.
+- **New:** executable evidence (#333, #344, REQ-TRS-EXECEV-001, spec §12.12, `docs/model-guide/executable-evidence.md`). `requirement-coverage` runs the scenarios of every active TestCase whose subject is a machine, action or composite, in-process, and grades each requirement `executable`, `executable-weak` (a failing scenario, or below `--min-states`/`--min-transitions`/`--min-guards`/`--min-score`), `descriptive-only`, `unverified` or `not-applicable` (inspection, analysis, or a parent whose children all have executable evidence), with the scenarios, the coverage of the machines that carry it and mutation scores; a scenario counts only when its subject exercises what satisfies the requirement. `exec-coverage` shows the same evidence per software/hardware element: executable itself, modelled by, or not modelled, with its scenarios, correspondence findings and requirements by verdict. Gates `--min-executable`, `--min-modelled` and `--require` exit 2. Scenarios narrow their TestCase's `verifies:` with `@verifies REQ-A,REQ-B` tags or `# verifies:` step comments; a claim outside `verifies:` is `W994`, an unclaimed requirement when every scenario is tagged `W995`. `mutate --record` keeps scores in `.syscribe/mutation.json` (stale when the machine changes); `--mutate` computes them. MCP tools `requirement_coverage` and `exec_coverage`. `model_gti/` tags its protection scenarios.
+- **New:** verification composites (#332, REQ-TRS-VCOMP-001, spec §12.11): an architecture `PartDef` that carries `exhibitsStates:` is used directly in a TestCase's subject composite and needs no `models:`, counting as its own counterpart for `W991` and exercising its requirements for `W992`. `role: environment` on a part usage marks the test set-up (a grid source, a stimulus): no architecture counterpart, never evidence, its own `models:`/`portMap:` ignored (`W993`), listed with `[environment]` and left out of the aggregate in `simulate --coverage`, and listed apart in `inject` with environment-only fault sets marked. An unknown `role:` or one on a port is `E992`. In `model_gti/`, the grid source is an environment part and `System::Software::Supervisor` carries the supervisor machine (`SupervisorPart` removed).
+- **New:** typed ports (#331, REQ-TRS-PORTTYPE-001, spec §8.8.5): a port `typedBy:` a `PortDef` carries the events its `ItemDef` items name, with `direction:` per item and `isConjugated: true` reversing it. A machine that sends or accepts an event the type does not carry or carries the other way, or names a payload field the item lacks, is `E932`; a payload value or use of an accepted field of the wrong type or unit dimension is `E935`. Untyped ports are unchanged. With `models:`, ports of the same type and conjugation correspond without `portMap:`, and differently typed counterparts are `E991`. `model_gti/Interfaces/` types the protection chain and the architecture ports alike, and four `portMap:`s are gone.
+- **New:** `models:` links an executable part to the architecture element it is a behavioural model of (#330, REQ-TRS-MODELS-001, spec §12.11, `docs/model-guide/behaviour-models.md`), with `portMap:` (a port name, a list, or `null`), `abstracts:` (port names, or requirement ids the model cannot evidence) and `fidelity:`, on a definition or on a part usage for one-to-many. New checks, dormant without `models:`: `E990` target, `E991` executable port correspondence and direction, `W990` uncovered architecture port (checked on the union of modelling parts), `W991` connection correspondence both ways (HW/SW boundary skipped), `W992` a TestCase whose subject cannot evidence a requirement it verifies. The link shows in `links`, `refs`, `follow` (`models`/`modeledBy`), `impact`, `trace`, `why` and suspect-link detection. `model_gti/` declares it on every behaviour part.
+- **Fixed:** a state-machine placeholder for a feature parameter with no `value:`/`default:` no longer raises a parse error at the `{` (#328, REQ-TRS-PROJ-009): the base model checks the expression with a stand-in of the parameter's type and reports the parameter once as `W248` on its FeatureDef, naming the machines. `validate --config` and each Configuration of `--all-configs` check machines at their own bound values, without changing what suspect links and baselines hash.
+- **Changed:** a `Configuration` id needs no numeric suffix, like `FEAT-*` and `BL-*` ids (#327, REQ-TRS-ID-008): `CONF-GTI-US-M3` validates without `E200`/`W042`, and so does a bare `CONF-001`; the numeric form `CONF-GTI-US-001` still validates and an extra `[ids.prefixes]` prefix for `Configuration` follows the same grammar.
+- **Changed:** feature references (#325). Inline `requires:`/`excludes:` on a `featureTree:` entry resolve like `crossTreeConstraints:` values, so `requires: [Protection.Afci]` works; `E212`, `E209`, `E222` and `E241` name the form their field accepts and the closest match; a `Configuration` `features:` key that names no feature is `E239` (it used to select nothing silently).
+- **Fixed:** `W012` no longer fires for a `mandatory: true` feature, and suggests `mandatory: true` rather than the legacy `groupKind: mandatory` (#326, REQ-TRS-FM-007).
+- **New:** state machines can use feature parameters (#311): `{{Feature.param}}` placeholders in guards, assignments and durations, with `--config` on `compile`, `mutate` and `inject`.
+- **New:** FMEA rows can be gated by variant, and fault values can follow feature parameters (#313).
+- **Changed:** a test plan bound to configurations is a plan for those products only, and selection skips test cases that run in none of them (#314); the escaping-reference check also skips a plan bound to other products. A `satisfies` link to a requirement the variant does not have is not an escaping reference (#312).
+- **Changed:** `mutate` makes no swap-order mutant for transitions with provably disjoint guards (#315, part a). Grid-aware literal shifts (part b) remain open.
+- **Changed:** `inject` says that higher-order cut sets were left out rather than reporting an analysis overflow (#316).
+- **Fixed:** virtual time runs on a 1 ns grid, so split delays reach timers at any absolute time (#310).
+- **New:** analysis graphs in the Diagram IR (#223, phase 2) — `diagramKind: Traceability | ZoneConduit | ThreatGraph` derive the hazard-to-test graph (`HazardousEvent ← SafetyGoal ← Requirement ← … ← TestCase` with each goal's fault tree and arguments; nodes toned by the roll-up of their tests, `ASIL`/status/verdict shown, gaps as red badges naming `W002`/`W003`/`W305`/`W300`, `no requirement`, `no goal`), the IEC 62443 zone model (zones as compound nodes holding their parts and allocated security controls, `SL target / achieved` labels, red with an `SL gap` badge when short, conduits as edges labelled `CD-… · SL achieved/required`, weak conduits red, heavy and dashed) and the TARA chain (`ThreatScenario → DamageScenario → Asset → CybersecurityGoal → SecurityControl`, threats toned by risk under the configured `[cyber]` method, `W802` on an unimplemented goal). New `Zone` node kind and `impacts`/`affects`/`protectedBy`/`implementedBy`/`conduit`/`weakConduit` edge kinds; the sprotty client, SVG, Mermaid, DOT (zones as clusters, `rankdir` from the layout, `#rgb` colours expanded for Graphviz) and PlantUML writers draw them. New `hara trace [<subject>] --format dot|mermaid|plantuml|svg` (with the ingested test verdicts), `zones --format …`, `cyber-risk --format dot|mermaid|plantuml|svg` (the heat `md|html|json` stay), `diagram export` for the three kinds, and the element detail panel of a hazardous event, goal, requirement that traces to a goal, zone, conduit, threat, damage scenario, asset, cybersecurity goal or control embeds the graph; the New diagram dialog offers all three. Wrong subjects are the existing `W418`; no new codes. Shared zone logic moved to `syscribe_model::zones` so the reports and the picture agree. Examples in `model_auto/` (new assets, zones, conduits and security-control allocations) and `model_sil/`.
+- **Fixed:** `connectivity` stopped at a safety or security analysis element (#223) — a walk from a `SafetyGoal`, `HazardousEvent`, `FaultTree`/gate/event, `AttackTree`/gate, `ThreatScenario`, `DamageScenario`, `CybersecurityGoal` or `SecurityControl` now also follows `hazardousEvents:`, `topEvent:`, gate `inputs:`, event `ref:`, `threatRef:`, `damageScenarios:`, `threatScenarios:`, `implementsGoals:`, `mitigatedBy:` and the derived-from-goal links by default, and `--kinds` accepts those link names.
+- **Fixed:** `zones --coverage` showed `—` in every control column (#223) — it looked for a `SecurityControl` among a zone's `members:` (which must be parts, `E955`) and in a conduit's `implementedBy:`, never at the `Allocation` that binds a control to the architecture. A control now counts for a zone when it is allocated to one of its parts (`members:` or `inZone:`), the zone or a touching conduit; `zones` also counts `inZone:` parts as members.
+- **Changed:** safety diagrams polished (#223 follow-up) - fault-tree and attack-tree nodes are labelled with their stable id and the full name wraps beneath it (new word-wrapping in `size.rs`); a gate or event is a description box with its standard symbol hung on a stub (AND flat-bottomed D, OR shield, XOR with a second arc, NOT triangle with bubble, inhibit hexagon; basic-event circle, undeveloped-event diamond, house pentagon), tree edges are routed as a bus with an arrowhead into the gate (browser and SVG alike), GSN undeveloped diamonds sit inside the node box, SVG exports carry a tone legend, and DOT output is Graphviz-valid (six-digit colours, wrapped text, undeveloped diamond). Derived GSN diagrams now show real test verdicts from `.syscribe/results.json` and the derived attack tree uses the model's `[cyber]` configuration, as `W035` does.
+- **New:** heat tables (#223) - `syscribe_model::heat` builds a grid (rows, columns, cells with element ids, tone, label) rendered as Markdown, JSON or a standalone self-contained HTML page: FMEA severity x occurrence with RPN colouring (`fmea report --format md|html|json`), the HARA S/E/C -> ASIL matrix with hazardous events and safety goals placed in cells (new `hara matrix [--format ...]`), and the TARA impact x feasibility risk matrix under the configured `[cyber]` method (`cyber-risk --format md|html|json`). `export-html` gains `reports/heat.html` (its page count now includes it) and `syscribe-server` serves `/heat`. Default `fmea report` / `cyber-risk` output is unchanged.
+- **New:** safety diagrams in the Diagram IR (#223, phase 1) — `diagramKind: FaultTree | AttackTree | SafetyCase` (alias `GSN`) derive a fault tree (IEC 61025 gate symbols, event shapes by `eventKind`, λ/probability labels, single points and cut-set members highlighted and the top-event probability on the root, from `fault-tree analyze`), an attack tree (coloured by rolled-up feasibility, easiest path emphasised, `W035` badge) and a GSN argument (goal/strategy/solution/context/justification/assumption shapes, undeveloped diamonds, status/verdict overlays) from the model. New generic `Node.mark` overlay (status, value, tone, badges, emphasis) drawn by the sprotty client, SVG, Mermaid, DOT and PlantUML writers; new `diagram export --format dot`, `safety-case --format text|json|dot|mermaid` and `fault-tree render <FT> --format mermaid|dot|svg|plantuml` (plain `render` keeps its flowchart); the element detail panel of a `FaultTree`/`AttackTree`/`SafetyGoal`/`Argument`/`ThreatScenario` embeds the derived diagram with node click-through, `/api/diagrams/model/<qname>` serves it without a `Diagram` element, and the New diagram dialog offers the three kinds. Wrong subjects are the existing `W418`; no new codes. Examples in `model_auto/` (`FaultTreeEngine`, `AttackTreeTorqueReplay`, `SafetyCaseEngine`, plus an attack tree and a GSN argument) and `model_sil/`.
+- **New:** fault-tree analysis (#211) — `syscribe_model::fta` (BDD-based; cut sets, exact top-event probability over `missionTime`, Fussell-Vesely/Birnbaum/RAW importance, per-event roles, beta-factor CCF via `ccfGroup:`/`ccfBeta:`) and `fault-tree analyze <FT> [--json] [--max-order N] [--no-ccf]`.
+- **New:** fault-tree structural validation (#212) — `E980` gate cycle/self-input, `E981` gate arity (`NOT`/`XOR`/`inhibit`), `E982` negative `failureRate`, `E983` `probability` out of range, `E984` `ccfBeta` out of range, `W980` unreachable node, `W981` node outside a `FaultTree` directory, `W982` single-input `AND`/`OR`, `W983`/`W984` CCF group problems, `W987` unparsable `missionTime`.
+- **Changed:** `metrics` is driven by minimal cut sets (#211, #213) — gate logic now matters (`AND` vs `OR`), unreachable/house/negative-λ events are skipped, `PMHF = λ_RF + λ_DPF` (dual-point rate over `missionTime`) instead of adding the latent rate, missing DC/DCl count as 0 with `W985` (and `W986` for a missing `missionTime`), DC/DCl are clamped (no more LFM 2.0), SIL 1 is gated, a computed-but-untargeted goal shows `no target`, and `metrics` exits 2 when a goal fails.
+- **New:** security-analysis validation gaps (#219, #220, #221): `E960` names the offending field when `securityProperty:`/`derivedFromCybersecurityGoal:` has the wrong shape (both now also accept a list); `TARASheet` rows get `E961` (no `id`) / `E962` (unknown key) and a new `assetTable:`; `E963`/`E964` dangling `Asset.assetOwner`/`relatedSafetyGoal`; `E965` attack-tree cycle, `W966`-`W968` multiple roots / unscored step / duplicate input; `W960`-`W965` incomplete risk inputs, orphan or asset-less `DamageScenario`, `riskTreatment` consistency; `W969`/`W970` orphan `SecurityControl`/`CybersecurityGoal`; `W971`-`W973` zone/conduit consistency; `VulnerabilityReport` `W974`-`W979`/`E967` (CVE id, status vocabulary, resolution evidence, CVSS vector/severity, threat link) with new `cvssVector`/`cvssSeverity`/`fixedIn` fields.
+- **Changed:** `conduits --json` reports `pass: null` (not `true`) when `achievedSL` or a zone `targetSL` is unknown; `co-analysis` expands a `HazardousEvent` `hazardRef` to the `SafetyGoal`s that list it; `sbom` emits CycloneDX `vulnerabilities` (VEX) from `VulnerabilityReport`s, matched to components by `pkg:` purl or owning part, and `affectedElements:` accepts `pkg:` URLs.
+- **Changed:** SysML v2 ingest keeps the full dotted path of `connect`/`bind`/`flow` endpoints (`Owner::a::b::c`) instead of collapsing to the head part; `W542` no longer applies to `connect` (#206). Endpoints of ingested `.sysml` elements are now checked by `E127`/`W056`.
+- **New:** `E128` — unresolved `via`/`to` on send/accept actions and transition accepts; flow/succession endpoints on structural elements are checked like `connections:` endpoints (#207).
+- **New:** `W068` — a redefining feature's `multiplicity:` is not contained in the redefined feature's (#208).
+- **Changed:** `W057`/`W044` understand SI prefixes (`kN`, `mm`, `MHz`) and judge prefixed units by dimension (#209).
+- **Changed:** complete ISQ/SI/SIPrefixes/USCustomaryUnits/ScalarValues/Base name tables; an unknown bare name or membership import under a library wildcard (`import ISQ::*`) is now reported (#210).
+- **Changed (behaviour):** `audit` with ingested test results now fails when a safety goal is `failing`, adds a Verification results section, and `W312` is in the default `[audit] fail_on` (a project that sets its own `fail_on` must add it) (#256).
+- **Changed (behaviour):** the suspect-link projection excludes workflow state (`status` while progressing, `claimedBy`, `claimedAt`, `assignedTo`); baselines captured before this need one `suspect accept --all` (#251).
+- **Changed (behaviour):** exploded TARA/FMEA rows inherit sheet-level `responsibility`/`appliesWhen`/`tags`; baselines sealed over such rows drift once (#229).
+- **Changed (behaviour):** `audit` no longer reports PASS for a model with a failing safety metric or an uncovered high-integrity goal: `W033` and `W805` on an ASIL C/D `SafetyGoal` now fail the verdict (exit 2) by default, alongside `W306`. Relax or extend this with an `[audit]` table in `.syscribe.toml` (`fail_on = [...]` for codes that fail at any level, `[audit.fail_on_asil]` mapping a code to the ASIL levels at which it fails; `fail_on_asil = {}` opts out). A malformed entry is `W934` (#216).
+- **New:** `audit` gains Safety (hazards, goals by integrity level, FTA, FMEA, hardware metrics, FFI gaps) and Security (TARA artefacts, CAL distribution, vulnerabilities, IEC 62443 zones) sections in text and `--json` (#216).
+- **Changed:** `safety-case` always folds in the implicit `derivedFromSafetyGoal` Requirement chain (it was dropped whenever a goal had any Argument), walks `derivedChildren` transitively down to verifying TestCases, marks undeveloped nodes `[UNDEVELOPED]`, prints a per-goal verdict and a completeness summary (also in `--json`, as `status`/`undeveloped`/`completeness`), and exits 1 for an unknown goal id. The traversal now lives in the public `syscribe_model::safety_case` module (`build`, `SafetyCaseNode`, `NodeStatus`, `GoalVerdict`, `Completeness`) so diagram derivers can reuse it (#217).
+- **New:** `E881` Argument cycle; `W861` `solution` Argument with no evidence; `argumentType` also accepts `context`, `justification`, `assumption` and `undeveloped` (#217).
+- **New:** `W931` FMEA row without severity/occurrence/detection; `W932` severity >= 9 without a `recommendedAction` regardless of RPN; FMEA rows may carry `failureRate`/`diagnosticCoverage`/`latentDiagnosticCoverage` and, via `ftaRef`, feed the hardware `metrics`/`W033`. `fmea report` drops the duplicate `Name` column, labels `recommendedAction` as `Recommended Action`, lists a duplicate-id row once, and exits 1 for an unknown `--fmea-sheet`; an unresolved FMEA `ref` is reported once (`W904`, no longer also `E115`) (#218).
+- **New:** ASIL decomposition validation (#214): `E878` illegal ISO 26262-9 pair (`D -> A+A`, `D -> B+A`, ...), `E879` bad `decomposedFrom:`; `asilLevel: QM` is accepted, the notation `asilLevel: B(D)` / `QM(D)` and a `decomposedFrom:` field are supported, `E010` now lists the valid values, and `E865`/`W860` apply at every integrity level (not only ASIL D / SIL 4).
+- **New:** HARA checks (#215): the ASIL is derived from S/E/C (ISO 26262-3 Table 4) and shown by `show` as `derivedASIL`; `W811` goal ASIL lower than derived, `W812` ASIL C/D or SIL 3/4 goal without `safeState`/`ftti`, `W813` partial S/E/C set, `W814` mixed ISO 26262 / IEC 61508 parameters, `E880` invalid `ftti` unit.
+- **New:** configurable ISO/SAE 21434 risk and CAL (#222) — a `[cyber]` table in `.syscribe.toml` selects `method = "simple"` (default, unchanged) or `"annex"` (built-in *example* tables modelled on the standard's informative annexes; not normative, verify against your copy), overrides risk-matrix / CAL / risk→CAL cells, and scores attack potential (`elapsedTime`, `expertise`, `knowledge`, `windowOfOpportunity`, `equipment` on `ThreatScenario`/`AttackStep`, configurable thresholds); optional per-category impact ratings on `DamageScenario` (overall = max). `cyber-risk`, `W031`, `W032` and attack-tree roll-up follow the configuration. New `W640` (malformed `[cyber]` entry), `W641`, `W642`, `E640`, `E641`. With no `[cyber]` table nothing changes.
+
+## 0.53.0 — 2026-10-09
+
+- **New:** MCP/REST `create_element` takes `parent` and writes `<parent>/<id>.md` for id-identified types and `<dir>/_index.md` for packages; `move_element` accepts an id as the last destination segment (#185).
+- **New (opt-in):** `W065` — an id-identified element whose file stem differs from its `id`. Off by default; enable with `[ids] check_file_names = true` in `.syscribe.toml`, gate with `--deny W065`.
+- **Fixed:** feature editor keeps typed input across re-renders and drops stale fetches (#189); `removeParameter` refuses while a `[repos]` peer Configuration binds the parameter (#193); MCP guarded-write baseline is dropped after a post-refusal reload that read changed inputs (#196).
+
+## 0.52.0 — 2026-10-09
+
+### SysMLv2 modelling gaps (GH #198–#205)
+
+A probe that modelled a UAV, an elevator controller and a textual `.sysml` round trip found validation too lenient and ingest/export lossy. Fixed:
+
+- **Fixed:** `imports: [ISQ::*]` (or any library wildcard) on a package silenced every unresolved-reference check below it (#198).
+- **New validation (errors):** `E115` unresolved behavior-field reference (sub-action/parameter `typedBy`, `payload`, `includes`, `extends`, `subject`, `result`, `returnType`), `E116` succession/binding/flow endpoint that names nothing the element declares, `E117` value outside a closed vocabulary (sub-action/control-node `kind`, `loopKind`, parameter `direction`) (#199). `E118` malformed or reversed multiplicity, `E119` bad `visibility`, `E120` `supertype:` on a usage, `E121` `isVariant` outside a variation, `E122` enumeration without literals or specializing another, `E123` usage typed by the wrong kind of definition (and `conjugates:` of a non-`PortDef`), `E124` unknown enumeration literal, `E125` interface/connection with fewer than two ends (#200). `E126` unresolved `imports:`/`aliases:`/`dependsOn:`, `E127` connection endpoint whose owning part does not exist (#201).
+- **New validation (warnings):** `W056` connection endpoint port not found on its part, `W057` unknown `ISQ::`/`SI::` name, `W058` `name:` differs from the file name, `W059` private element referenced from outside its package.
+- **Fixed:** inline-feature `redefines:`/`subsets:` are resolved; a `VerificationCase` may verify a SysML requirement (`E104`); `W007` counts a type used only by a sub-action or parameter; `W502` understands `Pkg::*`/`Pkg::**`, `{target, filter}` entries and `ViewDef`.
+- **Views:** `syscribe view render <View>` materialises what a view exposes (tree/table/json/mermaid), with `filterCondition:` / per-entry `filter:` (`@Metadata`, `not`, `and`, `or`). PlantUML now renders Action, Allocation and UseCase diagrams. `show` prints ends, connections, parameters, sub-actions, time slices, imports, aliases and `expose`.
+- **SysML v2 ingest:** package `import`s are kept (bare imported library names no longer raise `E111`); anonymous `connect`, `bind`, `perform`, `exhibit`, `interface … connect`, `interface def` ends, port directions, `~PP` conjugation and `ref` are mapped; one bad member no longer discards the whole file (`W541` per member); dropped body members are counted in `W543`; a view's `filter` becomes `filterCondition:`. Dotted `connect` endpoints (`eng.pwr`) keep their full path as `Owner::eng::pwr` (GH #206): validation resolves the tail through the head's `typedBy:`/`supertype:` chain (`E127`/`W056` for a missing member), the graph edge lands on the deepest resolvable prefix, `export-sysml` writes the dotted chain back, and `connect` no longer raises `W542`.
+- **SysML v2 export:** exports enumerations, library packages, allocations, use/analysis/verification cases, views, viewpoints, concerns, flows, individuals; imports/aliases, interface and connection ends, conjugation, bindings, flows, performs/exhibits, time slices, variation, `parallel`, action parameters, assert/negation, requirement subject/actors/requires/assume. Output is valid SysML v2 (per-segment quoting, relative feature chains, unquoted expressions, no duplicate anonymous connection) and every field it cannot write becomes a `// dropped:` comment counted in the summary.
+- **Fixed:** an unreadable directory now fails the model walk instead of silently dropping its subtree (this also stabilises the LSP failed-reload test).
+
+
+## 0.51.0 — 2026-10-09
+
+### Review fixes
+
+- **Security:** the feature editor's `restore` op (`POST /api/feature-model/edit`, MCP `edit_feature`) joined a caller-supplied path onto the model root unchecked, so an absolute path or `..` could create or delete files anywhere the process could, even on a preview or dry run. Every path the edit engine touches is now confined to the model.
+- **Security:** Markdown bodies are no longer rendered with live HTML. Raw HTML is shown as text and a link or image with a `javascript:`, `vbscript:` or `data:` target is pointed at `#` (the element card, detail panel and `export-html`).
+- **Security:** `syscribe-server` listens on `127.0.0.1:3000` by default (it has write routes and no authentication; pass `--bind 0.0.0.0:3000` to expose it) and no longer sends permissive CORS headers, so another website open in the same browser can no longer drive its write API.
+- **Fixed:** an abstract feature's derived value could contradict the model. Each value is now fixed in turn so together they form one real model of the feature model (an `alternative` group whose members are abstract no longer derives all of them off), and a configuration that breaks `requires:`/`excludes:` no longer gets a spurious `E219` on a mandatory abstract feature.
+- **Fixed:** derived abstract values are re-computed wherever configuration inheritance is rebuilt (the LSP rename gate no longer sees them vanish), `show` no longer claims a derive-less configuration inherits, the load list leaves them out, and `W011`/`W012` skip abstract features.
+- **Fixed:** `setAbstract` refuses a feature some configuration already names (it would become `E238`), listing the configurations.
+- **Fixed:** MCP `apply_changes` now refuses `update`/`delete` of an entry synthesized from a shared sheet, as `update_element`/`delete_element` do (a `delete` removed the whole sheet).
+- **Fixed:** `move` of an element that has a directory of children beside its file moves both (it used to strand the file and break every rewritten reference), and rewrites qualified names inside `appliesWhen:`/formula expressions.
+- **Fixed:** the MCP watcher stops deferring reloads for a new file that stays broken (after four deferrals it reloads and reports the file), a lagging WebSocket client is told to reload instead of going silent, the diagram tab bar works (its inline handlers were malformed and broke on a quote in a directory name), the planning board no longer fetches twice (a `?who=` deep link could be overwritten), undo/redo run one at a time, and the element panel retries after a failed load and refreshes after a live reload.
+- **Tests:** every `testFunctions:` name in a `TestCase` must now exist (`tc_test_functions`), which found and fixed three stale references; regression tests for each fix above.
+- **Fixed (second pass):** `write_confined` refuses an absolute path or `..` before creating any directory; `PATCH /api/diagrams/layout` refuses an element that is not a Diagram; the guarded-write candidate copy follows directory symlinks and skips dangling ones; the detail panel's Save removes a key whose line was deleted (never `type` or `id`) and no longer writes the qualified name into `name:`; `move` no longer rewrites a `name:` label that happens to equal the moved name; an `edit_feature` undo/redo is refused when the file was changed elsewhere in between, so that change is not lost; the server skips a watcher reload for a change it already loaded (its own guarded write), keeping the cached baseline, and the page reloads once on WebSocket reconnect; the feature page serialises choices, drops overlapping selection responses (no doubled Impact block), keeps a typed configuration name after a refusal and refuses to save without an analysable model.
+- **New:** warning `W240` when the model has more than 5000 features, so abstract features' derived values are not computed.
+- Derived abstract values need at most 5000 features in the model (the deep-analysis limit); above that an abstract feature has no derived value.
+
+## 0.50.0 — 2026-10-08
+
+### An abstract feature's value is derived (REQ-TRS-FMED-004)
+
+- **Changed:** an abstract feature now has a value in every configuration, **derived from the concrete selection**: on exactly when the feature model forces it on (a selected child, a mandatory abstract parent, a `requires:` that targets it), otherwise off. Every reader of a configuration's selection sees it, so an `appliesWhen:` on an abstract feature is active exactly where the concrete selection entails it, projection and the matrix show it, and a `requires:` of an abstract feature is met by what entails it. `show` marks such entries `(derived)`, and the configurator's load list does not offer them as choices.
+- **Removed:** warning `W238` (an `appliesWhen:` naming an abstract feature), which flagged the gap this closes. It was emitted only in 0.49.0.
+
+## 0.49.0 — 2026-10-08
+
+### Abstract features (REQ-TRS-FMED-004)
+
+- **New:** a feature can be marked **abstract** (`isAbstract: true`) from the browser's Edit mode and the MCP tool (`setAbstract`), and it now behaves as an abstract feature does in a proper feature model: it does not distinguish products (the product count, `feature-check --enumerate` and the configurator count variants over concrete features only), a `Configuration` must not name it (`E238`, selected or not; the configurator can still select one to explore, and its Save leaves abstract features out) and is judged on its concrete features with the abstract ones completed, a `requires:` that targets one a configuration does not name is not an `E219`, an `appliesWhen:` that names one is `W238`, and one with no children is `W239`. The diagram draws it dashed and italic and the Inspector says "abstract".
+
+## 0.48.1 — 2026-10-08
+
+### A bound parameter is not removed (REQ-TRS-FMED-004)
+
+- **Changed:** removing a parameter that a `Configuration` binds is refused. The reply names the configurations, and the bindings must be removed first: the new `removeBinding` operation (a **✕** beside each binding in the Impact section in Edit mode, and in the MCP `edit_feature` tool) removes one. In 0.48.0 removing the parameter silently removed its bindings. Removing a whole feature still removes the choices and bindings that named it.
+- **New:** the Impact section lists the configurations' bindings of a feature's parameters, with their values.
+
+## 0.48.0 — 2026-10-08
+
+### Feature editing everywhere, and a leaner write path (REQ-TRS-FMED-004, REQ-TRS-MCP-MEM-000)
+
+- **New:** the MCP tool **`edit_feature`** applies the same semantic feature-model edits as the browser's Edit mode through the guarded write: `featureDelta` says which features become dead or false-optional, whether the model becomes void and which configurations become invalid; an edit that makes things worse is held (`needsConfirmation`) until `accept_worse`; a commit returns its `undo`.
+- **New:** **parameters** can be added, replaced and removed (`setParameter`, `removeParameter`, and a form in the Edit panel); removing one removes its bindings from every `Configuration`, and removing or renaming a feature does the same for its parameters' bindings.
+- **New:** **sheet entries** take every edit. Rename, move, remove, constraints and parameters now work on features defined in a `featureTree:` sheet, including its `crossTreeConstraints:` list and the derived ids that a rename would change. Undo restores the touched files exactly.
+- **Changed:** a guarded write on a large model (3,000 elements or more) holds one model in memory instead of two, and keeps the live model's validation findings between writes instead of revalidating it before each. On a 12,000-element model the peak across writes falls from 126 to 85 MB and a write from 2.4 to 1.7 s.
+
+## 0.47.0 — 2026-10-08
+
+### Feature model viewer, configurator, editor and analysis (REQ-TRS-FMED-001 to -007)
+
+- **New:** `/features` (header link **Features**) shows the product line's feature model as a feature diagram in FODA notation: mandatory and optional marks, XOR and OR group wedges, `requires` and `excludes` constraints as curves, parameters inside the box. Parents are centred over their children and several trees sit side by side. Collapse and expand subtrees, search by name or id, fit to the window, and click a feature for its state, why, its constraints and its documentation.
+- **New:** the SAT analysis is overlaid on the diagram, live: core, dead and false-optional features are marked with the constraints responsible, and a void model shows its conflict and the corrections that would fix it. `GET /api/feature-model/analysis` returns the same data.
+- **New:** `diagramKind: FeatureModel` draws the same diagram from a `Diagram` element (subject: a feature, a feature-model sheet or a package of features), exportable as SVG, PlantUML and Mermaid with `diagram export` and from the page; **+ Diagram** offers it.
+- **New:** a **Configure** mode turns the diagram into a configurator: click to select, deselect or leave open; the model propagates the consequences at once (implied features shown as rings), counts the valid products that remain, and refuses a choice nothing can satisfy with the choices and constraints at fault. Load a stored `Configuration`, or save the completed product as a new one (REQ-TRS-FMED-003).
+- **New:** an **Edit** mode changes the feature model from the diagram: rename, mandatory or optional, XOR/OR/free groups, add and remove features and `requires`/`excludes` constraints, move a feature under another or drag it there. Every edit goes through the guarded-write engine and is checked first: one that makes a feature dead, forced on, the model void or a configuration invalid is held with the exact consequences until you confirm. Undo and redo for the session (REQ-TRS-FMED-004).
+- **New:** selecting a feature shows its **Impact**: the elements whose `appliesWhen:` names it by type (and through which packages), the configurations that select or deselect it, what requires or excludes it, and a preview of what removing it would break (REQ-TRS-FMED-005).
+- **New:** a **Matrix** of features against every stored configuration, with a two-way **comparison** that highlights where two configurations differ (REQ-TRS-FMED-006).
+- **Changed:** the feature analysis handles 5,000 features, up from 1,000, and is several times faster: each satisfying model witnesses every feature at once instead of one solver call per feature and direction, and an unsatisfiable core is found on one incremental solver instead of rebuilding it per constraint. A 2,000-feature model is analysed in about 0.2 s and a configurator click answered in about 0.3 s. **Expand level** opens a large model one level at a time, and a diagram too wide to read is shown from its first root instead of as a speck (REQ-TRS-FMED-007).
+- **Fixed:** moving or renaming an element (`syscribe mv`, MCP `move_element`) did not rewrite qualified names used as **map keys**, so a `Configuration`'s `features:` and `parameterBindings:` still named the old feature.
+- **Fixed:** `feature-check --deep` reported a mandatory feature with the default group kind as false-optional (`W018`). Only an optional member can be false-optional.
+
+## 0.46.0 — 2026-10-08
+
+### MCP server memory (REQ-TRS-MCP-MEM-000)
+
+A model of 12,000 elements used 121 MB at rest and grew by 27 to 40 MB with every guarded write, reaching 342 MB after a few operations. It now uses 62 MB at rest, does not grow with writes, and peaks at 126 MB.
+
+- **Changed:** an in-memory element record is 1,792 bytes instead of 7,008. Rarely-set frontmatter fields are boxed in three tiers and allocated only when an element sets one; every field is still read and written as before.
+- **Fixed:** resident memory kept climbing after each write or reload on Linux. The server now caps glibc's per-thread malloc arenas at startup and returns free memory after every rebuild.
+- **New:** the `server_stats` MCP tool reports element count, body bytes, bytes per element record, and resident and peak resident memory (Linux). The watcher's reload log line includes the resident size.
+- **New:** a regression test loads 12,000 elements and fails if memory exceeds its budget or grows across guarded writes. Measurements and the ideas still open are in `docs/design/mcp-memory.md`.
+
+### Planning dashboard (REQ-TRS-VIS-027)
+
+- **New:** `/planning` (header link **Planning**) is a live board of PlanningItems: counts per status, who and which agents are working now with claim ages, a column per status, and who/done filters. It refreshes on the model-reload WebSocket and a timer, so `claim`, `release` and agent edits show as they happen.
+
+### Element panel in the diagram editor (REQ-TRS-VIS-026)
+
+- **New:** clicking a shape, port or edge in a diagram opens an **Element** side panel with the depicted element's rendered Markdown (headings, tables, code, Mermaid), its identity and an **Open full detail** button; a port or part usage that is only an inline feature shows its declared properties and its type's documentation (REQ-TRS-VIS-026).
+
+## 0.45.0 — 2026-10-08
+
+### Create diagrams in the browser; sequence diagrams, tabs and folders fixed (REQ-TRS-VIS-023, -024, -025)
+
+- **New:** a **+ Diagram** button in the model browser opens a dialog to create a diagram — a name, a kind, *derive from a subject* or *blank*, an optional/required subject with suggestions limited to the element types that kind accepts, and a package (default `Diagrams`). It posts through the guarded-write engine, then opens the diagram in a tab.
+- **New:** a **⊕ Add existing element** toolbar button opens a picker over the model and adds the chosen element to a hand-listed (manifest) diagram through `POST /api/diagrams/shapes/{qname}`: one guarded write that lists it under `shapes:` unpinned, so ELK places it, and never touches the element's file. Refused for a derived diagram, an unresolved or already-present element, and a diagram as the element (REQ-TRS-VIS-024).
+- **Fixed:** clicking a folder in the model browser did not show its contents straight away: the first click flipped the arrow and loaded nothing, the second collapsed it and then loaded the children (so the folder looked open under a closed arrow), the third did nothing. The row's inline `onclick` and an htmx `hx-trigger` filter shared one piece of state and the inline handler always ran first. One handler (`static/js/tree-toggle.js`) now owns the arrow, the state and the request: the first click opens and loads, the next collapses, and a failed load puts the row back. The model root row, which has no children to load, no longer shows a dead arrow.
+- **Fixed:** a hand-listed `Sequence` diagram without `layout:` pins (the demo's `MissionExecutionSeq`) drew piled at the origin in the browser and could not be exported (`ELK layout failed: The edge needs to have exactly one edge section`). It is now placed with the geometry a derived sequence diagram uses — lifelines in declaration order, one row per message, activation bars, fragments boxed around the messages whose `ref` lies under theirs, unlabelled messages named by their `ref` — and ELK's `fixed` algorithm is used only when every shape is pinned (REQ-TRS-VIS-025).
+- **Fixed:** in the web UI a diagram tab opened to a blank canvas with no tab strip. The stylesheet hides `#sprotty-viewport` and `#canvas-tabs` by default and the page script "showed" them by assigning an empty `display`, which only removes the inline style and leaves the stylesheet's `none` in force. Present since the editor first landed (2026-07-30); the editor itself, the REST routes and every exported picture were unaffected, which is why API-level tests and the exports never saw it. A new test (`frontend/test/page-wiring.test.mjs`) fails for any element the stylesheet hides that the page tries to show with an empty display.
+
+## 0.44.1 — 2026-10-08
+
+### Windows release asset restored; stdio-plugin SIGPIPE fix
+
+- **Windows:** the 0.44.0 release has no `x86_64-pc-windows-msvc` asset — the PlantUML writer's snapshot files were named after qualified names containing `::`, which Windows cannot check out. They now use `__` (`Diagrams__PowerSystemIBD.puml`); every other 0.44.0 asset was built and published normally, including the embedded QuickJS/ELK on every cross-compiled target.
+- **Stdio plugins:** a plugin that exits without reading its stdin (`echo '{}'` is a legitimate plugin) could kill `syscribe` outright with `SIGPIPE` while the request was being written, because the binary restores `SIGPIPE`'s default disposition so that piped output exits quietly. The runtime now masks the signal for the duration of that write. This was the intermittent `run_missing_alias_entry_fails_clearly` failure in CI; the test now reports the child's exit status and signal.
+- No format, schema or validation-code changes.
+
+## 0.44.0 — 2026-10-08
+
+### Traceability export (ADR-SYS-TREX-001)
+
+- **New command:** `syscribe trace-export [--config <C>] [--sort directory|asc|desc] [--out <file>]` and the read-only MCP tool `trace_export {config?, sort?}` emit **one JSON document** covering every requirement in the model — native `Requirement` and SysML `RequirementDef`/`Requirement` — with its identity (`qname`, `id`, `name`, `type`, `status`, `reqClass`, `reqDomain`, `file`), derivation (`derivedFrom`, `derivedChildren`, `breakdownAdr`), satisfaction (`satisfiedBy` with type and domain), verification (`verifiedBy` with level, status and the ingested verdict), `refinedBy`, and a computed `coverage` block (`leaf`, `satisfied`, `verified`, `integrationVerified`) plus a `summary` of the counts (`REQ-TRS-TREX-000..004`).
+- **Why:** coverage questions were answered one requirement at a time (`trace`, `why`, `who-verifies`), as a grid (`matrix`) or by joining the whole-model `export` by hand; none of those could be restricted to a product-line variant and sorted predictably. One schema computed from the same reverse indices `validate` maintains — `coverage` applies exactly the `W300`/`W002`/`W305` rules, a retired TestCase is listed but never counts, and a `coverage = true` link type that `extends` a built-in link contributes — keeps an external checker and the validator in agreement.
+- **Usage:** every reference is a full qualified name plus `id`; a dangling one is kept as `{ "qname": "<as written>", "unresolved": true }`. `--config` projects onto a stored `Configuration` or an ad-hoc feature set exactly as `export --config` does (inactive elements omitted from every list; `config` records `{id, qname, name, activeFeatures}`; an invalid configuration is a usage error). `--sort` fixes the order of the requirement list and every nested list (`directory`, the walker order, is the default); the output is byte-identical across runs. Documented in `syscribe help trace-export`, `docs/cli` and the MCP help; qualified by `REQ/TC-TRS-TREX-001..004` (`PI-TREX-001`).
+
+### CLI `diagram` toolkit removed (ADR-SYS-VIS-001, REQ-TRS-VIS-013)
+
+- **Removed:** the `syscribe diagram` command and all of its subcommands — `list`, `render`, `measure`, `compose`, `layout`, `seq`, `req` — together with its taffy/Cassowary/A\* layout engine, `*.layout.json` workspace files, `syscribe help diagram`, the `docs/cli` section, the composed-SVG workflow in the authoring prompt, and the qualification cases `REQ-TRS-DIAG-004`/`TC-TRS-DIAG-004` and `REQ-TRS-META-002`/`TC-TRS-META-002`. `TC-TRS-LINK-002` is retired; `REQ-TRS-LINK-002` will be re-verified against `syscribe diagram export --format svg` when it lands.
+- **Why:** the visualisation redesign (`ADR-SYS-VIS-001`, `docs/design/visualisation.md`) makes one Diagram IR in `syscribe-model::vis` the only rendering path, laid out in the browser; no backwards compatibility is kept for the old renderers. Phase 0 clears the ground.
+- **Unchanged:** `render <diagram_path>`, `syscribe plantuml` / `plantuml render`, every `Diagram` validation rule (`E400`–`E404`, `W400`–`W415`), and `magicgrid --svg`, which keeps its text metrics and element theme under `crates/syscribe/src/svgkit/`.
+- **Dependencies:** `cassowary` and `pathfinding` dropped from the `syscribe` crate.
+
+### Visualisation rebuilt on one Diagram IR (ADR-SYS-VIS-001, REQ-TRS-VIS-000..022)
+
+- **One representation:** every `Diagram` is built as one intermediate representation in `syscribe-model::vis` — from a hand-listed `shapes:`/`edges:`/`layout:` manifest, or **derived from the model** when the diagram declares only `diagramKind:` and `subject:` — and every renderer and exporter reads that IR. Design: `docs/design/visualisation.md`.
+- **Derived diagrams** for seven kinds: `BDD` (definitions, inheritance, composition, attribute/port compartments), `IBD` (boundary, owned parts, ports with direction, connections/flows/bindings), `StateMachine` (states, initial/final pseudostates, transitions labelled `event [guard] / effect`), the new **`Action`** kind (steps, decision/merge, fork/join, loops, successions — SysMLv2's action-flow view), `Requirement` (deriveReqt/satisfy/verify/containment with satisfying and verifying context nodes), `Sequence` (lifelines, messages in succession order, `alt`/`loop` fragments, activations) and `Allocation` (logical/physical lanes). `include:`/`exclude:` narrow a derived diagram; shape ids are deterministic (`s-<qualified-name-slug>`) so `layout:` pins survive regeneration. Demo diagrams: `Diagrams::*Derived*`.
+- **Browser editor:** the sprotty client lays diagrams out with **ELK** (`sprotty-elk` + `elkjs`, vendored, no CDN) — measured labels, orthogonal routing, ports on borders, inheritance pointing up. A dragged node becomes a pin; **Pin all**, **Auto-layout** and **Save companion SVG** are the three new toolbar actions; the connect gesture is port-aware and writes dotted chains relative to the subject. One style table (`vis::style`, stereotypes, arrowheads per spec §8.16.8, applied-`MetadataDef` banners) is owned in Rust and served to the client.
+- **The same ELK engine inside the executable:** the vendored `elk.bundled.js` runs under an embedded QuickJS, with node sizes computed once in Rust from shared font metrics and sent to the browser, so `diagram export --format svg`, `export-html`, MkDocs and MCP draw **every** diagram — pinned or not — with the same layout the browser shows. A committed Node-versus-QuickJS determinism test and a bundle-version pin guard it.
+- **New command:** `syscribe diagram export <qname> --format plantuml|mermaid|svg [--out <file>]`; MCP `render_diagram` accepts the same formats. Mermaid output carries `%% ref:` annotations; SVG output carries `sysml:ref`/`sysml:source`/`sysml:target` and `[links]` hyperlinks (`REQ-TRS-LINK-002` re-verified).
+- **New API routes:** `DELETE /api/diagrams/layout/{qname}` (clear every pin; `PATCH` accepts `null` to remove one and `w`/`h` to pin a size) and `PUT /api/diagrams/svg/{qname}` (save a companion SVG, setting `svgMode`/`svgFile`).
+- **New validation codes:** `E405` a malformed `shapes:`/`edges:`/`layout:` entry (previously the diagram rendered empty, silently), `W416` a stale `layout:` pin, `W417` an `include:`/`exclude:` entry naming no member (or filters on a manifest diagram), `W418` a derived diagram whose `subject:` type does not fit its kind. `W080` now applies only to manifest-sourced sequence diagrams.
+- **Behaviour changes:** manifest `kind:` values outside the spec vocabulary (`TestCaseDef`, `flowConnection`, `supertype`) are `E405` — the demo model's three were corrected; `export-html` draws the IR first and uses a companion SVG only when there is nothing to draw; the PlantUML writer takes a block's stereotype from the element's real type rather than the manifest's word for it.
+- **Dependencies:** `rquickjs` (QuickJS, MIT; a C compiler is needed at build time), `ab_glyph`/`fontdb` moved to `syscribe-model`; frontend adds `sprotty-elk` and `elkjs` (EPL-2.0, vendored under `crates/syscribe-model/vendor/elkjs/`). Binaries grow by roughly 2.5 MB.
+- **Qualification:** `REQ/TC-TRS-VIS-001..022` (plus `-013` for the removal and `-014` for coverage), `TC-TRS-LINK-002` revived; `PI-VIS-001..012` track the phases. Noted limits: a 200-node/300-edge layout takes about 7 s in a debug build under QuickJS (0.9 s under Node); release builds are faster.
+
+## 0.43.0 — 2026-09-26
+
+### MCP guarded writes: the delta now reports every error (#187)
+
+- **Before:** `validationDelta.newErrors` and `resolvedErrors` contained only dangling references (`EREF`) and user-defined link-type errors (`E630`–`E636`). A change that failed a full `validate` (for example `E310`, a derived requirement with no `breakdownAdr`) came back with `newErrors: []` and could be committed unnoticed.
+- **Now:** both lists contain every validator error the change introduces or resolves, and each error entry has a boolean `gating`. It is `true` for `EREF` and `E630`–`E636` only.
+- **Commit gate unchanged:** only `gating: true` errors refuse a commit, so incomplete drafts stay creatable. The rest are reported with `gating: false`.
+- **Note:** some failures now list two errors, for example `EREF` and `E103` for a dangling `derivedFrom`. REQ-TRS-MCP-008 / TC-TRS-MCP-008.
+
+### MCP guarded writes: no spurious findings for paths outside the model root (#186)
+
+- **Before:** the candidate copy was validated in the system temp directory, so a model-relative path leaving the model root (`[plantuml] style_file = "../.plantuml/x.iuml"`, `sourceFile: ../tests/t.py`) never resolved there. Every write showed a spurious `W415` or `W004`, once as new and once as resolved.
+- **Now:** the candidate is staged as a sibling of the model root (a hidden `.syscribe-mcp-cand-*` directory, removed after every call), so `../` paths resolve as in the real tree. If the parent is not writable it falls back to the temp directory. Finding messages that named the candidate root are rewritten to the real root, so a finding present before and after cancels out of the delta.
+
+### Install script and release checksums
+
+- **`install.sh`:** `curl -fsSL https://raw.githubusercontent.com/sjames/syscribe/main/install.sh | sh` installs the latest release binary for Linux (static musl build) or macOS into `~/.local/bin` (`--dir` or `SYSCRIBE_INSTALL_DIR` to change it).
+- **Checksums:** each release now publishes `<asset>.sha256` next to every binary, uploaded in the same step. The installer verifies the download against it and aborts on a mismatch. A release with no checksum asset, such as 0.42.0 and earlier, installs with a warning.
+- **Mirrors:** `SYSCRIBE_DOWNLOAD_BASE` overrides the download location.
+
+### Docs
+
+- **README:** reorganised around agent-safe writes, with a tagline, a real demo transcript and GIF (`demo/`), a short quickstart, `cargo install --git` instructions, and `--read-only` next to the MCP config examples. The long feature list moved to "Full Feature List".
+- **Example:** `examples/chat-to-code/` is a real agent session that took an idea to a tested library through design discussion, ADRs, requirements, tests, a plan and implementation.
+- **Site:** the docs site description and title follow the new tagline.
+
+## 0.42.0 — 2026-09-25
+
+### MCP server reloads automatically when model files change (#181)
+
+- **Before:** `syscribe mcp` loaded the model once and refreshed it only after its own write tools. Edits made by an editor, the CLI (`set`, `claim`, `move`), `git checkout` or another agent stayed invisible until the client called `reload`.
+- **Now:** a file watcher covers the model directory and any `[repos]` peers. After a short quiet period it reloads, but only when the model's inputs actually changed, so the server's own writes don't reload twice.
+- **No blocking:** the fresh model is built without holding the lock, so tool calls are never blocked.
+- **Half-saved files:** a file that newly fails to parse defers the reload (`reload_deferred`) and keeps the last good model.
+- **Clients:** they get a `{"event":"reload","source":"watch"}` log message and `notifications/resources/list_changed`.
+- **Controls:** the `reload` tool stays, and `--no-watch` disables watching. REQ-TRS-MCP-048 / TC-TRS-MCP-049.
+
+### Docs
+
+- **README:** a "Ways to use it" overview (CLI, GitHub Action, MCP server, LSP, web browser), and copy-paste setup for connecting the MCP server to Claude Code (`claude mcp add`) and to `mcpServers`-JSON clients.
+- **Action description:** the GitHub Action's Marketplace description is corrected and now mentions the MCP server.
+
+## 0.41.0 — 2026-09-25
+
+This release comes out of a full documentation and specification consistency review. The review checked the spec, the LLM prompts, the help pages and the guides against the code and the binary, found about 110 inconsistencies, and logged 37 tool bugs (#125–#179). All are fixed; #150 turned out not to be a bug. Several documented behaviours change as a result, so read the **Behaviour changes** section before upgrading a CI gate.
+
+### Behaviour changes
+
+- **Unresolved structural references are now errors.** Before, they were silently accepted. The new codes are E110 `supertype`, E111 `typedBy` (on the element or an inline feature), E112 `subsets`, E113 `redefines` and E114 `satisfies`. `[repos]` models still report them as E512. (#125)
+- **`validate` gates:**
+  - `--all-configs` now applies `--deny`, `--max-warnings`, `--warnings-as-errors`, `--profile` and `--file` to each variant, and `--config` honours `--profile` and `--file`.
+  - Exit codes are consistent everywhere: 0 clean, 1 errors or a usage error, 2 a gate tripped. An unresolvable `--config` now exits 1; it used to exit 2. (#126)
+- **`--config` on a model with no feature model:** it must now name a stored Configuration, and anything else is a usage error instead of a silent whole-model fallback.
+  - `trace`, `why`, `who-verifies`, `refs` and `links` now apply the lens. (#139)
+- **Code renumbering:** the derive pass moves to E504–E506 (derive cycles are now detected, as E504). E500–E503 are only the Allocation codes. (#127, #141)
+- **Argument checking:** unsupported `--where` operators, invalid enum and count values, and unknown options are now usage errors; before, they matched nothing or were silently ignored. `lint-docs` on a missing path now fails. `diagram` subcommands now fail on an unknown element. (#129, #130, #133, #168)
+- **Removed false positives:**
+  - W406/W407 only check inline-SVG diagrams, which removes 90 warnings from the bundled models. (#158)
+  - Package-registry `implementedBy:` values are external, so they no longer raise W023. (#134)
+  - Requirements derived from a safety or cybersecurity goal are not W005 orphans. (#151)
+  - W301 had already been retired in 0.40.x.
+
+### New and completed features
+
+- **Configuration inheritance** through `derivedFrom:` (spec §9.8), with E234–E237. (#137)
+- **`repoImports` mounting:** peers mount at `<package>::<as>`, including for `subConfigurations:` and cross-tier bindings. E515 now also catches the same id exported by two peers. (#138, #146)
+- **SysMLv2 `allocation def`** is mapped, and `allocate … to …` clauses become allocation edges. (#142, #144)
+- **New and completed fields:**
+  - `about:` comments on elements, with E027/W052.
+  - `locale:` documentation variants.
+  - ADR `deciders:`.
+  - FaultTreeEvent `ref:`, with E927.
+  - `derive:` is a recognised field.
+  - The `qualifiedName:` identity override is removed; it now raises W049. (#164, #160, #159, #148, #141)
+- **Constraints now enforced:** ConfirmationMeasure `status` (E924), SL range (E925), Zone/Conduit `status` (E926), a transition with no endpoint (W929), a features-form allocation outside an Allocation element (W930), an FMEA row with no id (E923), and an overridden `rpn:` (W928). (#136, #142, #132)
+- **Commands:**
+  - `template` works for every element type. (#135)
+  - `list` matches every type. (#167)
+  - MCP `explain_finding` explains every code. (#128)
+  - `set evidence.add` no longer duplicates entries and keeps comments. (#152)
+  - `summarize --no-cache` doesn't write the cache. (#169)
+  - The attack-tree roll-up starts from the structural root. (#149)
+  - The report is titled from the model's root package. (#174)
+  - lint-docs and validate share the shape-ref rule. (#172)
+- **Concurrency fix:** the guarded-write temp directory could collide under concurrent writes; each write now gets a unique directory. (#156)
+
+### Documentation
+
+- **Spec, spec digests, LLM prompt and guides** now agree with the tool.
+  - Field names are corrected, e.g. `allocatedFrom`/`allocatedTo` and `diagramKind`.
+  - The qualified-name rule is stated correctly, and the ISO 26262/21434/61508 examples use the real schema.
+  - Every element type is inventoried, and Asset and Baseline get schema sections.
+- **Guarded by tests:**
+  - every documented YAML example validates (287 checked);
+  - the validation-code catalogue, the rules page and spec §11.12 match the emitted codes;
+  - `--help` is generated from the command registry;
+  - the CLI reference, help pages and MCP/LSP pages cover the binary, and help-page examples run.
+- **Site:**
+  - The landing page, README and web-UI docs are refreshed; the retired `/canvas` is gone.
+  - Release notes for 0.1.1–0.39.0 are backfilled.
+  - `mkdocs build --strict` passes.
+
+### CI and distribution
+
+- **Static musl Linux binaries:** `syscribe-x86_64-unknown-linux-musl` and `syscribe-aarch64-unknown-linux-musl` are published alongside the existing five.
+- **More CI coverage:**
+  - The qualification workflow now runs `cargo test --workspace`, about 950 tests. (#179)
+  - It triggers on `prompts/`, `spec/`, `docs/` and workflow changes. (#154)
+  - A SIGPIPE race that made qual harnesses flaky is fixed. (#178)
+
+## 0.40.1 — 2026-09-24
+
+**This release replaces 0.40.0, which has been withdrawn.** The 0.40.0 release accidentally committed about 23 MB of unrelated, in-progress test fixtures (`crates/syscribe-model/tests/fixtures/plugins-src`, including `node_modules` and built `.wasm`). The affected commits were rewritten to remove them, and the 0.40.0 tag and release were deleted. 0.40.1 contains everything listed under 0.40.0 below, plus:
+
+- **Agent instructions use valid command syntax.** The LLM authoring prompt (`--agent-instructions`) wrote 83 commands as `syscribe model/ <cmd>`, which the CLI rejects. They now use `syscribe -m model/ <cmd>`, and so do 15 more examples in the model guides. Two new tests check the embedded prompts: no example passes the model root without `-m`, and every example names a real subcommand.
+
+## 0.40.0 — 2026-09-24 (withdrawn — superseded by 0.40.1)
+
+### User-defined link types
+
+Projects can declare their own relationship types in a `[linkTypes.<name>]` table of `.syscribe.toml` and write them on elements under a namespaced `links:` map (ADR-SYS-LINKTYPE-001, spec §12.10, [guide](../model-guide/link-types.md)).
+
+- **Declared rules:** each type can set `description`, `inverse`, `sourceTypes`/`targetTypes`, `cardinality`, `acyclic` and `suspect`. The codes are **E630–E636**, **W630** and **W631**.
+- **Variants of built-in links:** `extends = "satisfies" | "verifies" | "derivedFrom" | "refines"` makes a type a named variant of that built-in link, with the same rules and reverse index. `relax = [...]` switches specific rules off for that type only (E312/E313, E104, E105/E310/W303, E316). `coverage = false` keeps the rule checks but gives no coverage credit. Built-in links are never relaxed.
+- **Traversal:**
+  - New `follow <elem> <link> [--reverse] [--transitive] [--depth N] [--format text|json|dot]` and `link-types [--json]` commands.
+  - `links`, `refs`, `impact --kinds`, `trace`, `show`, `connectivity`, the coverage reports, `export-html`, `export-reqif` and `sbom` all include custom links.
+  - Findings raised by an extending link name it, e.g. `(via links.<type>)`.
+- **MCP:**
+  - New read-only `link_types` and `follow` tools.
+  - A write that would introduce an E630–E636 error is refused.
+- **LLM discovery:**
+  - `syscribe -m <root> --agent-instructions` appends the project's declared link types.
+  - The authoring prompt tells agents to run `link-types` and never invent a type.
+  - E630 lists the declared types.
+- **Suspect links:** custom links take part in suspect-link detection unless `suspect = false`.
+- **Worked example:** `examples/link-types/`.
+
+### W301 retired: a leaf requirement may have several satisfiers (#121)
+
+- A leaf requirement satisfied by more than one element is now legitimate, for example a PartDef plus the StateDef that gives it its behaviour, or redundant channels.
+- Leaf vs parent depends only on `derivedFrom`.
+- E312 and W300 are unchanged.
+
+### Package membership is generated from the directory (#120)
+
+- `show <package>` prints a `## Members (N)` table. The web UI detail panel and `export-html` package pages list the same members, taken from the directory rather than from `_index.md` prose.
+- New advisory **W103** in `lint-docs`: an `_index.md` that hand-lists three or more of its own members. It doesn't change the exit status.
+- The bundled models' `_index.md` files were rewritten to describe purpose and scope (ADR-SYS-PKG-001).
+
+### Fixes
+
+- **`ingest-results` merges instead of overwriting.** A session-log ingest no longer wipes earlier cargo-json/junit verdicts, or the other way round. Each format replaces only its own section of `.syscribe/results.json`, and legacy sidecars still load. The MCP `ingest_results` tool merges the same way.
+- **`--config` on a model with no feature model:** the argument must now name a stored `Configuration`, for example a MagicGrid parametric variant, in which case the whole model is used. Anything else exits non-zero instead of silently running over the whole model. This applies to every CLI `--config` command and the MCP `config` arguments (REQ-TRS-PROJ-001). A Baseline's `frozenScope.config` is unchanged.
+- **MCP `why_active`** reports a config it can't resolve instead of treating it as an empty selection.
+- **Help text:** `set` help now states that only `status=` is byte-preserving; the list operations re-serialize the frontmatter block.
+
+### Qualification
+
+- The 13 previously skipped qual TCs now have harnesses, so the suite runs **308/308 with 0 skipped**.
+- New TCs: TC-TRS-LINKTYPE-001..012 and TC-TRS-PKG-001/002.
+- Fixed a SIGPIPE race that made grep assertions on large outputs flaky (`qual/tests/lib.sh`).
+
+## 0.39.0 — 2026-09-15
+
+### Annotated-source ingestion
+
+A package `_index.md` can declare `annotationFormat: <label>` with inline `marker:` (a regex), `include:` and `exclude:` (globs). Syscribe then scans the matching source files in-process for comment blocks that start with the marker and parses each block with the same frontmatter schema a `.md` file uses (ADR-SYS-ANNOTATE-001, [guide](../model-guide/annotated-source.md)).
+
+- `doc:` in a marker block becomes the element's documentation body.
+- `implementedBy:` is filled in from the marker's own source location when it isn't set (**W563**).
+- A native `TestCase` can `verifies:` an annotation-synthesized element (E104 widened a third time).
+- New codes **E560**, **E561**, **W560–W563**. `annotationFormat:` is mutually exclusive with `foreignFormat:` and `sysmlSubmodel:` on the same package (**W562**).
+- New `annotations scan <qname-or-label> --dry-run` scans one package without merging or validating.
+- Worked example: `examples/annotated-source/c-firmware/`.
+
+### Session-log results for manual verification (#113)
+
+`ingest-results --format session-log <file>` ingests a JSON array of per-Gherkin-scenario records (`testCase`, `scenario`, `steps`, `result`, `timestamp`). A malformed record is a hard error and nothing is written. A TestCase with no `testFunctions:` gets its verdict from its scenario titles: any fail is a fail, every scenario recorded as pass is a pass, and partial coverage stays unknown. `trace`, `matrix`, `safety-case` and `testplan` show these verdicts.
+
+### PlanningItem workflow
+
+- **`set` command (#112):** `set <id> status=<value>`, `set <id> evidence.add ref=<id>|path=<path> [rationale=<text>]` and `set <id> achieves.add <req-id>`. Values are checked before anything is written, `status=` rewrites only that one line, and `--dry-run` previews a diff.
+- **`claim` / `release` (#115):** `claim <PI-id> --by <agent-id>` sets the new advisory `claimedBy:`/`claimedAt:` fields. It refuses a `done` item or one claimed by someone else. `release <PI-id>` clears both. `claimedBy` appears in `show` and `list PlanningItem --json`.
+- **W310 (#114):** a `done` PlanningItem whose `achieves:` requirement doesn't meet the W002/W305 verification bar is flagged on the PlanningItem's own file.
+- **W311:** two active PlanningItems (`in_progress` or claimed) that share an `achieves:` requirement or an `evidence[].path`.
+
+### CLI output
+
+- **`validate` summary line (#116):** text output now starts with a line such as `0 errors, 51 warnings`. When a gate trips, the line ends in `FAIL` and names the mechanism (`--deny`, `--warnings-as-errors`, `--profile` or `--max-warnings`).
+- **`show` Related footer (#117):** `show` lists the relevant follow-up commands for the element's type (`trace`, `who-verifies`, `impact`, `refs`, `connectivity`, `n2`). `--no-related` hides it.
+
+### Documentation
+
+- Docs, templates and prompts now use the canonical `derivedFromCybersecurityGoal` field name that W804/W807 report (#84). The legacy alias still works.
+
+## 0.38.0 — 2026-08-24
+
+### Stdio-subprocess foreign-format plugins
+
+A package `_index.md` can declare `foreignFormat: <alias>` to hand its whole subtree to an external process configured under `[plugins.<alias>]` in `.syscribe.toml` (ADR-SYS-PLUGIN-002, [guide](../model-guide/stdio-plugins.md)). Syscribe writes one JSON request to the process's stdin and reads one `{elements, diagnostics}` envelope from its stdout. The plugin can be written in any language.
+
+- Plugins are not sandboxed. `timeout_ms` is the only enforced limit.
+- Plugin elements take part in cross-references like hand-authored ones, and a native `TestCase` can `verifies:` a plugin-synthesized element.
+- New codes **E550**, **E551** and **W550–W553**.
+- New `plugins run <alias> --dry-run` shows a plugin's raw envelope.
+- Worked example: `examples/stdio-plugins/toy-python/`.
+
+### E108: duplicate qualified name
+
+New **E108** reports two elements with the same qualified name, whatever their origin. Before this, the last one silently won. It found redundant `_index.md` wrappers in `model_sil/` and in qual fixtures, which were removed.
+
+### More SysMLv2 constructs mapped
+
+Native SysMLv2 submodel ingestion now maps several more constructs onto the existing native schema:
+
+- `state def`/`state` → `StateDef`, with canonical transitions
+- `action def`/`action` → `ActionDef`, with a `subActions:` tree
+- `view def`, `viewpoint def` and `rendering def`
+- `concern def`/`concern`
+- `flow def`/`flow`, which also lifts onto the owning part's `flowConnections:`
+- `enum def`/`enum`
+- `case def`, `analysis def` and `verification def`
+
+`use case def` is still unmapped.
+
+### VS Code extension 0.2.0
+
+The extension in `editors/vscode/` is ready for the Marketplace:
+
+- It finds or downloads the `syscribe` binary automatically. The new `syscribe.version` setting pins a release.
+- It is bundled with esbuild.
+- Activation has a timeout and fails with a clear error instead of hanging.
+- A CI workflow builds the `.vsix` on `vscode-v*` tags.
+
+## 0.37.0 — 2026-08-18
+
+### Derived ids for `featureTree:` entries
+
+A `featureTree:` entry's `id:` is now optional (REQ-TRS-FM-006). When it's left out, it is derived from the entry's dotted `name:`, so `Platform.CortexM` becomes `FEAT-PLATFORM-CORTEXM`. An explicit `id:` always wins. Invalid or colliding derived ids are reported by the existing **E006** and **E101**. A plain per-file `FeatureDef` still needs an `id` (**E201**). MCP `describe_type` now lists `FeatureModel`.
+
+## 0.36.1 — 2026-08-18
+
+- Bumped `sysml-v2-parser` from 0.53.0 to 0.54.0, which brings upstream parser fixes. No behavior change for Syscribe models.
+
+## 0.36.0 — 2026-08-18
+
+### Single-file feature models
+
+A `type: FeatureModel` sheet can hold a whole feature tree as one flat `featureTree:` list (REQ-TRS-FM-005, spec §9.6a). The walker turns each entry into an ordinary `FeatureDef`.
+
+- Entry names are dot-separated paths relative to the sheet (`Platform.CortexM`), so they get the same qualified names a directory layout would.
+- An optional `crossTreeConstraints:` list keeps `requires:`/`excludes:` edges in one place.
+- `parameterConstraints:` is accepted directly on the sheet.
+- New codes **E231–E233** and **W048**.
+- Worked example: `examples/single-file-feature-model/`.
+
+### Fixes
+
+- `requires:`/`excludes:` now resolve bare `FEAT-*` ids. Before, they raised a false E212 and were dropped from `feature-check --deep`.
+- `parameterConstraints:` no longer triggers a false W047.
+- The `features` tree now nests by real FeatureDef ancestry.
+- Write operations (`update_element`, `delete_element` and `move_element`, in both the web server and MCP) now refuse elements that were synthesized from a shared sheet, such as FMEA/TARA rows or `featureTree:` entries. Before, they rewrote or moved the whole sheet file.
+- LSP go-to-definition on a `featureTree:` entry now jumps to that entry's line.
+
+## 0.35.0 — 2026-08-14
+
+### SysMLv2 submodel improvements
+
+- **`@Syscribe*` metadata annotations (#92):** on a `part def`/`part`, these annotations set `domain:`, `asilLevel:`/`silLevel:`/`plLevel:`, `shortName:` and `implementedBy:`. The existing validation then applies to them.
+- **Doc-comment lifting (#94):** `doc /* ... */` comments become the synthesized element's documentation body.
+- **Connections (#95, #99):** `connect a to b (, c)*` endpoints become resolvable `connections:` edges. A two-segment endpoint resolves to a nested feature redeclared on the usage. New **W542** warns when an endpoint is truncated to its head (#104).
+- **Trailing doc bodies (#98):** a named connection usage's own trailing doc body is lifted.
+- **Doc-comment directives (#100):** `interface def`, `port def` and `connection def` accept `@SyscribeDomain:`, `@SyscribeIntegrity:`, `@SyscribeShortName:` and `@SyscribeImplementedBy:` lines in their doc comment.
+- **Scoped `n2` (#97):** the axis now includes qname-nested child parts.
+- **Package-relative references (#105, #107):** package-relative `typedBy:`/`supertype:` references now resolve for W600 suppression, W007 usage tracking and the graph's `TypedBy` edge.
+
+### Validation and CLI
+
+- **Shorter ids:** the category segment is now optional in `REQ`, `TC`, `ADR` and `PI` ids, so `REQ-042` is valid.
+- **W600 (#101):** no longer fires on a `Part` usage whose `typedBy:` target is documented.
+- **`template PlanningItem` (#102):** now works on the CLI and through MCP.
+- **Configuration reference:** `spec fields` now has a complete `.syscribe.toml` reference.
+
+## 0.34.0 — 2026-08-08
+
+### PlanningItem `assignedTo:`
+
+A PlanningItem can declare `assignedTo: <username>` (REQ-TRS-PLANITEM-008).
+
+- The value must be a Unix-style username (**E723**).
+- When `.syscribe.toml` has a non-empty `[users]` roster (`alice = "Alice Nakamura"`), the username must be in it (**E722**). A malformed roster key is **W309**.
+- `show` prints the display name.
+
+## 0.33.0 — 2026-08-07
+
+### Native PlanningItem element type (#91)
+
+`type: PlanningItem` (`PI-*` ids) is a work-item tree that is part of the traceability graph (ADR-SYS-PLANITEM-001).
+
+- **Fields:** `status` (`todo | in_progress | blocked | done`) and an optional `itemType` (`bug | task | feature`).
+- **Hierarchy:** a single `parent:` per item, with cycle detection.
+- **Goals:** `achieves:` is required on top-level items and must name `Requirement`s. It is kept separate from `satisfies:`.
+- **Variants:** `appliesWhen:` gating works for PlanningItems.
+- **Evidence:** `evidence:` entries are `ref:` or `path:`, each with an optional `rationale:` waiver. A leaf item marked `done` needs at least one non-waived evidence entry that resolves (**E719**).
+- **Dependencies:** `blockedBy:` names what the item is waiting on. **E720** reports a dangling target, **E721** a cycle, and **W308** a non-empty `blockedBy:` when the status isn't `blocked`.
+- **Codes:** **E706–E721**.
+- **Worked example:** `examples/planning-item/`.
+
+### Hierarchical product-line composition
+
+A `Configuration` can consolidate other, already-configured Configurations through `subConfigurations:`, locally or across `[repos]`, at any depth (ADR-SYS-HPLE-001).
+
+- **Validity:** each entry must resolve to a valid Configuration (**E516–E518**).
+- **Parameter bindings:** `parameterBindings:` reaches through the whole subtree. **E519** and **E523** reject illegal or redundant cross-tier bindings.
+- **Open parameters:** the opt-in **W513** flags a required parameter left open anywhere in the subtree.
+- **Isolation:** a lower tier never refers to the configuration that consolidates it, and `bindTo:` never crosses a `subConfigurations:` boundary.
+- **Worked example:** `examples/hple-multitier/`.
+
+### Native SysMLv2/KerML submodels (#89)
+
+A package marked `sysmlSubmodel: true` can hold `.sysml`/`.kerml` files. They are parsed in-process and merged into the graph ([guide](../model-guide/sysmlv2-submodel.md)).
+
+- **Merging and mapping:** same-named packages from different files are merged, and a fixed set of element kinds is mapped.
+- **Traceability:** `satisfy`/`verify` can target native Requirements, and a native `TestCase.verifies:` can target a SysMLv2 element.
+- **Variability:** `@SyscribeFeature{featureId}` becomes `appliesWhen:`.
+- **Codes:** a stray nested `_index.md` is **W540**, and a parse failure is **W541**.
+- **Worked example:** `examples/sysmlv2-submodel/`.
+
+### Web UI: diagram-driven editing, `/canvas` removed
+
+- **Editable diagrams:** non-Mermaid diagrams use a new sprotty-based editor for create, delete, connect and move. Each edit goes through the guarded write engine, which now lives in `syscribe-model::mutate`, and returns a validation delta.
+- **`/canvas` removed:** the Cytoscape.js graph explorer (`/canvas`, `/api/graph`) and the old SVG-canvas drag/layout code were removed.
+- **JSON API:** responses use camelCase throughout. A refused write returns `written: false`.
+- **Live reload:** the tree and any open diagram refresh after a reload event.
+
+### Fixes (#90)
+
+- W024 no longer reports a FeatureDef as an orphan when it is referenced by bare id in `appliesWhen:`.
+- `Attribute` elements are no longer labelled `Other`.
+- The validation report now shows `satisfies:` targets written as qualified names.
+- `delete_element`'s reference guard and the referential-integrity gate now see nested `Allocation` references (#87).
+
+## 0.32.0 — 2026-07-23
+
+### Language Server (`syscribe lsp`)
+
+A stdio Language Server for editors, using only standard LSP (ADR-SYS-LSP-001..003):
+
+- **Navigation:** diagnostics, go-to-definition, references, hover and workspace symbols.
+- **Completion and rename:** completion for cross-reference fields and enums, and rename of stable ids.
+- **Code lenses:** counts for `verifiedBy`, derived children and suspect links.
+- **Quick fixes:** for **E310** (pick an accepted ADR) and **W090** (accept a suspect link as reviewed).
+
+A minimal VS Code client is included in `editors/vscode/`. The README now also covers suspect links, baselines and the MCP server.
+
+## 0.31.0 — 2026-07-13
+
+### Suspect links
+
+Suspect links flag a trace link whose target changed after the link was reviewed (ADR-SYS-SUSLINK-001).
+
+- **Baselines:** the source element stores a `traceBaselines:` map from each target to a blake3 hash of the target's normative content. A mismatch is **W090**.
+- **Opt-in:** links without a baseline stay silent in `validate`.
+- **CLI:** `suspect list`, `suspect accept <src> <tgt>`, `suspect accept --all` and `suspect accept --all-unbaselined` (for onboarding).
+- **MCP:** `suspect_list`, and a guarded `suspect_accept`.
+
+### Release baselines
+
+`type: Baseline` (`BL-*`) freezes a scope of the model into a snapshot that is content-hashed and tied to a git commit (ADR-SYS-BASELINE-001).
+
+- **Commands:** `baseline create`, `verify`, `diff`, `list` and `show`.
+- **Scope:** `frozenScope` can cover the whole model, a package subtree, or type/status/tag filters. It can also project a Configuration (`config=`) or take the trace closure of a goal (`closureFrom=`).
+- **Drift and tampering:** drift is graded by status (**E520** for `released`, **W520** for `approved`). Tampering between the seal and the manifest is **E521**, and an unresolved `supersedes` is **E522**.
+- **Output locations:** configurable with `[baselines]` in `.syscribe.toml`.
+- **MCP:** read-only `baseline_list`, `baseline_diff` and `baseline_verify`.
+
+## 0.30.0 — 2026-07-04
+
+### Scanning large requirement sets
+
+New read-only commands, each also available as an MCP tool:
+
+- `stats`: histograms by facet, plus coverage and orphan rollups.
+- `digest`: one compact line per requirement, paged to a token budget.
+- `search-text`: BM25 full-text search.
+- `summarize`: a per-package summary built from excerpts.
+- `topics`: distinctive keywords per package.
+- `clusters`: TF-IDF k-means clustering.
+
+All of them run offline and give the same result every time.
+
+### Schema
+
+- **`displayOrder`:** new optional numeric field that sets presentation order without renumbering ids.
+- **W047:** new warning for unrecognized frontmatter keys. `reqClass` is now a recognized field.
+
+### Fixes
+
+- `find` no longer panics when its length cap falls in the middle of a UTF-8 character.
+- `matrix` now shows a covered-but-failing requirement as `▣` instead of `✗`.
+
+## 0.29.0 — 2026-06-29
+
+- **Consistent coverage:** MCP `coverage` and `coverage_matrix` now use one shared classifier. A requirement covered only by draft TestCases is `planned`, not verified, and a covered requirement whose latest verdict is fail is `failing`. As a result, verified counts drop for models that rely on draft tests.
+
+## 0.28.2 — 2026-06-29
+
+- Added a requirement and a regression test that every MCP tool input property has an object schema.
+
+## 0.28.1 — 2026-06-29
+
+- **MCP fix:** the `fields` argument of `create_element`, `update_element` and `apply_changes` now has an object JSON schema. Strict MCP clients, including Claude Code, had rejected the whole tool list.
+
+## 0.28.0 — 2026-06-29
+
+### Static HTML export
+
+`export-html [--out <dir>] [--css <file>]` writes the whole model as a static site that works offline. It includes a page per element, inline diagrams, validation, coverage and traceability reports, and client-side search.
+
+### Eight more MCP tools
+
+- **Evidence:** `ingest_results`, `coverage_matrix`, `coverage_gaps` and `evidence`.
+- **Diagrams and docs:** `lint_docs`, `render_diagram`, `diagram_coverage` and `generate_view`.
+
+This brings MCP to 37 tools. `help mcp` and the CLI docs now cover all of them.
+
+## 0.27.1 — 2026-06-29
+
+- MCP `coverage` now reports only non-draft requirements as gaps.
+- The demo model gained integration-level TestCases for its approved parent requirements, which clears the W305 warnings.
+
+## 0.27.0 — 2026-06-29
+
+### MCP server (`syscribe mcp`)
+
+A Model Context Protocol server over stdio that lets LLM clients query and edit a model (ADR-SYS-MCP-001):
+
+- **Read and navigate:** `search` (with filters and full-text search), `get_element`, `tree`, `trace`, `impact`, `validate` and others.
+- **Authoring helpers:** `template`, `next_id`, `check_ref`, `coverage` and others.
+- **Guarded writes:** `create_element`, `update_element`, `move_element`, `delete_element` and the atomic `apply_changes`. Writes are dry-run by default and return a validation delta and a diff.
+- **Feature-model tools:** `features`, `feature_check`, `configure`, `project`, `diff_configs` and `why_active`.
+- **Reports:** `run_report` runs an allowlisted, read-only report command.
+- **Read-only mode:** `--read-only` hides the write tools.
+- **Coverage:** `coverage` separates uncovered leaf requirements from parents that are missing integration-level (L3–L5) tests.
+
+## 0.26.41 — 2026-06-22
+
+- **Extra id prefixes:** the `[ids.prefixes]` table in `.syscribe.toml` adds stable-id prefixes per element type. For example, `Requirement = ["STK", "SYS"]` makes `STK-SCHED-001` valid. The built-in prefix stays valid. A malformed entry is **W046** and is ignored.
+- All clippy lints are resolved. No behavior change.
+
+## 0.26.40 — 2026-06-22
+
+- CLI commands piped into a reader that exits early (`| head`, `| grep -q`) now exit quietly instead of panicking.
+
+## 0.26.39 — 2026-06-22
+
+- **Docs audit:** docs, CLI help, spec templates and agent instructions were checked against the implementation.
+  - All emitted E/W codes are now documented.
+  - CLI help lists every subcommand.
+  - Missing types were added to the spec templates.
+
+## 0.26.38 — 2026-06-20
+
+### PlantUML styling and coverage
+
+- **Styling:** diagrams use a SysML-style colour scheme, shared via `.plantuml/sysml.iuml`, with a built-in fallback.
+- **IBDs:** containers nest recursively.
+- **Labels:** shapes and edges accept a `label:`.
+- **Links:** SVGs link to `<base_url>/<path>.md`, so links can point at GitHub. Links are omitted when `base_url` isn't set.
+- **Demo models:** `model_auto/` now has one example of each diagram kind.
+
+## 0.26.37 — 2026-06-19
+
+### `plantuml render`
+
+- **Rendering:** `plantuml render [--jar <path>] [--dry-run]` runs PlantUML on every companion `.puml` file. It finds PlantUML via `--jar`, then `[plantuml] jar`, then `PLANTUML_JAR`, then `PATH`.
+- **Image links:** `plantuml` adds a Markdown image link to the element body when it has none.
+- **Demo models:** all example diagrams now use `pumlMode: companion` with rendered SVGs.
+- **CI:** PlantUML generation and rendering run in CI.
+
+## 0.26.36 — 2026-06-19
+
+### PlantUML companion diagrams
+
+- **Generation:** the new `plantuml` subcommand generates `.puml` source for `Diagram` elements marked `pumlMode: companion` (BDD, IBD, StateMachine, Sequence, Requirement). Use `pumlFile:` to set the output path.
+- **Styling:** configured under `[plantuml]` in `.syscribe.toml` (`theme`, `style_file`, `base_url`).
+- **Codes:** new **E403**, **E404** and **W413–W415**.
+- **Docs:** the W023 docs were extended to `Interface`/`InterfaceDef`.
+
 ## 0.26.34 — 2026-06-18
 
 ### implementedBy / W023 extended to Interface and InterfaceDef
@@ -20,6 +744,19 @@
 Documentation-only follow-up to v0.26.32. The `template configuration` output now includes commented-out `buildOverrides:` and `parameterBindings:` examples; the `spec fields` PLE table documents `buildExports`, `buildOverrides`, and the `buildVar` parameter sub-field.
 
 No code or validation behavior change.
+
+## 0.26.32 — 2026-06-15
+
+### Build-system configuration from a Configuration
+
+The new `build-config` subcommand turns a Configuration's feature selections and parameter bindings into build variables. It outputs `cmake`, `c-header`, `makefile`, `env`, `json` or `kconfig`.
+
+- **Schema:** `buildExports:` on `FeatureDef`, `buildVar:` on a feature parameter, and `buildOverrides:` on `Configuration`.
+- **Precedence:** later sources win, in this order: `buildExports:`, then `buildVar:`, then `buildOverrides:`.
+- **Flags:** `--all-configs` emits a JSON array for CI matrices, and `--prefix` namespaces the variable names. The configuration is SAT-checked first unless you pass `--no-validate`.
+- **Codes:** new **E050** (two features set the same variable) and the opt-in **W050**.
+- **Fixes:** `spec`/`help` now work after `-m <root>`, `-mPATH` is recognized, and `derivedFrom:` accepts a single string.
+- **Docs:** a new multi-page Practitioner Guide section.
 
 ## 0.26.31 — 2026-06-13
 
@@ -200,6 +937,18 @@ This is the foundation for the hierarchy/region-aware completeness checks (`W070
 ### New features (issue #70)
 
 - **`W080` — Sequence diagram send/receive completeness** — a `type: Diagram` element with `diagramKind: Sequence` whose `subject:` resolves to an `ActionDef` now raises **`W080`** for every `SendAction`/`AcceptAction` reachable through the subject's sub-action tree (`subActions:`/`steps:`, recursing into `IfAction` `then:`/`else:` branches) that no `edges:` entry references. A message action is "covered" when an `edges:` entry's `ref:` equals its qualified name (`<ActionDef>::<action>`) or its bare name. The rule (previously advisory in §8.16.8.3, now normative per §22.4) is **draft-suppressed** and gateable with `validate --deny W080`. (`REQ-TRS-DIAG-002`)
+
+## 0.26.10 — 2026-06-13
+
+- **GitHub Action fixed:** the composite action now runs `syscribe -m <model-path> validate`. Its new `args:` input passes extra flags, for example `--profile magicgrid` or `--deny <code>`.
+- **Per-model CI flags:** CI now validates each model with its own flags, so `model_mg` is checked with `--profile magicgrid`.
+- **Qualification fixtures:** fixed E002/E015 errors in the qualification TestCases.
+- **Dependencies:** replaced the deprecated `serde_yaml` with `serde_yaml_ng`.
+
+## 0.26.9 — 2026-06-13
+
+- **Discoverability:** `spec types`, `spec safety`, `spec fields`, `spec validation` and `template` now show `Asset` (`ASSET-*`) and `TestCase.securityTestMethod`. Both shipped in 0.26.7 but weren't listed there (#56, #59).
+- **Dependencies:** bumped petgraph, quick-xml, taffy and toml.
 
 ## 0.26.8 — 2026-06-13
 
@@ -861,6 +1610,38 @@ Documented in format spec §9.10–9.11, `syscribe spec validation`/`spec fields
 - SEQ and REQ diagram renderers; A\* obstacle-aware edge routing; full SysML edge style set
 - JS dependencies vendored and served from the embedded binary (no external CDN at runtime)
 - Unified engineering blueprint colour scheme across docs and canvas
+
+## 0.1.4 — 2026-05-28
+
+### Diagram CLI
+
+- **`diagram` subcommand:** `list`, `measure`, `render` and `compose` produce companion SVGs (`svgMode: companion`).
+- **Layout:** `diagram layout` is a Cassowary-based layout solver. `compose` can read a `Diagram` element's `expose:` list, and `--emit-placement` prints the layout so an LLM can refine it.
+- **More diagram kinds:** `diagram req` draws requirement trees and `diagram seq` draws sequence diagrams.
+- **Rendering:** IBD ports and nested ports, A\* obstacle-aware edge routing, and the full SysML edge style set.
+
+### Validation and authoring commands
+
+- **New commands:**
+  - `validate` shows only errors and warnings, with `--json` and `--file`.
+  - `list`, `types` and `untyped`.
+  - `template`, `next-id`, `path-for` and `check-ref`.
+- **New codes:** **W007** (unused `*Def`), **W008** (no `type:`), and **E016–E018** (cycles in `supertype`, `derivedFrom` and `subsets`).
+- **Fixes:** stack overflow in `tree` caused by the root `_index.md`, and W007 false positives from nested `typedBy:`.
+
+## 0.1.3 — 2026-05-27
+
+- **Mermaid references:** a `%% ref:` annotation in a Mermaid diagram must resolve (**W408**), and a Mermaid diagram with no annotations is **W409**.
+- **Link checks:** new **W410–W412** check `%% link:`, shape `link:` and SVG `href` references.
+- **`render` command:** `render <diagram>` prints a diagram with its links injected.
+
+## 0.1.2 — 2026-05-27
+
+- Fixed duplicate changelog entries in the release workflow.
+
+## 0.1.1 — 2026-05-27
+
+- Reworded the GitHub Action description in `action.yml`.
 
 ---
 

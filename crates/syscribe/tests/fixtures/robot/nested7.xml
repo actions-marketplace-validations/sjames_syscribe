@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.4.2 (Python 3.10.12 on linux)" generated="2026-10-15T01:43:42.302239" rpa="false" schemaversion="5">
+<suite id="s1" name="Nested" source="/work/nested">
+<suite id="s1-s1" name="Outer" source="/work/Outer">
+<suite id="s1-s1-s1" name="Inner" source="/work/Inner">
+<suite id="s1-s1-s1-s1" name="Deep" source="/work/deep.robot">
+<test id="s1-s1-s1-s1-t1" name="Deep test &lt;&amp;&gt; &quot;quoted&quot;" line="2">
+<kw name="Fail" owner="BuiltIn">
+<msg time="2026-10-15T01:43:42.347729" level="FAIL">line one
+line two &amp; &lt;tag&gt; "q"</msg>
+<arg>line one\nline two &amp; &lt;tag&gt; "q"</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<status status="FAIL" start="2026-10-15T01:43:42.347143" elapsed="0.000704">line one
+line two &amp; &lt;tag&gt; "q"</status>
+</kw>
+<tag>TC-BRK-001</tag>
+<status status="FAIL" start="2026-10-15T01:43:42.346186" elapsed="0.001906">line one
+line two &amp; &lt;tag&gt; "q"</status>
+</test>
+<status status="FAIL" start="2026-10-15T01:43:42.344876" elapsed="0.003696"/>
+</suite>
+<status status="FAIL" start="2026-10-15T01:43:42.343608" elapsed="0.005680"/>
+</suite>
+<suite id="s1-s1-s2" name="Outer" source="/work/outer.robot">
+<test id="s1-s1-s2-t1" name="Outer test" line="2">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-15T01:43:42.351898" level="INFO">ok</msg>
+<arg>ok</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-15T01:43:42.351526" elapsed="0.000454"/>
+</kw>
+<tag>TC-BRK-002</tag>
+<status status="PASS" start="2026-10-15T01:43:42.351111" elapsed="0.001031"/>
+</test>
+<status status="PASS" start="2026-10-15T01:43:42.349828" elapsed="0.002628"/>
+</suite>
+<status status="FAIL" start="2026-10-15T01:43:42.342242" elapsed="0.010853"/>
+</suite>
+<status status="FAIL" start="2026-10-15T01:43:42.303440" elapsed="0.050281"/>
+</suite>
+<statistics>
+<total>
+<stat pass="1" fail="1" skip="0">All Tests</stat>
+</total>
+<tag>
+<stat pass="0" fail="1" skip="0">TC-BRK-001</stat>
+<stat pass="1" fail="0" skip="0">TC-BRK-002</stat>
+</tag>
+<suite>
+<stat name="Nested" id="s1" pass="1" fail="1" skip="0">Nested</stat>
+<stat name="Outer" id="s1-s1" pass="1" fail="1" skip="0">Nested.Outer</stat>
+<stat name="Inner" id="s1-s1-s1" pass="0" fail="1" skip="0">Nested.Outer.Inner</stat>
+<stat name="Deep" id="s1-s1-s1-s1" pass="0" fail="1" skip="0">Nested.Outer.Inner.Deep</stat>
+<stat name="Outer" id="s1-s1-s2" pass="1" fail="0" skip="0">Nested.Outer.Outer</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

@@ -10,8 +10,8 @@
 | Module | Directory of `.md` files |
 | Requirement row | `.md` file with `type: Requirement` |
 | Attribute | Frontmatter field (`asilLevel:`, `status:`, etc.) |
-| Link (satisfies, derived from, verifies) | `derivedFrom:`, `satisfiedBy:`, `verifies:` fields |
-| Baseline | Git tag (`git tag v1.0-sil4-2026`) |
+| Link (satisfies, derived from, verifies) | `derivedFrom:`, `satisfies:` (on the architecture element), `verifies:` fields; `satisfiedBy` is a computed reverse index |
+| Baseline | Git tag (`git tag v1.0-sil4-2026`) and/or a sealed `Baseline` element (`syscribe baseline create`) |
 | View (filtered) | `list Requirement --status approved --sil 4` |
 | Trace matrix | `matrix` command |
 | Module export (Word/PDF) | Markdown renders natively in GitHub/GitLab; use pandoc for PDF |
@@ -71,7 +71,7 @@ where syscribe produces the required evidence.
 | Software interfaces between components | `PortDef`, `InterfaceDef`, `connections:` | `list PortDef` + `list InterfaceDef` |
 | Dynamic behavior description | `StateDef` (L2), `ActionDef` (W2) | `list StateDef`, `list ActionDef` |
 | Resource consumption estimates | `PartDef` body + `custom_fields` | `show Architecture::Logical::Scheduler` |
-| Bi-directional traceability SW req ↔ architecture | `satisfies:` on PartDef | `matrix` W300 = unallocated reqs |
+| Bi-directional traceability SW req ↔ architecture | `satisfies:` on PartDef | `validate` W300 = unallocated reqs |
 | Consistency with system architectural design | `supertype:` from SW subsystem to system PartDef | `connectivity` command |
 
 **SWE.3 — Software Detailed Design and Unit Construction**
@@ -121,7 +121,7 @@ where syscribe produces the required evidence.
 | ASPICE work product | syscribe artefact | Notes |
 |---|---|---|
 | Configuration identification | `id:` on every element | `list Requirement --json` → stable IDs |
-| Configuration baseline | Git tag | `git tag v1.0-ASPICE-SWE3` |
+| Configuration baseline | Git tag, plus optional sealed `Baseline` element | `git tag v1.0-ASPICE-SWE3`; `syscribe baseline create --tag ...` |
 | Change management | Pull request → git log | Every change has a diff + review record |
 | Configuration status accounting | `status:` field; `audit` | `audit` shows approved/draft split |
 
@@ -141,7 +141,7 @@ syscribe -m model audit                         # approved/draft split per packa
 syscribe -m model list Requirement --status draft  # outstanding items
 
 # ASPICE SWE.2 — architecture coverage
-syscribe -m model matrix                        # W300 = requirement not allocated to subsystem
+syscribe -m model validate                      # W300 = requirement not allocated to subsystem
 
 # ASPICE SWE.3 — detail design traceability
 syscribe -m model list PartDef Architecture::Physical   # L3 unit inventory
@@ -161,7 +161,7 @@ syscribe -m model audit --config CONF-HIL       # readiness verdict for that var
 syscribe is not a functional configuration tool and does not replace AUTOSAR tooling.
 Its role is upstream: capturing the safety requirements, safety goals, and architectural
 decisions that drive AUTOSAR configuration choices. Use `extRef:` to link syscribe
-requirements to AUTOSAR parameter IDs, and `satisfiedBy:` to point from requirements
-to the architecture elements that are realized in AUTOSAR configuration.
+requirements to AUTOSAR parameter IDs, and `satisfies:` on the architecture elements realized in AUTOSAR configuration to
+point back at the requirements (`satisfiedBy` is the computed reverse index).
 
 ---

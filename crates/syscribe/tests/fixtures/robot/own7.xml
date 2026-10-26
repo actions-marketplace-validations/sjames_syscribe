@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot generator="Robot 7.4.2 (Python 3.10.12 on linux)" generated="2026-10-15T01:47:55.581661" rpa="false" schemaversion="5">
+<suite id="s1" name="Own" source="/work/own.robot">
+<test id="s1-t1" name="Own setup fails" line="2">
+<kw name="Fail" owner="BuiltIn" type="SETUP">
+<msg time="2026-10-15T01:47:55.625773" level="FAIL">setup went wrong</msg>
+<arg>setup went wrong</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<status status="FAIL" start="2026-10-15T01:47:55.625285" elapsed="0.000605">setup went wrong</status>
+</kw>
+<tag>TC-BRK-001</tag>
+<status status="FAIL" start="2026-10-15T01:47:55.624303" elapsed="0.001798">Setup failed:
+setup went wrong</status>
+</test>
+<test id="s1-t2" name="Teardown fails" line="6">
+<kw name="Log" owner="BuiltIn">
+<msg time="2026-10-15T01:47:55.627128" level="INFO">body ok</msg>
+<arg>body ok</arg>
+<doc>Logs the given message with the given level.</doc>
+<status status="PASS" start="2026-10-15T01:47:55.626775" elapsed="0.000431"/>
+</kw>
+<kw name="Fail" owner="BuiltIn" type="TEARDOWN">
+<msg time="2026-10-15T01:47:55.627869" level="FAIL">teardown went wrong</msg>
+<arg>teardown went wrong</arg>
+<doc>Fails the test with the given message and optionally alters its tags.</doc>
+<status status="FAIL" start="2026-10-15T01:47:55.627452" elapsed="0.000505">teardown went wrong</status>
+</kw>
+<tag>TC-BRK-002</tag>
+<status status="FAIL" start="2026-10-15T01:47:55.626387" elapsed="0.001650">Teardown failed:
+teardown went wrong</status>
+</test>
+<test id="s1-t3" name="Templated" line="10">
+<kw name="Should Be Equal" owner="BuiltIn">
+<arg>a</arg>
+<arg>a</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="PASS" start="2026-10-15T01:47:55.628669" elapsed="0.000398"/>
+</kw>
+<kw name="Should Be Equal" owner="BuiltIn">
+<msg time="2026-10-15T01:47:55.629650" level="FAIL">a != b</msg>
+<arg>a</arg>
+<arg>b</arg>
+<doc>Fails if the given objects are unequal.</doc>
+<status status="FAIL" start="2026-10-15T01:47:55.629224" elapsed="0.000517">a != b</status>
+</kw>
+<tag>TC-BRK-001</tag>
+<status status="FAIL" start="2026-10-15T01:47:55.628301" elapsed="0.001667">a != b</status>
+</test>
+<status status="FAIL" start="2026-10-15T01:47:55.584518" elapsed="0.045920"/>
+</suite>
+<statistics>
+<total>
+<stat pass="0" fail="3" skip="0">All Tests</stat>
+</total>
+<tag>
+<stat pass="0" fail="2" skip="0">TC-BRK-001</stat>
+<stat pass="0" fail="1" skip="0">TC-BRK-002</stat>
+</tag>
+<suite>
+<stat name="Own" id="s1" pass="0" fail="3" skip="0">Own</stat>
+</suite>
+</statistics>
+<errors>
+</errors>
+</robot>

@@ -8,7 +8,7 @@ The validation engine is a Rust library (`syscribe-model`) that runs every parse
 
 ```bash
 # Markdown report to stdout
-cargo run --package syscribe -- model/
+cargo run --package syscribe -- -m model/
 
 # JSON via the web API (server must be running)
 curl http://localhost:3000/api/validation
@@ -20,64 +20,86 @@ Each finding has:
 
 | Field | Description |
 |---|---|
-| Code | `E___` (error) or `W___` (warning) |
+| Code | `E___` (error), `W___` (warning) or `I___` (informational) |
 | File | Path to the `.md` file |
 | Message | Human-readable description |
-| Severity | `Error` or `Warning` |
+| Severity | `Error`, `Warning` or `Info` |
 
-Errors block a clean build. Warnings are advisory.
+Errors block a clean build (exit `1`). Warnings are advisory unless promoted by a CI gate (`--deny`, `--max-warnings`, `--warnings-as-errors`, `--profile`; exit `2`). Informational findings never change the exit status unless selected with `--deny`.
 
 ## Rule groups
 
+Ranges are inclusive and name the codes actually in use; gaps inside a range are unassigned or retired numbers. Many groups are **opt-in** — dormant until the model uses the feature (a `FeatureDef`, `[repos]`, `[linkTypes]`, a `Baseline`, a `foreignFormat:` package, …).
+
 | Range | Group | Description |
 |---|---|---|
-| E001–E025 | Parse-time | Required fields, ID patterns, status enums, Gherkin structure, ASPICE fields, ID-digit cap (E023), unified label rule — `name` is the universal label and `title` is removed (a stray `title:` is E025; E024 retired) |
-| W001–W008 | Parse-time warnings | Normative text, SIL/ASIL pairing, sourceFile presence, unused type defs |
-| E016–E018 | Cycle detection | Cycles in supertype, derivedFrom, or subsets graphs |
-| E101–E106 | Cross-reference | Duplicate IDs, unresolved `verifies`/`derivedFrom`, scenario names |
-| E200–E209 | PLE | Configuration required fields, featureModel resolution, appliesWhen |
+| E000–E015, E019–E027 | Parse-time | Missing frontmatter delimiter (E001), invalid YAML, required fields, ID patterns, status/testLevel/integrity enums, Gherkin structure, ASPICE fields, ID-digit cap (E023), removed `title:` (E025; E003/E024 retired); E000 is an internal fallback that should never appear |
+| E016–E018, E107 | Cycle detection | Cycles in `supertype:`, `derivedFrom:`, `subsets:` and `typedBy:` graphs |
+| W001–W010, I010 | Parse-time and source drift | Normative `shall`, leaf test coverage (W002/W003), orphan requirements, SIL/ASIL pairing, unused type defs, missing `type:`, `sourceFile`/test-function drift, ingested test results; I010 flags a planned test not yet present |
+| E101–E108, E110–E128 | Cross-reference | Duplicate ids (E101) and qualified names (E108), unresolved or ill-typed `verifies`/`derivedFrom`, scenario names, unresolved `supertype`/`typedBy`/`subsets`/`redefines`/`satisfies` |
+| E050, W050 | Build-system integration (§9.9) | Conflicting `buildExports` variables (`E050`); selected feature exporting nothing (`W050`, catalogued but not currently emitted) |
+| E200–E247 | Product lines (§9) | Configuration and FeatureDef fields, parameter binding (E202–E207, E222, E229, E230), `appliesWhen` (E209, E228), feature-model constraints (E212, E213, E219–E221), `feature-check --deep` (E223–E225, E227), `--config` escapes (E226), single-file feature models (E231–E233), Configuration inheritance (E215, E234–E237) |
+| W011–W027, W048, W239–W240, W245–W246, W248 | Product-line warnings (§9) | Dead/always-selected features, untested active requirements, unbound parameters, false-optional, escaping/violable references, orphan features, runtime bindings, empty gating packages, misplaced feature-model fields, machine parameters with no default |
+| W023, W028, W029 | Implementation and external refs | Missing `implementedBy:` path (§12.8), duplicate `extRef`, unmeasured `wcet:` claim |
+| W030–W040 | Safety↔security | Co-engineering, cyber-risk treatment and CAL, HW metrics, freedom from interference, attack-tree feasibility, responsibility and independent assessment, orphan GSN nodes |
+| W041–W047, W049, W051, W052, W056, W057, W058, W059, W065, W068 | Schema hygiene | Nested `custom_fields`, non-basic names, standard-library typos and unit/quantity mismatches, stereotype tagged values, `[ids.prefixes]` entries, unrecognised frontmatter keys |
 | E300–E304 | ADR | ID pattern, required fields, status enum, reqDomain/domain enums |
-| W300–W305 | Traceability | Leaf coverage, multiple satisfiers, domain refinement, integration test on parent reqs |
-| E310–E315 | §12 Traceability | breakdownAdr, parent in satisfies, domain mismatch, HW/SW independence |
-| E400–E402 | Diagram | Mermaid/PlantUML body blocks, companion SVG on disk |
-| W400–W412 | Diagram | diagramKind, subject/shape/edge resolution, Mermaid annotations, SVG hrefs, operation typedBy |
-| E500–E503 | Allocation | allocatedFrom/allocatedTo resolution on Allocation elements and any element |
-| W500–W502 | Structural | viewpoint, exhibitsStates, expose resolution on View elements |
-| W600–W601 | Documentation | Empty PartDef/Part or ActionDef/Action doc body |
-| W701–W703, W807 | Safety / ASPICE | verificationMethod on high-ASIL reqs, L5 test for ASIL D, mixed standards, security reqs |
-| E800–E837 | Tier 2 Safety | HazardousEvent, SafetyGoal required fields, ID patterns, HARA parameter enums (ISO 26262 / IEC 61508 / ISO 13849-1) |
-| E807–E814 | Tier 2 Safety | DamageScenario, ThreatScenario required fields, ID patterns, enum validation |
-| E815–E832 | Tier 2 Security | CybersecurityGoal, SecurityControl, VulnerabilityReport required fields, ID patterns, cross-references |
-| W800–W807 | Tier 2 coverage | Unreferenced hazards, unimplemented goals, open vulnerabilities, traceability gaps |
-| E841–E843, W808 | Integrity propagation | asilLevel/silLevel must propagate through derivedFromSafetyGoal, derivedFrom, and satisfies chains |
-| E900–E909 | Tier 4 — FaultTree | FaultTree, FaultTreeGate, FaultTreeEvent required fields, ID patterns, gate type and event kind enums, input resolution |
-| W900–W901 | Tier 4 — FaultTree | Empty fault tree, gate with no inputs |
-| E911–E914 | Tier 4 — FMEA | FMEASheet and FMEAEntry required fields, ID patterns, severity/occurrence/detection range 1–10 |
-| W902–W904 | Tier 4 — FMEA | Empty FMEA sheet, high-RPN entry without recommended action, unresolved ref |
-| E940–E941, W905 | Tier 4 — TARA | TARASheet required fields, ID pattern, empty sheet |
-| E600–E606, W610–W616 | TestPlan | TestPlan required fields, ID pattern, member resolution, scope/coverage |
-| E700–E705, W700, W704 | Review records | ReviewRecord required fields, ID/status/type enums, reviewed-element resolution, dispositions |
-| E706–E717, E719–E723, W308–W309 | PlanningItem (§23) | ID/required-field/status/itemType, parent resolution + cycle, top-level achieves, evidence ref/path resolution, leaf-done-needs-evidence, blockedBy resolution + cycle + stale-status warning, assignedTo username format + roster check, malformed [users] key |
-| E510–E515, W510–W512 | Multi-repository (§14) | Circular import, missing path, cross-repo ref resolution, import alias/qname, duplicate stable ID, ref-pin / drift / submodule-gitlink reproducibility |
-| E516–E518 | Hierarchical product lines (REQ-TRS-HPLE-001) | `subConfigurations:` dangling / wrong-type / not-internally-valid (local or genuinely re-validated peer `Configuration`, or exceeded consolidation depth) |
-| E519, E523 | Hierarchical product lines (REQ-TRS-HPLE-003) | Cross-tier `parameterBindings:` targets a feature the owning tier doesn't select, or double-binds a parameter a nearer tier already closed |
-| W513 | Hierarchical product lines (REQ-TRS-HPLE-004) | Opt-in, `--deny`-gateable: a required parameter anywhere in a consolidated `subConfigurations:` subtree remains unbound after every tier's own `parameterBindings:` |
-| E865, E866–E868, W060, W860 | Decomposition & budgets (§22.2) | Sibling-satisfy decomposition, budget expression syntax/rollup |
-| E869–E877, W061–W064 | Trade studies (§15) | TradeStudy required fields, criteria/alternatives/scores matrix, weights, objective/decision |
-| E950–E956, W950–W953 | IEC 62443 (§13) | Zone/Conduit required fields, ID patterns, zone/member/conduit resolution, Security-Level gaps |
-| W070–W079, W080 | Behavior (§22.1) | State-machine completeness (dead/trap/initial/parallel/transition), sequence-diagram send/receive completeness |
+| E310–E329 | §12 Traceability and metadata | breakdownAdr, parent in satisfies, domain mismatch, deployment allocation, HW/SW independence, `refines:` (E316), stereotype resolution/applicability (E317, E318), typed tagged values (E322–E327), specialisation (E328, E329), stereotype profiles (W316) |
+| W300–W316 | Traceability and planning warnings (incl. `W312` failing verifier, `W313`/`W314` ADR supersession, `W315` unfinished achieved work product) | Leaf satisfaction, domain refinement, proposed breakdown ADR, deployment domain, parent integration tests, unsatisfied safety mechanism, use cases without `refines:` (W301 retired); PlanningItem staleness, roster, completion bar, overlapping work (W308–W311) |
+| E400–E405, W400–W421 | Diagrams (§8.16) | Mermaid/PlantUML bodies, companion SVG/PUML, `pumlMode`, diagramKind, subject/shape/edge resolution, malformed `shapes:`/`edges:`/`layout:` manifests and stale pins, derived-diagram `include:`/`exclude:` and subject type, SVG ids and hrefs, Mermaid annotations, operation types, PlantUML style file, flow kinds and the `[diagram]` table, IBD `groupBy:`, views (`include:` mapping, named `style:`, `layout:` hints) |
+| E882–E889, E930–E939, E966, I011, W070–W080, W929, W933, W935, W936 | Behavior (§22.1, §22.4) | State-machine completeness (dead/trap/initial/parallel/transitions), sequence-diagram send/receive completeness |
+| E500–E506, W500–W503, W930 | Allocation, derive, structure | Allocation resolution, `derive:` cycles/parse/unknown elements, View viewpoint/expose, exhibitsStates, redundant or misplaced allocations |
+| E510–E515, W510–W512 | Multi-repository (§14) | Circular import, missing path, cross-repo ref resolution, import alias/qname, duplicate stable ID, ref pin / drift / submodule gitlink |
+| E516–E519, E523, W513 | Hierarchical product lines (§14.7) | `subConfigurations:` dangling / wrong type / not internally valid; cross-tier `parameterBindings:`; open required parameters across the subtree |
+| E520–E522, W520 | Release baselines (§8.19) | Drift of a released (E520) or approved (W520) baseline, seal/manifest tamper, unresolved `supersedes` |
+| E530–E532, W530–W534 | Reserved | Parked sandboxed-WASM plugin design (`ADR-SYS-PLUGIN-001`); never emitted |
+| W540–W544 | SysML v2 submodel ingestion | Stray `.md` in a submodel, unreadable/unparseable `.sysml`, truncated feature chains, unmapped constructs, reversed multiplicity bounds |
+| E550–E553, W550–W553 | Stdio plugins | Missing command or `[plugins]` entry, plugin kind mismatch, results-plugin failure, execution failure, bad envelope, dropped elements |
+| E560–E561, W560–W563 | Annotated source | Bad `annotationFormat:` config, invalid marker YAML, skipped blocks, conflicting ingestion modes, auto-filled `implementedBy:` |
+| W090 | Suspect links | A baselined trace-link target changed since review |
+| W091 | Stale results | A recorded test result predates a change to its TestCase or to a requirement it verifies |
+| W099–W103 | Documentation linting (`lint-docs`) | Dangling ids, qnames, SVG refs and image paths in external docs; enumerated package members |
+| E600–E606, E893–E894, W600–W601, W610–W616, W891–W892 | TestPlan, test environments and documentation | TestEnvironment fields and `runsOn`, TestPlan fields, members, selection, demonstrates, configurations; empty PartDef/ActionDef docs |
+| W632 | Traceability policy (`[traceability]`) | Malformed `[traceability]` entries in `.syscribe.toml` |
+| E630–E636, W630–W631 | User-defined link types (§12.10) | Undeclared/malformed `links:`, unresolved targets, source/target type, cardinality, acyclic types, malformed `[linkTypes]` |
+| E700–E705, W700, W704 | Review records (§19) | ReviewRecord fields, ID/status/type enums, reviewed-element resolution, dispositions, unreviewed requirements |
+| E706–E723 | PlanningItem (§23) | ID/fields/status/itemType, parent resolution and cycle, top-level `achieves`, evidence, leaf-done-needs-evidence, `blockedBy`, `assignedTo`; E718 is a non-scalar `Argument.evidence` entry |
+| W701–W703 | Safety / ASPICE | verificationMethod on high-ASIL requirements, L5 test for ASIL D, mixed standards |
+| E800–E837, W800–W810 | Tier 2 safety and security | HARA/TARA element fields, ID patterns, enums, cross-references; coverage and traceability gaps, security test methods, assets |
+| E841–E865, E878–E881, E890–E892, E895, E896–E898, E924, W811–W814, W860, W861, W890, W893, W894 | Integrity and assurance | Integrity-level propagation, safety↔security links, risk treatment, diagnostic coverage, confirmation measures (E924: status enum), GSN arguments and assumptions, dependent failure analysis (E890–E892, W890), timing quantities and budgets (E895, W893), assets, decomposition pairs |
+| E866–E877, W060–W064 | Budgets and trade studies (§22.2, §15) | Budget expressions and bounds; TradeStudy fields, criteria, scores, decision |
+| E900–E923, E927, W900–W905, W926–W928, W931–W932 | Tier 4 FTA / FMEA / attack trees | FaultTree, FMEA, TARA sheet and attack-tree fields, IDs, enums, inputs, RPN, cross-links |
+| E940–E941 | Tier 4 TARA container | TARASheet fields and ID pattern |
+| E950–E956, E925, E926, W950–W953 | IEC 62443 (§13) | Zone/Conduit fields, IDs, status (E926), SL range (E925), resolution, Security-Level gaps |
+| W934 | Audit policy (`[audit]`) | Malformed `[audit]` entries in `.syscribe.toml` |
+| E980–E984, W980–W987 | Fault-tree analysis (GH #211–#213) | Gate cycles, arity, value ranges, reachability, stray nodes, CCF groups, `missionTime`; W985–W986 flag missing diagnostic data / exposure time in the cut-set driven `metrics` |
+| E985–E986, W988–W989 | Safety targets (GH #343) | Malformed `SafetyGoal.target:`, a `rateStatus` outside the vocabulary, a claimed rate above the plausibility bound, malformed `[reliability]` entries |
+| E990–E992, W990–W993 | Behavioural model trace (`models:`, `role:`, §12.11) | Unresolved or non-architecture `models:` targets, port correspondence and direction, uncovered architecture ports, connection correspondence, TestCase subjects that cannot evidence a requirement, unknown `role:` values, `models:` on an environment part |
+| E942–E944, W940–W946 | Fault-injection campaigns and residual risk (§12.14) | Malformed or dangling `ResidualRisk` decisions, defeats no decision names, decisions the recorded campaign contradicts, stale or expired decisions, campaigns recorded on an older composite, an unreadable record file, decisions the latest record no longer checks |
+| W994–W995 | Executable evidence (`@verifies`, §12.12) | Scenario `@verifies` tags or `# verifies:` comments naming a requirement outside the TestCase's `verifies:`, and requirements no tagged scenario claims |
+| W996 | System context (`role: external`, §12.13) | A port of a product part in a context composite that connects to nothing |
+| E650, E651, W650 | Stereotype checks and selectors (GH #379, #376) | A `MetadataDef` `checks:` entry fails on a carrier, or is malformed; a malformed stereotype selector |
+| E673–E675 | Operation calls (GH #398) | A call's `operation:` does not resolve, its arguments do not match the operation's parameters, or a value has the wrong kind or unit |
+| E670–E672 | Operations (GH #364) | An operation's `errors:` or `realizedBy:` is wrong, or its signature differs from the realising `ActionDef`'s |
+| E680–E683 | Data types (GH #366) | An `AttributeDef`'s `range`/`pattern` is malformed, its `default` or a bound value violates them, or a subtype widens them |
+| E740–E744, W740 | Software unit level (GH #371) | A part's `level` is unknown, or a `level: unit` part lacks a code link (or symbol), a requirement, a unit test or a containing component |
+| E730–E733 | Deployment (GH #370) | A part's `deploymentKind` is unknown, nodes nest out of order, a component sits on two nodes without `replicated`, or a node has lower integrity than its component |
+| E690–E693 | Resource budgets (GH #368) | Software memory allocated to a hardware part exceeds its capacity and margin; a malformed size or margin |
+| E660–E663, W660–W664 | Architecture rules (GH #369) | An `ArchitectureRule`: a forbidden dependency (with its path), a shared element where independence is claimed, a malformed rule, or a selector that chooses nothing |
+| E640, E641, W640–W642 | Cyber risk configuration (GH #222) | `[cyber]` method/tables in `.syscribe.toml`, per-category impact ratings, attack-potential factors |
+| E960–E965, E967, W960–W979 | Security-analysis completeness | TARA row integrity, risk inputs and treatment, attack-tree shape, zone/conduit consistency, `VulnerabilityReport` hygiene |
 
 See [Rule Reference](rules.md) for every code.
 
 ## Tool qualification
 
-The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains the qualification model — over 240 requirements (`REQ-TRS-*`) and a matching test case (`TC-TRS-*`) per requirement, in Syscribe format, covering every emitted validation code — along with a shell test runner that invokes the binary against crafted fixture models.
+The validator is itself qualified under ISO 26262 Part 8 §11 (TCL2). The `qual/` directory contains the qualification model — about 470 requirements (`REQ-TRS-*`) and about 480 test cases (`TC-TRS-*`), in Syscribe format, covering the validation codes the tool emits (a catalogue test guards that every emitted code is documented) — along with a shell test runner that invokes the binary against crafted fixture models.
 
 Run `syscribe -m qual/` to validate the qualification model, or `bash qual/tests/run_qual.sh` to execute the full TCL2 test suite. See [Tool Qualification](../tool-qualification/index.md) for the complete story.
 
-## Zero-finding model
+## Demo model
 
-The UAV demo model in `model/` runs with **0 errors** and **2 warnings** (both W404 for `ScalarValues::*` standard library types not registered in the model tree — expected and correct).
+The UAV demo model in `model/` validates with **0 errors**. Its remaining warnings are deliberate, advisory findings (for example unused type definitions, use cases without `refines:`, and test plans naming draft test cases) that show what the checks report; run `syscribe -m model/ validate` for the current list.
 
 ## Computed reverse indices
 

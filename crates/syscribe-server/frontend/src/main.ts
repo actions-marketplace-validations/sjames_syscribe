@@ -7,6 +7,9 @@
 // non-`Mermaid`-kind diagram tab.
 import 'reflect-metadata';
 import { DiagramEditor } from './editor';
+import { installAddExistingDialog } from './add-existing-dialog';
+import { installElementPanel } from './element-panel';
+import { installNewDiagramDialog } from './new-diagram-dialog';
 
 declare global {
     interface Window {
@@ -15,3 +18,6 @@ declare global {
 }
 
 window.DiagramEditor = new DiagramEditor();
+installNewDiagramDialog();
+installAddExistingDialog();
+installElementPanel();

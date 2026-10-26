@@ -39,20 +39,20 @@ System requirements for the XYZ project.
 ## Running the validator
 
 ```bash
-cargo run --package syscribe -- model/
+cargo run --package syscribe -- -m model/
 ```
 
 This prints a full Markdown report to stdout with all errors, warnings, and a traceability matrix. Pipe it to a file for review:
 
 ```bash
-cargo run --package syscribe -- model/ > reports/validation.md
+cargo run --package syscribe -- -m model/ > reports/validation.md
 ```
 
 ## Running the web browser
 
 ```bash
-cargo run --package syscribe-server -- model/
-# Listening on http://0.0.0.0:3000
+cargo run --package syscribe-server -- -m model/
+# Listening on http://127.0.0.1:3000
 ```
 
 The server watches the model directory for changes and reloads automatically.
@@ -106,9 +106,21 @@ Its shape:
 - [Requirements & Test Cases](requirements.md) — stable IDs, lifecycle, Gherkin
 - [Traceability](traceability.md) — the seven §12 rules, including `implementedBy:`/`W023`, plus suspect-link detection (`traceBaselines:`/`W090`, the `suspect` commands)
 - [Architecture Decisions](adrs.md) — ADR lifecycle and breakdown rules
-- [State Machines](state-machines.md) — `StateDef` transitions, hierarchy/parallel regions, the `W070`–`W079` completeness checks
+- [State Machines](state-machines.md) — `StateDef` transitions, hierarchy/parallel regions, the `W070`–`W079` and `W929` completeness checks
+- [System Composition](system-composition.md) — executing the parts of a composite together: `send` effects, port connections with delay, bindings, part-qualified scenarios (`E930`–`E934`, `W936`)
+- [FMU Plants (FMI)](fmi-plants.md) — co-simulating FMI 2.0/3.0 Co-Simulation FMUs with a state machine behind the `fmi` build feature (`E888`, `E889`, `E966`, `I011`)
+- [In-process Plants](plant-models.md) — `PlantDef` plants written in the expression language and standard library plants, run in a composite with no toolchain (`E938`, `E939`)
+- [Action Flows](action-flows.md) — executable `ActionDef`s: token semantics, scenarios, coverage, mutation
 - [Variability & Product Lines](variability.md) — feature models, `appliesWhen`, `matrix`, `feature-check`, the `--config` lens
 - [Multi-Repository Composition](multi-repo.md) — `[repos]`, `repoImports:`, cross-repo resolution, the `E510`–`E515`/`W510`–`W512` reproducibility gates, git-submodule integration
-- [Native SysMLv2 Submodels](sysmlv2-submodel.md) — `sysmlSubmodel: true`, in-process `.sysml`/`.kerml` parsing, `satisfy`/`verify`/`@SyscribeFeature` cross-references, the `W540`/`W541` diagnostics
+- [Native SysMLv2 Submodels](sysmlv2-submodel.md) — `sysmlSubmodel: true`, in-process `.sysml`/`.kerml` parsing, `satisfy`/`verify`/`@SyscribeFeature` cross-references, the `W540`–`W542` diagnostics
 - [Foreign-Format Plugins (stdio)](stdio-plugins.md) — `foreignFormat:`, `[plugins.<alias>]`, the JSON stdio envelope, `E550`/`E551`/`W550`–`W553`/`E108`
 - [MagicGrid](magicgrid.md) — the B/W/S × 1-4 overlay (`mg_` custom fields), MoEs/MoPs, logical/physical layers, the `magicgrid` / `trade-study` reports
+- [Annotated-Source Ingestion](annotated-source.md) — `annotationFormat:` packages, comment markers carrying frontmatter, `implementedBy:` auto-fill, `E560`/`E561`/`W560`–`W563`
+- [Link Types](link-types.md) — project-declared relationships (`[linkTypes]`, `links:`), `extends`/`relax`/`coverage`, the `follow` command, `E630`–`E636`
+- [Suspect links design note](../design/suspect-links.md) — why content baselines, what is hashed, and how `suspect accept` fits review workflows
+- [Test Plans](testplans.md) — `TestPlan` scope, membership and configuration targeting
+- [Custom Fields](custom-fields.md) — `custom_fields:` metadata and `--where` queries
+- [Build System Integration](build-export.md) — `build-config`, `buildExports`, per-configuration build variables
+- [Safety Analysis](safety-analysis.md) — HARA/TARA, fault trees, FMEA, attack trees, the safety case
+- [LLM Workflow](llm-workflow.md) — authoring models with an LLM and the validator in the loop

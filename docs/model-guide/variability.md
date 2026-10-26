@@ -2,7 +2,7 @@
 
 `GUIDE · VARIABILITY`
 
-Syscribe models a whole **product line** as one repository — the **150% model** — and projects it onto individual products (**100% models**) on demand. Everything in this guide is **opt-in**: a model with no `FeatureDef` behaves exactly as a single-product model, and none of these rules or commands change its output.
+Syscribe models a whole **product line** as one repository — the **150% model** — and projects it onto individual products (**100% models**) on demand. Everything in this guide is **opt-in**: a model with no `FeatureDef` behaves exactly as a single-product model, and none of these validation rules fire on it. The one visible difference is the `--config` lens: on such a model `--config <X>` is a usage error (exit 1) unless `<X>` names a stored `Configuration`.
 
 The capability has four layers, each building on the last, plus an optional fifth for multi-repo product lines:
 
@@ -34,12 +34,39 @@ id: FEAT-CORTEXM-001
 name: CortexM
 groupKind: optional
 ---
+# Features/Platform/RiscV.md
+---
+type: FeatureDef
+id: FEAT-RISCV-001
+name: RiscV
+groupKind: optional
+---
+# Features/Wdt.md               (an optional top-level feature)
+---
+type: FeatureDef
+id: FEAT-WDT-001
+name: Wdt
+groupKind: optional
+---
 ```
 
 Two orthogonal axes (`ADR-FM-003`):
 
 - **`groupKind`** describes how a feature's **children** are grouped: `optional` · `alternative` (XOR) · `or`.
 - **`mandatory: true`** describes the feature's **membership** relative to its parent — selected whenever the parent is (or always, at top level). It is independent of `groupKind`, so a node can be a *mandatory XOR group* as above. (The legacy `groupKind: mandatory` is a shorthand for `mandatory: true` on a leaf.)
+
+  Selecting a feature selects its group parents: a `Configuration` need not list `Platform: true` when it selects `Platform.Eco`. A `parameterBindings:` entry on `Platform` is then valid (no `E203`), and `Platform` is not an orphan (`W024`). Listing the parent explicitly is still allowed.
+
+  A **mandatory group with optional children** (a `Protection` node that is in every product, whose `Afci` and `RapidShutdown` children are each optional) is spelled `mandatory: true` with `groupKind: optional`. Being selected in every `Configuration` is what `mandatory` means, so it does not raise `W012`; only an optional member that every `Configuration` happens to select does.
+
+**Abstract features.** `isAbstract: true` marks a feature that only groups: it has no realisation of its own and exists to give its children a place in the tree (a `Platform` whose children are the real choices). It behaves as an abstract feature does in a proper feature model:
+
+- it is a feature of the model like any other in the formula (it can be selected, and constraints can name it), but it **does not distinguish products**: a product is its set of *concrete* features, so the product count, `feature-check --enumerate` and the configurator count and list variants over concrete features only, and two models that differ only in abstract features are one product;
+- a `Configuration` **must not name it**: an abstract feature is not a choice, so a `features:` entry for one, selected or not, is `E238`. The configurator can still select one to explore, but its **Save** leaves abstract features out;
+- its **value in a configuration is derived**, not chosen: it is on exactly when the feature model forces it on given the configuration's concrete choices (a selected child, a mandatory abstract parent, a `requires:` that targets it), otherwise off. Everything that reads a configuration's selection sees that value: `appliesWhen:` conditions, `--config` projection, the matrix, `show`. So an element conditioned on an abstract feature is active exactly where the concrete selection entails it, and a `requires:` of an abstract feature is met by whatever entails it (`E219` only when nothing does). A configuration whose concrete choices contradict the model entails nothing; the value then falls back to "some feature below it is selected" and the contradiction is reported on its own (`E225`);
+- one that **groups nothing** is not abstract: `W239`.
+
+The feature diagram draws it with a dashed outline and an italic name; the browser's Edit mode has an **abstract** checkbox and the MCP tool `edit_feature` has `setAbstract`.
 
 Cross-tree constraints use `requires:` / `excludes:` (qualified names of other features). Quantitative variability uses typed `parameters:` (see below).
 
@@ -98,7 +125,18 @@ crossTreeConstraints:
     excludes: [Wdt]
 ```
 
-`feature`/`requires`/`excludes` values resolve the same way everywhere in this section: a value containing `::` is already an absolute qname; one starting with `FEAT` is a stable id; anything else is a dotted path relative to the sheet, resolved exactly like a `featureTree:` entry's `name:`. A `feature:` that doesn't resolve to a `FeatureDef` synthesized from *this sheet's own* `featureTree:` is `E233` — there's nothing local to attach the constraint to.
+`feature`/`requires`/`excludes` values resolve the same way everywhere in this section: a value containing `::` is already an absolute qname; one starting with `FEAT` is a stable id; anything else is a dotted path relative to the sheet, resolved exactly like a `featureTree:` entry's `name:`. A `feature:` that doesn't resolve to a `FeatureDef` synthesized from *this sheet's own* `featureTree:` is `E233` — there's nothing local to attach the constraint to. Inline `requires:`/`excludes:` on a `featureTree:` entry also accept a path relative to the sheet when it names another entry of the same sheet, so `requires: [Protection.Afci]` works next to `requires: [FEAT-GTI-AFCI]` and `requires: [Features::Protection::Afci]`. A value that names no entry of the sheet is left as written and resolved as a qname or id.
+
+**Which form each field takes.** The dotted tree path is a name *inside the sheet* only. Everywhere else a feature is its qualified name or its `FEAT-` id, and a parameter is `<qualified name>.<parameter>`:
+
+| Field | Accepted forms |
+|---|---|
+| `featureTree:` entry `requires:`/`excludes:`, `crossTreeConstraints:` | `Group.Leaf` (relative to the sheet), `Features::Group::Leaf`, `FEAT-…` |
+| `appliesWhen:`, `Configuration.features:` keys | `Features::Group::Leaf`, `FEAT-…` |
+| `parameterBindings:` keys, `parameterConstraints` | `Features::Group::Leaf.param` |
+| placeholders | `{{Features::Group::Leaf.param}}`, `{{FEAT-….param}}` |
+
+An unresolved reference (`E212`, `E209`, `E239`, `E222`, `E241`) says which form its field accepts and, when one is close, which feature it most likely meant: `appliesWhen: Features::Protection.Afci` reports *did you mean 'Features::Protection::Afci'?*.
 
 **`parameterConstraints:`** (§9.7's cross-feature numeric constraints, normally on a `Package`/`LibraryPackage`/`Namespace` `_index.md`) can also be declared directly on the `FeatureModel` sheet — the natural single home for everything about this feature model:
 
@@ -111,6 +149,10 @@ parameterConstraints:
 ```
 
 New findings specific to this form: `E231` (an entry has no `name:`, isn't a mapping, or its dotted path has an empty segment — the entry is dropped), `E232` (two entries resolve to the same qname), `E233` (a `crossTreeConstraints:` entry is malformed or its `feature:` doesn't resolve within the sheet), `W048` (`featureTree:`/`crossTreeConstraints:` declared on anything other than `type: FeatureModel`, or `parameterConstraints:` on anything other than a `Package`/`LibraryPackage`/`Namespace`/`FeatureModel` — inert, ignored). `Configuration` needs no equivalent — it's already exactly one file, and addresses features purely by qname/id with no dependency on how the `FeatureDef` was authored.
+
+### Seeing and changing the feature model in the browser
+
+`syscribe-server` serves the feature model at **Features** (`/features`): a feature diagram in FODA notation with the `feature-check --deep` analysis laid over it (core, dead, false-optional and void, each with its reason), a **configurator** that propagates choices, counts the products left and saves a `Configuration`, an **editor** that previews what a change does to the model's validity before it is written, an **impact** view of what a feature gates, and a **matrix** and **comparison** of the stored configurations. See the browser guide, [Feature model viewer](../browser/index.md#feature-model-viewer). A `Diagram` with `diagramKind: FeatureModel` puts the same diagram in the model (spec §8.16.8.9).
 
 ---
 
@@ -162,6 +204,14 @@ A **parameter reference** is always the dotted form `Features::Path::Feature.par
 
 Binding rules (run by `validate`): bind a parameter of an unselected feature (`E203`), bind a fixed parameter (`E204`), out of `range:` (`E205`), not in `enumValues:` (`E206`), unresolved/legacy-`::` path (`E222`); a required, unbound parameter warns (`W017`).
 
+### Parameter placeholders in element text
+
+Instead of restating a parameter value in prose, reference it: `{{Features::Display.sizeInch}}` (the dotted parameter reference; `{{...|unit}}` appends the parameter's `unit:`; the feature may be named by qname or `FEAT-*` id). The base model keeps the placeholder; a projection for a stored `Configuration` (`--config`, `validate --config`, `validate --all-configs`, every report) replaces it with that configuration's `parameterBindings:` value, else the parameter's fixed `value:`, else its `default:`. A placeholder that cannot be resolved is left as written. Values print as written in YAML (`8.0` stays `8.0`). Only feature-shaped references (`::` in the path, or a `FEAT-*` id) count, so template text such as `{{ user.name }}` is untouched, and placeholders inside Markdown code spans and fences (backtick or `~~~`) are literal. Validation and suspect-link checks read the symbolic text, never the substituted one, so changing a binding never makes a link suspect. A baseline frozen with `frozenScope.config` hashes that configuration's substituted text: changing a binding changes the requirement's hash only in the baseline frozen for that configuration (`baseline diff <BL> --current` shows it). `feature <qname>` lists, per parameter, the elements that reference it and the value it takes in each configuration that selects the feature; `links` shows an element's placeholder references and `refs <feature>` its consumers. In the card a parameter with no value in a configuration reads `(unbound)` (`null` in JSON) and one computed from another parameter (`derivedFrom:`/`bindTo:`) reads `(derived)`.
+
+A typed numeric or enumerated frontmatter field can take its value from a parameter as a **whole-value** placeholder (quoted in YAML): `asilLevel: "{{Features::Safety.level}}"`. Capable fields: `failureRate`, `diagnosticCoverage`, `latentDiagnosticCoverage`, `silLevel` (numeric) and `asilLevel`, `calLevel` (enumerated); the value must be exactly one placeholder (no `|unit`, no surrounding text). The base model parses and validates with that field **unset** (so a rule that requires the field sees it missing, and `list`/`show` without `--config` do not show it); a projection onto a stored `Configuration` stores the resolved value, checked against the field (`failureRate` a finite number ≥ 0, the two coverages 0–1, `silLevel` an integer 0–4, `asilLevel` `QM`/`A`–`D`, `calLevel` `CAL1`–`CAL4`; enumerated values are stored upper-case). A value the field does not accept leaves it unset and is `E247` for that configuration; the text rules below (`E240`–`E243`, `W245`, `W246`) apply unchanged, and a field placeholder counts as a consumer of its parameter. Any other field keeps treating the string as an ordinary value.
+
+v1 covers an element's Markdown body and `name`, and the typed fields above. Rules: `E240` (placeholder used but no feature model or no configuration), `E241` (unknown feature or parameter), `E242` (the element is active in a configuration that does not select the feature — gate it with `appliesWhen`), `E243`/`W245` (no binding, value or default in a configuration where the element is active; error for approved elements, warning for drafts), `W246` (a `runtime` parameter has no value at projection time). Note: configurations that select the same features but bind different parameters are told apart by the configuration the command resolved last (the lens), not by the selection alone.
+
 **Binding time.** A parameter may declare an optional `bindingTime:` — *when* its value is resolved, from the PLE triad ordered earliest→latest: `compile` (build / codegen) · `load` (deployment / startup) · `runtime` (live). It is orthogonal to `isFixed:`/`value:` (a value fixed in the model, i.e. no variability). Absent = unspecified (opts out of the checks below).
 
 ```yaml
@@ -182,6 +232,28 @@ parameterConstraints:
 ```
 
 A violation in a configuration whose `appliesWhen:` holds is `E221` (or `W025` for `severity: warning`); an unresolved parameter path is `E213`; an `appliesWhen:` feature selected in no configuration is `W014`.
+
+### Configuration inheritance — `derivedFrom:`
+
+A `Configuration` may extend **one** base `Configuration` of the same model (by `CONF-*` id or qname) and declare only what differs:
+
+```yaml
+# Configurations/CONF-UAV-HVY-LR-001.md
+type: Configuration
+id: CONF-UAV-HVY-LR-001
+name: "Heavy-lift UAV — extended-range variant"
+status: draft
+featureModel: Features
+derivedFrom: CONF-UAV-HVY-001          # the base must be approved or released (E215)
+features:
+  Features::Payload::Multispectral: true          # overrides the base's selection
+parameterBindings:
+  Features::Communication::LongRange.frequencyBandGHz: 2.4   # overrides one binding
+```
+
+The child's **effective** selection is the base's effective selection overlaid by its own `features:` entries (chains compose); it keeps every binding it declares plus the base's other bindings — except those for a feature the child's own `features:` switches to `false`. Nothing else (`status`, `subConfigurations:`, `buildOverrides:` …) is inherited. Every command — `--config` projection, `matrix`, `configure`, `validate --config`/`--all-configs`, `feature-check`, `build-config`, and `subConfigurations:` consolidation — uses the effective selection; `show` marks inherited entries `(inherited)`, and the language server's rename check sees it too (renaming a base's id is not refused over an inheriting child). The file itself is never rewritten.
+
+Checks (`validate`): unresolved base `E234`, base not a `Configuration` `E235`, inheritance cycle `E236`, more than one base `E237` (a child with any of these inherits nothing), base not `approved`/`released` `E215`. A Configuration's `derivedFrom:` is not a requirement derivation, so it never raises `E105`. A lower-tier product line in a peer repo is consolidated with `subConfigurations:` (§5), not inherited.
 
 ---
 
@@ -208,7 +280,7 @@ syscribe -m model/ feature-check
 |---|---|
 | `E212` | `requires`/`excludes` target is not a `FeatureDef` |
 | `E219` / `E220` | a selected feature's `requires` unmet / `excludes` violated in a `Configuration` |
-| `W011` / `W012` | optional feature selected in no / every `Configuration` |
+| `W011` / `W012` | `groupKind: optional` feature selected in no `Configuration` / `groupKind: optional` feature (not `mandatory: true`) selected in every `Configuration` |
 | `E207` | circular `derivedFrom:` among a feature's parameters |
 | `E202` | a `bindTo:`-propagated value is outside the component parameter's `range:` |
 | `E229` | a parameter's `bindingTime:` is earlier than a `derivedFrom`/`bindTo` source it depends on |
@@ -270,7 +342,10 @@ syscribe -m model/ validate --config CONF-UAV-DELIVERY-001    # certify THIS pro
 syscribe -m model/ validate --all-configs                     # CI gate over every product
 syscribe -m model/ diff --config CONF-UAV-SURVEY-001 \
                         --config CONF-UAV-DELIVERY-001         # what differs between products
+syscribe -m model/ trace REQ-UAV-NAV-001 --config CONF-UAV-SURVEY-001  # this product's trace slice
 ```
+
+The single-element queries `trace`, `why`, `who-verifies`, `refs` and `links` honour the lens too: satisfiers, verifiers and inbound references inactive in the variant are omitted. If the element you ask about is itself inactive in the configuration, the command exits `1` with `'<key>' is not active in configuration '<C>'` instead of answering — use `why-active <key> --config <C>` to see why.
 
 > The bundled `model/` is a runnable UAV product line — every command on this page works against it. See the [worked example](index.md#worked-example-the-uav-product-line) for its shape.
 
@@ -283,7 +358,7 @@ syscribe -m model/ diff --config CONF-UAV-SURVEY-001 \
 
 ---
 
-## 5. Hierarchical composition — `subConfigurations:`
+## 5. Hierarchical composition — `subConfigurations:` { #hierarchical-composition }
 
 `ADR-SYS-HPLE-001`. A `Configuration` can consolidate one or more other, already-configured `Configuration`s into its own — a product-line-of-product-lines: an OEM vehicle line built by picking one already-configured variant from each of several independently-developed, independently-versioned lower-tier lines (a battery-pack line, an infotainment line), each maintained by a different team or supplier, typically in its own repo (see the [Multi-Repository guide](multi-repo.md) for `[repos]`). "Tier" isn't a declared schema concept — it falls out structurally from whether a repo happens to import others.
 
@@ -291,6 +366,8 @@ syscribe -m model/ diff --config CONF-UAV-SURVEY-001 \
 # vehicle/model/Configurations/CONF-VEHICLE-001.md
 type: Configuration
 id: CONF-VEHICLE-001
+name: "Vehicle line — US assembly"
+status: draft
 featureModel: Features
 features: { Features: true }
 subConfigurations: CONF-BATTERY-PACK-001   # a Configuration in [repos.battery_pack], or local
@@ -298,9 +375,9 @@ parameterBindings:
   Features::Cell.manufacturingSiteCode: US  # reaches two tiers down, straight past battery-pack
 ```
 
-Each `subConfigurations:` entry resolves like any other cross-reference — local first, then each loaded repo in declaration order — and must name a real `Configuration` (`E517` otherwise) that is itself internally valid: SAT-satisfiable and error-free (`E516` dangling, `E518` not internally valid; for a peer entry this genuinely loads and validates that repo's model, not just an existence check).
+Each `subConfigurations:` entry resolves like any other cross-reference — local first, then each loaded repo in declaration order, by peer-native qname, global stable id, or `repoImports:` mount path — and must name a real `Configuration` (`E517` otherwise) that is itself internally valid: SAT-satisfiable and error-free (`E516` dangling, `E518` not internally valid; for a peer entry this genuinely loads and validates that repo's model, not just an existence check).
 
-**`parameterBindings:` reaches transitively.** The same field used within one model (§1 above) resolves against any `FeatureDef` reachable through `subConfigurations:`, at any depth, using the parameter's ordinary, already-mounted qname — no new addressing syntax. Its usual checks (`E204`/`E205`/`E206`/`E222`/`W027`) apply unchanged whether the target is local or transitively resolved.
+**`parameterBindings:` reaches transitively.** The same field used within one model (§2 above) resolves against any `FeatureDef` reachable through `subConfigurations:`, at any depth, using the parameter's ordinary, already-mounted qname — the peer-native qname or a `repoImports:` mount path (`<package>::<as>::X`, see the [Multi-Repository guide §7](multi-repo.md)) — no new addressing syntax. Its usual checks (`E204`/`E205`/`E206`/`E222`/`W027`) apply unchanged whether the target is local or transitively resolved.
 
 **Cross-tier binding legality.** A transitively-resolved binding must target a parameter that's genuinely open: selected by the tier that owns it (`E519` — the cross-tier form of `E203`, which stays scoped to a `Configuration`'s own local selection) and not already closed by a nearer tier on the path (`E523` — a parameter may be closed by exactly one tier along the chain, never twice).
 

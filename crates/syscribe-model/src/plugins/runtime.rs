@@ -14,6 +14,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use super::config::PluginEntry;
+#[cfg(test)]
 use super::envelope::PluginRequest;
 
 /// Poll interval while waiting for the child to exit or its timeout to elapse.
@@ -82,6 +83,34 @@ fn is_executable(p: &Path) -> bool {
 
 /// Truncate `s` to at most `max_bytes` bytes, keeping the tail and never
 /// splitting a UTF-8 character.
+/// Write the request to the plugin's stdin, tolerating a plugin that has
+/// already exited or closed its stdin without reading it (`echo '{}'` is a
+/// legitimate plugin). The `syscribe` binary restores `SIGPIPE`'s default
+/// disposition so that piped *output* exits quietly, which means a write to a
+/// closed pipe here would otherwise kill the whole process with `SIGPIPE`
+/// instead of returning `EPIPE`. On Unix the signal is ignored for the
+/// duration of the write and the previous disposition restored afterwards;
+/// the `EPIPE` error itself is deliberately dropped.
+fn write_request(stdin: &mut std::process::ChildStdin, payload: &[u8]) {
+    #[cfg(unix)]
+    {
+        // SAFETY: `signal` with SIG_IGN/SIG_DFL/a previous handler is the
+        // documented way to change a disposition; it is process-wide, so the
+        // window is kept to the one write below. Plugin invocation is
+        // sequential in the walker, so no other plugin write overlaps it.
+        let previous = unsafe { libc::signal(libc::SIGPIPE, libc::SIG_IGN) };
+        let _ = stdin.write_all(payload);
+        let _ = stdin.flush();
+        unsafe {
+            libc::signal(libc::SIGPIPE, previous);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = stdin.write_all(payload);
+    }
+}
+
 fn tail(s: &str, max_bytes: usize) -> String {
     if s.len() <= max_bytes {
         return s.to_string();
@@ -96,7 +125,7 @@ fn tail(s: &str, max_bytes: usize) -> String {
 /// Spawn the plugin, write `req` to its stdin, and return its raw stdout text
 /// on a clean (exit-0) run. Callers that want the parsed envelope should feed
 /// the result into [`super::envelope::convert`]; `--dry-run` prints it as-is.
-pub fn invoke_raw(entry: &PluginEntry, req: &PluginRequest, model_root: &Path) -> Result<String, PluginError> {
+pub fn invoke_raw<R: serde::Serialize>(entry: &PluginEntry, req: &R, model_root: &Path) -> Result<String, PluginError> {
     let cmd_path = resolve_command(&entry.command, model_root).ok_or(PluginError::NotFound)?;
 
     let mut child = Command::new(&cmd_path)
@@ -113,7 +142,7 @@ pub fn invoke_raw(entry: &PluginEntry, req: &PluginRequest, model_root: &Path) -
         // The request is small (a handful of paths) — well under any OS pipe
         // buffer, so a blocking write here cannot deadlock against the child
         // not yet reading. Dropping `stdin` at the end of this block signals EOF.
-        let _ = stdin.write_all(&payload);
+        write_request(&mut stdin, &payload);
     }
 
     // Drain stdout/stderr concurrently with the poll loop below so a chatty
@@ -182,6 +211,35 @@ pub fn invoke_raw(entry: &PluginEntry, req: &PluginRequest, model_root: &Path) -
 
 #[cfg(test)]
 mod tests {
+    /// Mirrors `syscribe`'s `main`, which restores `SIGPIPE`'s default
+    /// disposition: a plugin that closes its stdin before the request is
+    /// written must not kill the process (`write_request` masks the signal).
+    /// The payload is larger than a pipe buffer so the write blocks until the
+    /// child closes the pipe, making the broken-pipe write deterministic.
+    #[cfg(unix)]
+    #[test]
+    fn a_plugin_that_never_reads_stdin_does_not_sigpipe_the_process() {
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exec 0<&-; sleep 0.2"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn sh");
+        let payload = vec![b'x'; 1 << 20];
+        let mut stdin = child.stdin.take().unwrap();
+        super::write_request(&mut stdin, &payload);
+        drop(stdin);
+        let _ = child.wait();
+        // Reaching this line is the assertion: the process survived the write.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        }
+    }
+
     use super::*;
 
     fn entry(command: &str, args: &[&str], timeout_ms: u64) -> PluginEntry {
@@ -189,6 +247,7 @@ mod tests {
             command: command.to_string(),
             args: args.iter().map(|s| s.to_string()).collect(),
             timeout_ms,
+            kind: None,
         }
     }
 

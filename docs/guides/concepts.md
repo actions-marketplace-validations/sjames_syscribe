@@ -23,7 +23,7 @@ model always produces the same output.
 | **Attribute** | Column in a module | Frontmatter field (`status:`, `asilLevel:`, etc.) |
 | **Trace link** | Link type between modules | `derivedFrom:`, `verifies:`, `satisfies:` fields |
 | **Module / folder** | Module with an attribute scheme | Directory + `_index.md` (`type: Package`) |
-| **Baseline** | Named snapshot in the tool | Git tag (`git tag v1.0-cert-2026-06`) |
+| **Baseline** | Named snapshot in the tool | Git tag (`git tag v1.0-cert-2026-06`), optionally with a sealed `Baseline` element (`BL-*`, `syscribe baseline create`) |
 | **Change management** | Change workflow / ECO | Pull request + review + merge |
 | **Report** | Configurable export / PDF | `syscribe validate`, `matrix`, `metrics`, `audit`, etc. |
 | **Tool qualification** | T2/T3 with tool evidence | syscribe is a documentation tool (T1); document its role |
